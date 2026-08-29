@@ -22,6 +22,8 @@
   reviewer/manufacturing/admin 角色及账号审计。
 - 新增 CAM/NC 服务：刀具和工序 IR、确定性仿真预检查、碰撞/干涉/包络门禁、审核者
   审批、独立制造角色放行和 NC 下载。
+- 收紧 CAM RBAC：`reviewer/admin` 才能审批，`manufacturing/admin` 才能放行；CAM
+  服务复用账号权限校验，且同一账号不能同时完成审核与放行。
 - 新增 `apps/api/scripts/acceptance_check.py`：无外部依赖即可跑 PDM/RBAC/OCR/CAM
   核心验收；安装 API/geometry extra 后自动追加 FastAPI、几何校验和 STEP/GLB 检查。
 - 新增服务层单元测试和 FastAPI 集成测试；新增 `README_PLATFORM.md` 平台使用说明。
@@ -36,7 +38,8 @@
 
 ### Verification
 
-- 本地最小 Python 环境执行验收脚本：9 项通过、2 项可选依赖跳过、0 项失败。
+- 仓库虚拟环境执行验收脚本：12 项通过、0 项跳过、0 项失败；仅安装核心依赖时仍会
+  将 FastAPI/CadQuery 标记为可选跳过，`--strict-optional` 可作为发布门禁。
 - 精确客户图片上传命中 fixture，OCR 结果 `status=confirmed`、11 条尺寸证据和 4 个
   结构特征；PDM 原图/参数版本关联、CAM 仿真、reviewer → manufacturing 放行链路通过。
 - 安装依赖后使用 `cd apps/api && python -m pytest` 执行几何/API/平台测试；发布门禁使用
@@ -44,9 +47,8 @@
 
 ### Known limitations
 
-- 当前工作区未预装 FastAPI/Pydantic/CadQuery；最小验收会跳过这些可选检查。没有
-  `engine=cadquery-occt` 和 `productionReady=true` 的 STEP 只能用于审阅，不能作为生产
-  B-Rep 交付。
+- 没有 `engine=cadquery-occt` 和 `productionReady=true` 的 STEP 只能用于审阅，不能
+  作为生产 B-Rep 交付；CI 应安装 `[dev,geometry]` 并启用严格验收。
 - OCR fixture 是可审计的校准 profile，不是通用视觉模型；非 fixture 图纸需要安装
   Tesseract 并由人工确认，复杂视图/公差/标题栏尚未自动建模。
 - CAM `deterministic-precheck` 是流程门禁，不是机床级材料去除、刀具负载或碰撞仿真；
