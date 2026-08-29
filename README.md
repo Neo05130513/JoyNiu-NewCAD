@@ -9,6 +9,8 @@ CurrentCAD 线程中验证过的交互，并在 v0.2.0 增加了“上传图纸 
 前端工作台仍可离线演示，同时通过 `src/api.js` 连接 FastAPI：
 
 - AI 参数化零件 Agent：解析中文描述、编辑参数、同步特征树和三维预览。
+- Three.js WebGL 三维查看器：优先加载 FastAPI 生成的真实 GLB 网格，支持 OrbitControls
+  旋转/缩放、等轴/前/俯视相机、剖切平面和可见的参数化 fallback 状态。
 - 三视图/2D 工程图、装配、标准件库、项目文件和导出交互。
 - FastAPI 几何服务：图纸上传、参数校验、确定性网格预览，以及 STEP/GLB 导出。
 - CadQuery/OCCT 适配器：安装可选依赖时生成 OCCT B-Rep STEP；未安装时返回

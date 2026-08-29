@@ -350,3 +350,18 @@
 .nc-text-locked { padding: 9px; margin-top: 8px; color: #718ca3; border: 1px dashed #2a435a; border-radius: 4px; background: rgba(8, 18, 29, .42); font-size: 8px; line-height: 1.55; }
 @media (max-width: 950px) { .platform-grid { grid-template-columns: 1fr; } .platform-cam-card { grid-column: auto; } }
 @media (max-width: 560px) { .secondary-heading { display: block; } .heading-actions { margin-top: 12px; flex-wrap: wrap; } .cam-plan-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .platform-health-grid { grid-template-columns: 1fr; } }
+
+/* Real WebGL CAD viewport -------------------------------------------------- */
+.three-viewer { position: absolute; inset: 0; z-index: 1; overflow: hidden; touch-action: none; }
+.three-canvas { display: block; width: 100%; height: 100%; outline: none; cursor: grab; }
+.three-canvas:active { cursor: grabbing; }
+.three-viewer-status { position: absolute; top: 46px; left: 18px; z-index: 3; display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid rgba(71, 111, 148, .54); border-radius: 5px; background: rgba(9, 20, 33, .74); color: #adc6df; font-size: 9px; letter-spacing: .1px; pointer-events: none; backdrop-filter: blur(6px); }
+.three-viewer-status b { color: #79b8e9; font: 8px 'DM Mono', monospace; font-weight: 500; }
+.three-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #e1a15f; box-shadow: 0 0 9px rgba(225, 161, 95, .7); }
+.three-status-dot.ready { background: #68d29d; box-shadow: 0 0 9px rgba(104, 210, 157, .75); }
+.three-status-dot.error { background: #dc8b73; box-shadow: 0 0 9px rgba(220, 139, 115, .65); }
+.three-viewer-message { position: absolute; left: 18px; bottom: 18px; z-index: 3; max-width: min(470px, calc(100% - 36px)); padding: 6px 9px; border: 1px solid rgba(72, 113, 150, .4); border-radius: 5px; background: rgba(10, 24, 39, .72); color: #7894b0; font-size: 8px; line-height: 1.45; pointer-events: none; backdrop-filter: blur(5px); }
+.three-viewer-message.warning { color: #dda66b; border-color: rgba(200, 137, 74, .48); }
+.viewport > .viewport-grid { z-index: 0; pointer-events: none; }
+.viewport > .axis, .viewport > .view-cube, .viewport > .viewport-hint, .viewport > .zoom-control { z-index: 4; pointer-events: none; }
+.viewport > .zoom-control, .viewport > .view-cube { pointer-events: auto; }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_BASE } from './api.js'
+import ThreeDViewer from './ThreeDViewer.jsx'
 
 const defaultModel = {
   name: '动力轴 · 版本 04',
@@ -225,8 +226,6 @@ function App() {
   const [view, setView] = useState('isometric')
   const [section, setSection] = useState(false)
   const [zoom, setZoom] = useState(1)
-  const [rotation, setRotation] = useState({ x: -13, y: 28 })
-  const dragRef = useRef(null)
   const drawingUrlRef = useRef('')
   const drawingTimerRef = useRef(null)
   const drawingRequestRef = useRef(0)
@@ -731,7 +730,6 @@ function App() {
     setActivePanel('参数')
     setView('isometric')
     setZoom(1)
-    setRotation({ x: -13, y: 28 })
     const metrics = generated.validation?.metrics || {}
     const productionText = generated.validation?.productionReady ? 'OCCT 实体与 STEP 已通过拓扑检查' : '当前是浏览器预览，未形成生产 STEP'
     setMessages((prev) => [...prev, { role: 'ai', text: `图纸已确认：${recognizedParameters.baseLength} × ${recognizedParameters.baseWidth} × ${recognizedParameters.baseThickness} 底板、${recognizedParameters.upperLength} × ${recognizedParameters.upperWidth} × ${recognizedParameters.upperHeight} 上部实体、U 型缺口 ${recognizedParameters.notchOpening} / R${recognizedParameters.notchRadius}、双 Ø${recognizedParameters.bossDiameter} 凸台。${productionText}；包络 ${metrics.boundingLength || 100} × ${metrics.boundingWidth || 50} × ${metrics.boundingHeight || 40} mm。` }])
@@ -739,10 +737,6 @@ function App() {
     setIsGenerating(false)
     showToast(generated.validation?.productionReady ? '安装支架实体与 STEP 已生成并通过校验' : '已生成支架预览；启动后端后可生成生产 STEP')
   }
-  const onPointerDown = (event) => { dragRef.current = { x: event.clientX, y: event.clientY, rotation } }
-  const onPointerMove = (event) => { if (!dragRef.current) return; setRotation({ x: dragRef.current.rotation.x + (event.clientY - dragRef.current.y) * -0.35, y: dragRef.current.rotation.y + (event.clientX - dragRef.current.x) * 0.35 }) }
-  const onPointerUp = () => { dragRef.current = null }
-
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -771,7 +765,7 @@ function App() {
 
         <main className="main-area">
           <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 已自动保存</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, rotation, onPointerDown, onPointerMove, onPointerUp, exportFile, showToast, backend, generation }} />}
+          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation }} />}
           {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} showToast={showToast} backend={backend} />}
           {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
           {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
@@ -787,7 +781,8 @@ function App() {
 }
 
 function ModelWorkspace(props) {
-  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, rotation, onPointerDown, onPointerMove, onPointerUp, exportFile, showToast, backend, generation } = props
+  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation } = props
+  const [viewResetNonce, setViewResetNonce] = useState(0)
   const productionReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
   const topology = generation?.validation?.metrics || {}
   return <div className="model-workspace">
@@ -800,13 +795,13 @@ function ModelWorkspace(props) {
     </section>
 
     <section className="viewport-column">
-      <div className="viewport-toolbar"><div className="toolbar-group"><button className={view === 'isometric' ? 'selected' : ''} onClick={() => setView('isometric')}>等轴测</button><button className={view === 'front' ? 'selected' : ''} onClick={() => setView('front')}>前视</button><button className={view === 'top' ? 'selected' : ''} onClick={() => setView('top')}>俯视</button></div><div className="toolbar-group"><button onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button onClick={() => { setZoom(1); showToast('视图已重置') }}>重置视图</button></div></div>
-      <div className="viewport" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}>
+      <div className="viewport-toolbar"><div className="toolbar-group"><button className={view === 'isometric' ? 'selected' : ''} onClick={() => setView('isometric')}>等轴测</button><button className={view === 'front' ? 'selected' : ''} onClick={() => setView('front')}>前视</button><button className={view === 'top' ? 'selected' : ''} onClick={() => setView('top')}>俯视</button></div><div className="toolbar-group"><button onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button onClick={() => { setZoom(1); setView('isometric'); setViewResetNonce((value) => value + 1); showToast('视图已重置') }}>重置视图</button></div></div>
+      <div className="viewport">
         <div className="viewport-grid" />
         <div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div>
-        <div className="scene" style={{ transform: view === 'isometric' ? `scale(${zoom}) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)` : `scale(${zoom})` }}><CadModel model={model} section={section} view={view} /></div>
+        <ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} resetNonce={viewResetNonce} />
         <div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div>
-        <div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div>
+        <div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放 · WebGL 实体</div>
         <div className="zoom-control"><button onClick={() => setZoom((value) => Math.min(1.35, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.max(.7, value - .1))}>−</button></div>
       </div>
       <div className="viewport-footer"><span><i className="live-dot" /> 实体已更新 · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : generation?.stale ? '参数已变更 · 需重建' : '预览模式'}</span><span>单位 <b>mm</b></span><span>材质 <b>{model.material}</b></span><button onClick={() => exportFile('step')}>导出 STEP <Icon>↓</Icon></button></div>
