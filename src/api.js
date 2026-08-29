@@ -45,6 +45,14 @@ function absoluteUrl(path) {
 export const api = {
   health: () => request('/health'),
   recognizeDrawing: (file) => { const form = new FormData(); form.append('file', file); return request('/drawings/recognize', { method: 'POST', body: form }) },
+  aiConversation: (message, file, modelState = {}, previousResponseId = '', token) => {
+    const form = new FormData()
+    if (message) form.append('message', message)
+    form.append('model_state_json', JSON.stringify(modelState || {}))
+    if (previousResponseId) form.append('previous_response_id', previousResponseId)
+    if (file) form.append('file', file)
+    return request('/ai/conversation', { method: 'POST', body: form, headers: authHeaders(token), timeoutMs: 120_000 })
+  },
   confirmDrawing: (drawingId, payload = {}, token) => request(`/drawings/${encodeURIComponent(drawingId)}/confirm`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
   validateBracket: (parameters) => request('/brackets/validate', { method: 'POST', body: JSON.stringify(parameters) }),
   generateBracket: (parameters) => request('/brackets/generate', { method: 'POST', body: JSON.stringify(parameters) }),

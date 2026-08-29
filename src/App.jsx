@@ -278,6 +278,7 @@ function App() {
   const [backend, setBackend] = useState({ status: 'checking', engine: '正在连接几何服务', productionReady: false, health: null, error: '' })
   const [generation, setGeneration] = useState(null)
   const [platform, setPlatform] = useState(() => emptyPlatformState())
+  const [aiConversation, setAiConversation] = useState({ previousResponseId: '' })
   const [prompt, setPrompt] = useState('创建一根动力轴：外径24，长度70，通孔10；增加一条宽6、深3、长40的键槽')
   const [messages, setMessages] = useState([
     { role: 'ai', text: '已加载「动力轴 · 版本 04」。我会把你的描述转成可编辑的参数和特征。' },
@@ -338,8 +339,42 @@ function App() {
   const currentFeatures = model.kind === 'bracket' ? getBracketFeatures(model) : features
   const filteredLibrary = useMemo(() => libraryItems.filter((item) => (libraryGroup === '全部' || item.group === libraryGroup) && `${item.name}${item.spec}`.includes(libraryQuery)), [libraryGroup, libraryQuery])
 
-  const runGenerate = () => {
+  const applyAiPatch = (base, patch) => {
+    if (!patch || typeof patch !== 'object') return base
+    const allowed = new Set([...bracketParameterKeys, 'outerDiameter', 'length', 'holeDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'])
+    const safe = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== null && value !== undefined))
+    return { ...base, ...safe, updatedAt: '刚刚' }
+  }
+  const sendAiConversation = async (text, file = null) => {
+    const userText = text?.trim() || (file ? `请解析这份图纸并准备参数化模型：${file.name}` : '')
+    if (!userText && !file) return false
+    setMessages((prev) => [...prev, { role: 'user', text: userText || file.name }])
+    if (!platform.token) return false
+    setIsGenerating(true)
+    try {
+      const result = await api.aiConversation(userText, file, model, aiConversation.previousResponseId, platform.token)
+      const next = applyAiPatch(model, result.parameterPatch)
+      setModel(next)
+      if (Object.keys(result.parameterPatch || {}).length) setGeneration((current) => current ? { ...current, stale: true } : current)
+      setAiConversation({ previousResponseId: result.responseId || aiConversation.previousResponseId })
+      const review = result.needsReview ? '；仍需人工复核图纸证据' : ''
+      setMessages((prev) => [...prev, { role: 'ai', text: `${result.message || '已完成参数化修改'}${review}` }])
+      showToast('AI 参数化修改已应用')
+      return true
+    } catch (error) {
+      setMessages((prev) => [...prev, { role: 'ai', text: `AI 服务暂不可用，未应用本次修改：${error.message}` }])
+      showToast(`AI 服务失败：${error.message}`)
+      return true
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+  const runGenerate = async () => {
     if (!prompt.trim()) return showToast('请先描述你想创建的零件')
+    if (platform.token) {
+      await sendAiConversation(prompt)
+      return
+    }
     setIsGenerating(true)
     setMessages((prev) => [...prev, { role: 'user', text: prompt }])
     window.setTimeout(() => {
@@ -351,7 +386,7 @@ function App() {
         : `参数已更新：Ø${next.outerDiameter} × ${next.length} mm，通孔 Ø${next.holeDiameter}；键槽 ${next.keywayWidth} × ${next.keywayDepth} × ${next.keywayLength} mm。`
       setMessages((prev) => [...prev, { role: 'ai', text: resultText }])
       setIsGenerating(false)
-      showToast('AI 参数化建模完成')
+      showToast('本地参数化建模完成（登录后可使用 AI 对话）')
     }, 900)
   }
 
@@ -483,6 +518,7 @@ function App() {
     // clear the visible account-scoped records so a logged-out user cannot
     // inspect a prior project's PDM/CAM details in the UI.
     setPlatform(emptyPlatformState())
+    setAiConversation({ previousResponseId: '' })
     showToast('已退出平台服务')
   }
 
@@ -803,9 +839,9 @@ function App() {
     if (!file) return
     // Keep chat as an entry point while reusing the same validated upload
     // pipeline as the dedicated drawing-import workspace.
-    setMessages((prev) => [...prev, { role: 'user', text: `请解析这份图纸并准备参数化模型：${file.name}` }])
     setActiveMode('图纸转 3D')
     analyzeDrawing(file)
+    sendAiConversation(`请解析这份图纸并准备参数化模型：${file.name}`, file)
   }
   return (
     <div className="app-shell">

@@ -30,10 +30,12 @@ from typing import Any, Iterable, Mapping
 # on Pydantic v2.  Keep the dependency optional for domain-only consumers while
 # exposing a module-level symbol whenever FastAPI is installed.
 try:  # pragma: no cover - the fallback is exercised on dependency-free hosts
-    from fastapi import Request as _FastAPIRequest
+    from fastapi import Request as _FastAPIRequest, UploadFile as _FastAPIUploadFile
 except ImportError:  # pragma: no cover
     _FastAPIRequest = Any  # type: ignore[assignment]
+    _FastAPIUploadFile = Any  # type: ignore[assignment]
 Request = _FastAPIRequest
+UploadFile = _FastAPIUploadFile
 
 from .cam import (
     CAMConflictError,
@@ -42,6 +44,7 @@ from .cam import (
     CAMService,
     StockDefinition,
 )
+from .ai_proxy import AIFile, AIProxy, AIProxyError, MAX_FILE_BYTES
 from .ocr import DrawingRecognition, OCRService
 from .platform import (
     AccessToken,
@@ -66,6 +69,7 @@ class PlatformServices:
     auth: AuthService
     ocr: OCRService
     cam: CAMService
+    ai: AIProxy
     recognitions: dict[str, DrawingRecognition] = field(default_factory=dict)
 
     def close(self) -> None:
@@ -121,6 +125,7 @@ def build_platform_services(
             allow_unverified_fixture=allow_unverified_fixture,
         ),
         cam=cam,
+        ai=AIProxy(),
     )
 
 
@@ -469,7 +474,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     """
 
     try:
-        from fastapi import APIRouter, Body, Header, HTTPException
+        from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFile
         from fastapi.responses import JSONResponse, PlainTextResponse
     except ImportError as exc:  # pragma: no cover - exercised in dependency-free CI
         raise RuntimeError(
@@ -480,7 +485,62 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
 
     @router.get("/health")
     async def health() -> dict[str, Any]:
-        return {"ok": True, "service": "joyniu-platform", "features": ["pdm", "rbac", "ocr", "cam"]}
+        return {"ok": True, "service": "joyniu-platform", "features": ["pdm", "rbac", "ocr", "cam", "ai-chat"]}
+
+    @router.post("/ai/conversation")
+    async def ai_conversation(
+        message: str = Form(default=""),
+        previous_response_id: str | None = Form(default=None),
+        previous_response_id_alias: str | None = Form(default=None, alias="previousResponseId"),
+        model_state_json: str | None = Form(default=None),
+        model_state_alias: str | None = Form(default=None, alias="modelState"),
+        file: UploadFile | None = File(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Proxy a parameter-editing conversation without exposing the key.
+
+        Attachments are passed to the provider as data URLs only after the
+        caller has authenticated and been granted ``ai:chat``.  The result is
+        reduced to a validated parameter patch; provider response fields and
+        diagnostics never cross this boundary.
+        """
+
+        actor = _token_user(services, authorization)
+        try:
+            services.auth.require(actor, Permission.AI_CHAT)
+            model_state: Mapping[str, Any] | None = None
+            effective_previous_response_id = previous_response_id or previous_response_id_alias
+            effective_model_state = model_state_json or model_state_alias
+            if effective_model_state:
+                import json
+
+                parsed_state = json.loads(effective_model_state)
+                if not isinstance(parsed_state, Mapping):
+                    raise ValidationError("modelState must be a JSON object")
+                model_state = dict(parsed_state)
+            attachments: list[AIFile] = []
+            if file is not None:
+                filename = Path(file.filename or "drawing").name
+                suffix = Path(filename).suffix.casefold()
+                content_type = (file.content_type or "application/octet-stream").casefold()
+                allowed_suffixes = {".pdf", ".dxf", ".dwg"}
+                if not content_type.startswith("image/") and suffix not in allowed_suffixes:
+                    raise ValidationError("supported AI drawing files are images, PDF, DXF, and DWG")
+                data = await file.read(MAX_FILE_BYTES + 1)
+                if len(data) > MAX_FILE_BYTES:
+                    raise ValidationError("drawing file is too large")
+                if not data:
+                    raise ValidationError("drawing file is empty")
+                attachments.append(AIFile(filename=filename, content_type=content_type, data=data))
+            result = services.ai.converse(
+                message,
+                previous_response_id=effective_previous_response_id,
+                model_state=model_state,
+                files=attachments,
+            )
+            return result.to_dict()
+        except (PlatformError, AIProxyError) as exc:
+            raise _domain_http_exception(exc)
 
     @router.post("/auth/users", status_code=201)
     async def create_user(

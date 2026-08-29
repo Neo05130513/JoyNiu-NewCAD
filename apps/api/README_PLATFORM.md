@@ -50,6 +50,7 @@ All routes below are relative to the prefix selected by the host application.
 | Auth/RBAC | `POST /auth/users`, `POST /auth/login`, `GET /auth/me`, role/active administration |
 | PDM | project/document CRUD, immutable `POST /pdm/documents/{id}/versions`, content download, status transitions |
 | OCR | `GET /ocr/fixtures`, JSON base64 `POST /ocr/analyze`, binary `POST /ocr/analyze-bytes`, reviewer confirmation |
+| AI copilot | Authenticated multipart `POST /ai/conversation` with text and optional image/PDF/DXF/DWG; returns a validated parameter patch |
 | Workflow | `POST /workflows/drawing-to-model` (SHA-anchored OCR → OCCT → PDM transaction) |
 | CAM/NC | plan/tools, operation creation, simulation, gate status, reviewer approval, NC release/download, admin snapshot import/export |
 
@@ -58,6 +59,35 @@ accounts require `user:manage`.  Roles are intentionally small and auditable:
 `viewer`, `designer`, `reviewer`, `manufacturing`, and `admin`.
 Passwords require at least eight characters; access tokens are HMAC-signed and
 re-check the current account on every request.
+
+## AI copilot proxy
+
+The AI copilot is a server-side proxy to the OpenAI Responses-compatible
+endpoint `https://gptx.shop/v1`, using model `gpt-5.6-sol` and high reasoning.
+Configure the credential in the API process only, either as
+`JOYNIU_AI_API_KEY` or as the contents of the file named by
+`JOYNIU_AI_API_KEY_FILE`. The browser never receives this value. The route is
+restricted to the `designer` and `admin` roles (`ai:chat` permission), accepts
+an optional `previous_response_id` for multi-turn editing, and returns only
+`responseId`, an explanatory message, review questions, and an allowlisted
+`parameterPatch`. Unknown fields from a provider response are rejected before
+they can reach the model editor.
+
+Example (use a real platform token; do not place the provider key in this
+request):
+
+```bash
+curl -X POST http://localhost:8010/api/v1/ai/conversation \
+  -H "Authorization: Bearer $DESIGNER_TOKEN" \
+  -F 'message=把底板长度改为 110 mm' \
+  -F 'model_state_json={"kind":"bracket","baseLength":100}' \
+  -F 'file=@drawing.pdf'
+```
+
+The proxy forwards images as Responses `input_image` data URLs and PDF/DXF/DWG
+files as `input_file` data URLs. Files are limited to 20 MiB, all requests
+require authentication, and provider errors are deliberately reduced to safe
+HTTP status messages.
 
 ## Drawing acceptance fixture
 

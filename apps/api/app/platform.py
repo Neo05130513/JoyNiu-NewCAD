@@ -93,6 +93,7 @@ class Permission(str, Enum):
     VERSION_CREATE = "version:create"
     OCR_READ = "ocr:read"
     OCR_RUN = "ocr:run"
+    AI_CHAT = "ai:chat"
     CAM_PLAN = "cam:plan"
     CAM_SIMULATE = "cam:simulate"
     CAM_APPROVE = "cam:approve"
@@ -127,6 +128,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             Permission.VERSION_CREATE,
             Permission.OCR_READ,
             Permission.OCR_RUN,
+            Permission.AI_CHAT,
             Permission.CAM_PLAN,
             Permission.CAM_SIMULATE,
         }
