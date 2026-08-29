@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import base64
 import binascii
+import asyncio
 import hashlib
+import json
 import os
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -487,6 +489,12 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     async def health() -> dict[str, Any]:
         return {"ok": True, "service": "joyniu-platform", "features": ["pdm", "rbac", "ocr", "cam", "ai-chat"]}
 
+    @router.get("/ai/status")
+    async def ai_status() -> dict[str, Any]:
+        """Return non-secret provider capability information for the UI."""
+
+        return services.ai.status()
+
     @router.post("/ai/conversation")
     async def ai_conversation(
         message: str = Form(default=""),
@@ -495,6 +503,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         model_state_json: str | None = Form(default=None),
         model_state_alias: str | None = Form(default=None, alias="modelState"),
         file: UploadFile | None = File(default=None),
+        files: list[UploadFile] | None = File(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         """Proxy a parameter-editing conversation without exposing the key.
@@ -505,42 +514,97 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         diagnostics never cross this boundary.
         """
 
-        actor = _token_user(services, authorization)
         try:
-            services.auth.require(actor, Permission.AI_CHAT)
+            # Production deployments require an authenticated designer/admin.
+            # A deliberately explicit local flag lets a customer try the
+            # workbench before creating an account; it is never enabled by
+            # default and does not weaken any PDM/CAM route.
+            if authorization:
+                actor = _token_user(services, authorization)
+                services.auth.require(actor, Permission.AI_CHAT)
+            elif not services.ai.allow_anonymous:
+                raise AuthenticationError("bearer token is required")
             model_state: Mapping[str, Any] | None = None
             effective_previous_response_id = previous_response_id or previous_response_id_alias
             effective_model_state = model_state_json or model_state_alias
             if effective_model_state:
-                import json
-
                 parsed_state = json.loads(effective_model_state)
                 if not isinstance(parsed_state, Mapping):
                     raise ValidationError("modelState must be a JSON object")
                 model_state = dict(parsed_state)
             attachments: list[AIFile] = []
+            incoming_files = list(files or [])
             if file is not None:
-                filename = Path(file.filename or "drawing").name
+                incoming_files.insert(0, file)
+            if len(incoming_files) > 4:
+                raise ValidationError("too many drawing files (maximum 4)")
+            for upload in incoming_files:
+                filename = Path(upload.filename or "drawing").name
                 suffix = Path(filename).suffix.casefold()
-                content_type = (file.content_type or "application/octet-stream").casefold()
+                content_type = (upload.content_type or "application/octet-stream").casefold()
                 allowed_suffixes = {".pdf", ".dxf", ".dwg"}
-                if not content_type.startswith("image/") and suffix not in allowed_suffixes:
+                image_suffixes = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+                if not content_type.startswith("image/") and suffix not in allowed_suffixes | image_suffixes:
                     raise ValidationError("supported AI drawing files are images, PDF, DXF, and DWG")
-                data = await file.read(MAX_FILE_BYTES + 1)
+                data = await upload.read(MAX_FILE_BYTES + 1)
                 if len(data) > MAX_FILE_BYTES:
                     raise ValidationError("drawing file is too large")
                 if not data:
                     raise ValidationError("drawing file is empty")
                 attachments.append(AIFile(filename=filename, content_type=content_type, data=data))
-            result = services.ai.converse(
+            if not message.strip() and not attachments:
+                raise ValidationError("message or drawing file is required")
+            result = await asyncio.to_thread(
+                services.ai.converse,
                 message,
                 previous_response_id=effective_previous_response_id,
                 model_state=model_state,
                 files=attachments,
             )
+            # The AI adapter may expose a richer compatibility recognition,
+            # but geometry generation and reviewer confirmation must use the
+            # platform OCR service's own DrawingRecognition object. Register
+            # one per uploaded file in the same service graph and return that
+            # canonical id so ``sourceDrawingId`` can be resumed safely.
+            registered_drawing = None
+            for attachment in attachments:
+                try:
+                    candidate = await asyncio.to_thread(
+                        services.ocr.analyze,
+                        attachment.data,
+                        filename=attachment.filename,
+                    )
+                except PlatformError:
+                    continue
+                services.recognitions[candidate.id] = candidate
+                if registered_drawing is None:
+                    registered_drawing = candidate
+            if registered_drawing is not None:
+                result = replace(result, drawing=registered_drawing.to_dict())
             return result.to_dict()
         except (PlatformError, AIProxyError) as exc:
             raise _domain_http_exception(exc)
+
+    @router.post("/ai/chat")
+    async def ai_chat_alias(
+        message: str = Form(default=""),
+        previous_response_id: str | None = Form(default=None),
+        model_state_json: str | None = Form(default=None),
+        file: UploadFile | None = File(default=None),
+        files: list[UploadFile] | None = File(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Short alias used by newer clients; accept both file conventions."""
+        return await ai_conversation(
+            message=message,
+            previous_response_id=previous_response_id,
+            previous_response_id_alias=None,
+            model_state_json=model_state_json,
+            model_state_alias=None,
+            file=file,
+            files=files,
+            authorization=authorization,
+        )
 
     @router.post("/auth/users", status_code=201)
     async def create_user(

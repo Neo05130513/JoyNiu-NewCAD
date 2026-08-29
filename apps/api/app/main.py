@@ -525,6 +525,14 @@ async def generate_bracket(body: dict[str, Any] = Body(default_factory=dict)) ->
     request = _geometry_request(body)
     if request.source_drawing_id:
         drawing = _drawings.get(request.source_drawing_id)
+        # Platform AI uploads are registered in the authenticated service
+        # graph rather than the legacy compatibility map above.  Accept that
+        # same-account recognition hand-off here, but only when the platform
+        # service marked it confirmed by its reviewer workflow.
+        if drawing is None and platform_services is not None:
+            platform_drawing = platform_services.recognitions.get(request.source_drawing_id)
+            if platform_drawing is not None:
+                drawing = platform_drawing
         if drawing is None:
             raise HTTPException(status_code=404, detail="source drawing recognition not found")
         # ``confirmed`` is an informational client hint, not an authority

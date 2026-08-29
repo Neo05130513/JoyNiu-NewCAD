@@ -89,6 +89,31 @@ def test_proxy_reads_key_file_without_requiring_environment(monkeypatch, tmp_pat
     assert AIProxy().converse("继续").response_id == "resp_file_key"
 
 
+def test_proxy_parses_markdown_key_file(monkeypatch, tmp_path):
+    """Deployment notes may be Markdown; send only the code-block token."""
+    key_file = tmp_path / "provider.md"
+    key_file.write_text(
+        "# Provider credential\n\n```text\nsk-" + "A" * 24 + "\n```\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("JOYNIU_AI_API_KEY", raising=False)
+    monkeypatch.setenv("JOYNIU_AI_API_KEY_FILE", str(key_file))
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["authorization"] = request.headers["Authorization"]
+        return _Response(
+            {
+                "id": "resp_markdown_key",
+                "output_text": '{"message":"ok","parameter_patch":{},"needs_review":false,"questions":[]}',
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    assert AIProxy().converse("继续").response_id == "resp_markdown_key"
+    assert captured["authorization"] == "Bearer sk-" + "A" * 24
+
+
 def test_proxy_rejects_unsupported_provider_patch(monkeypatch):
     monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
     monkeypatch.setattr(
@@ -153,15 +178,65 @@ def test_ai_route_passes_file_and_turn_state_to_injected_proxy():
         files={"file": ("drawing.pdf", b"%PDF-test", "application/pdf")},
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {
-        "responseId": "resp_fake_next",
-        "message": "已根据图纸更新",
-        "parameterPatch": {"baseLength": 110},
-        "needsReview": True,
-        "questions": ["请确认单位"],
-    }
+    payload = response.json()
+    assert payload["responseId"] == "resp_fake_next"
+    assert payload["message"] == "已根据图纸更新"
+    assert payload["parameterPatch"] == {"baseLength": 110}
+    assert payload["needsReview"] is True
+    assert payload["questions"] == ["请确认单位"]
+    # The id is from the platform OCR service, not the compatibility AI
+    # recognizer, so it can be used by /brackets/generate and reviewer routes.
+    drawing = payload["drawingRecognition"]
+    assert drawing["status"] == "needs_review"
+    assert drawing["id"] in services.recognitions
+    assert services.recognitions[drawing["id"]].source_filename == "drawing.pdf"
     assert fake.calls[0][0] == "把底板加长"
     assert fake.calls[0][1] == "resp_previous"
     assert fake.calls[0][2]["baseLength"] == 100
     assert fake.calls[0][3][0].filename == "drawing.pdf"
     assert fake.calls[0][3][0].data == b"%PDF-test"
+
+
+def test_platform_recognition_id_is_accepted_by_geometry_generate(monkeypatch):
+    """AI-upload ids must cross the platform/legacy geometry boundary."""
+    from types import SimpleNamespace
+
+    from app import main as geometry_main
+
+    services = build_platform_services(":memory:", auth_secret="c" * 32)
+    drawing_id = "drw_platform_confirmed"
+    services.recognitions[drawing_id] = SimpleNamespace(
+        id=drawing_id,
+        status="confirmed",
+        source_sha256="unavailable-for-this-regression",
+    )
+    monkeypatch.setattr(geometry_main, "platform_services", services)
+    client = TestClient(geometry_main.app)
+    response = client.post(
+        "/api/brackets/generate",
+        json={
+            "sourceDrawingId": drawing_id,
+            "formats": ["glb"],
+            "parameters": {
+                "baseLength": 100,
+                "baseWidth": 50,
+                "baseThickness": 10,
+                "upperLength": 70,
+                "upperWidth": 50,
+                "upperHeight": 30,
+                "totalHeight": 40,
+                "notchOpening": 40,
+                "notchRadius": 15,
+                "slotLength": 30,
+                "slotWidth": 10,
+                "pocketDepth": 10,
+                "saddleDepth": 50,
+                "holeDepth": 40,
+                "holeThrough": True,
+                "bossDiameter": 20,
+                "bossCenterDistance": 70,
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["sourceDrawingId"] == drawing_id
