@@ -1,6 +1,6 @@
 # JoyNiu NewCAD 产品规格
 
-> 版本：v0.1.0 · 更新：2026-08-29 · 来源：CurrentCAD 深度体验线程 `01a039b4-773a-7e20-b2f9-143a67025613`
+> 版本：v0.2.0 · 更新：2026-08-29 · 来源：CurrentCAD 深度体验线程 `01a039b4-773a-7e20-b2f9-143a67025613`
 
 ## 1. 产品定位
 
@@ -35,7 +35,7 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 5. **标准件库**：螺钉、螺母、轴承、销钉与快速插入。
 6. **项目管理**：项目文件、版本、回收站、导出记录。
 
-## 5. v0.1.0 交付范围（当前实现）
+## 5. v0.2.0 交付范围（当前实现）
 
 ### P0 必须交付
 
@@ -50,16 +50,28 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 - 项目文件管理：新建、重命名、版本、下载、回收站模拟，数据持久化到浏览器。
 - 导出交付：下载 `.step`、`.dxf`、`.json` 参数快照；导出前显示校验结果。
 
-### P1 预留接口
+### v0.2.0 已落地的服务能力
 
-- 真实 CadQuery/OCCT 几何服务与 STEP/GLB 生成。
-- 真实 OCR/视觉解析、2D AI 几何生成、云端任务队列。
-- 账号、PDM 绑定、多人协作、权限与审计。
-- 生产级 CAM 仿真、后处理和 NC 放行门禁。
+- FastAPI 同时提供 `/api/*` 与 `/api/v1/*`，覆盖健康检查、图纸上传、几何校验、
+  STEP/GLB 生成、下载和平台业务 router。
+- CadQuery/OCCT 使用可选适配器：安装 `[geometry]` 后生成原生 B-Rep STEP；无内核时
+  生成确定性 faceted STEP/GLB，强制标记 `productionReady=false`。
+- OCR 结果采用“证据优先”结构，包含原图哈希、尺寸/单位、来源视图、证据框、置信度、
+  假设、未决项和人工确认状态；可选 Tesseract，未知图纸不会自动确认为正确模型。
+- SQLite PDM 保存项目、文件内容、不可变版本、SHA-256、乐观修订号、回收与审计；
+  FastAPI 提供版本上传、清单查询和下载。
+- 本地账号使用 PBKDF2 密码哈希、HMAC token 和 RBAC，区分 viewer、designer、
+  reviewer、manufacturing、admin，并对敏感操作进行权限校验。
+- CAM/NC 已有计划、刀具、工序、确定性仿真预检查、碰撞/干涉/包络门禁、审核和 NC
+  放行；预检查不是机床级材料去除仿真，不能单独作为生产批准。
 
 ## 6. 核心流程
 
 ```text
+客户上传图纸 -> 保存原图哈希/版本 -> OCR/fixture 提取尺寸证据 -> 人工确认
+       -> 生成参数配方 -> 几何校验 -> CadQuery/OCCT 或 fallback STEP/GLB
+       -> PDM 保存参数/模型版本 -> CAM 计划/仿真 -> 审核者批准 -> 制造角色放行 NC
+
 新建项目 -> AI 描述零件 -> 解析参数 -> 人工确认 -> 更新特征树/预览
        -> 运行模型检查 -> 打开 2D 工程图/装配 -> 导出 STEP/DXF/参数快照
 ```
@@ -68,8 +80,9 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 
 - 首屏可在普通笔记本浏览器流畅打开，交互反馈不超过 200ms（模拟 AI 过程除外）。
 - 所有关键状态可恢复：刷新后保留当前项目、参数和最近操作。
-- 导出文件不宣称为生产级几何；界面明确标识当前版本为“演示内核/可审计草案”。
-- 不在前端存放真实密钥；后续服务端通过环境变量接入。
+- API 输出必须带几何引擎、校验结果和生产就绪标记；fallback 不得冒充 OCCT B-Rep。
+- 原图、识别证据、参数、几何生成物和 CAM 决策必须能通过哈希/版本关联审计。
+- 不在前端存放真实密钥；服务端通过 `JOYNIU_AUTH_SECRET`、`JOYNIU_DB` 等环境变量配置。
 
 ## 8. 验收标准
 
@@ -82,8 +95,95 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 
 ## 9. 版本策略
 
-- v0.1.0：可运行的本地工作台原型（本次交付）。
-- v0.2.0：接入 FastAPI + CadQuery 几何服务、真实 STEP/GLB。
-- v0.3.0：2D AI/OCR、装配实例持久化、PDM/权限。
-- v1.0.0：云端协作、CAM/NC、生产级验证与部署。
+- v0.1.0：可运行的本地工作台原型（已完成）。
+- v0.2.0：FastAPI、CadQuery/OCCT 适配器、图纸证据 OCR、SQLite PDM/RBAC、
+  CAM/NC 门禁与验收脚本（当前版本）。
+- v0.3.0：通用视觉模型与队列、装配实例持久化、对象存储、组织/项目级 ACL、
+  STEP 拓扑回读和多人审核流。
+- v1.0.0：云端协作、经过机床验证的 CAM 仿真/后处理、生产级安全与部署。
 
+## 10. v0.2.0 图纸转三维验收增量
+
+### 验收目标
+
+客户上传一张二维机械工程图后，系统必须经过“原图留存、尺寸证据提取、人工确认、确定性几何生成、实体校验、交付文件生成”六个阶段，输出完整且尺寸正确的三维模型。不能只展示相似的示意图，也不能把未验证的文本文件冒充 STEP。
+
+### 本次验收夹具
+
+用户提供的正投影安装支架图纸登记为 `bracket_support_v1`（兼容别名
+`acceptance_bracket`），源图 SHA-256 为
+`ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366`，关键约束如下：
+
+| 结构 | 验收尺寸 | 来源 |
+| --- | --- | --- |
+| 底板 | 100 × 50 × 10 mm | 俯视图、主视图 |
+| 上部实体 | 70 × 30 × 30 mm | 主视图、右视图 |
+| 总高度 | 40 mm | 主视图 |
+| U 型缺口 | 开口 40 mm，R15，槽底 Z=25 mm | 主视图 |
+| 圆柱凸台 | 2 × Ø20 mm | 俯视图 |
+| 凸台位置 | X=±35、Y=0、Z=10 mm，中心距 70 mm | 三视图投影关系 |
+
+### 强制技术能力
+
+- FastAPI 接收图片/PDF（DXF 可通过后续解析器接入），创建可查询的图纸结果。
+- OCR/图纸识别结果必须包含数值、单位、来源视图、置信度和确认状态。
+- CadQuery/OCCT 生成真实拓扑实体，并导出 STEP；缺少原生内核时必须明确返回 `fallback`，不能声称生产可用。
+- 当前实体生成后核对包络 100 × 50 × 40 mm、参数约束和估算体积；安装 OCCT 后再执行
+  实体数量、关键圆柱面和 R15 缺口曲面的拓扑回读（列入 v0.3）。
+- PDM 保存原图、参数快照、生成物和不可变版本记录。
+- RBAC 区分查看者、设计师、审核者、制造放行者和管理员；设计师可生成/仿真，审核者
+  可审批，manufacturing 角色才能在独立审批后放行 NC。
+- CAM/NC 只生成设计草案；仿真、碰撞检查、后处理器与人工审批未通过时不得标记为生产 NC。
+
+### 端到端通过条件
+
+1. 上传本次图纸后识别出全部 6 组关键约束。
+2. 人工确认后生成支架三维预览；安装 CadQuery/OCCT 时同时生成真实 B-Rep STEP，
+   未安装时必须返回明确的 fallback 标记。
+3. 几何验证报告显示包络、特征和参数一致；生产模式还需 OCCT 拓扑回读。
+4. OCCT 模式下 STEP 能被几何内核重新打开，并得到同样的包络尺寸。
+5. PDM 中存在原图版本、参数版本和模型版本的关联记录。
+6. CAM 接口返回带工序、刀具、余量和安全门禁的 CAM IR；服务中的 `released` 仅表示
+   工作流草案已放行，deterministic pre-check 默认不得解释为 `production_released=true`。
+
+## 11. 当前验收记录与复现方式
+
+### 2026-08-29 本地验收结果
+
+使用客户原图（107,532 bytes）运行 `apps/api/scripts/acceptance_check.py`，其 SHA-256
+与 fixture 完全一致。当前依赖最小环境得到 9 项通过、2 项可选依赖跳过、0 项失败：
+
+| 检查 | 结果 | 证据 |
+| --- | --- | --- |
+| 原图与 fixture | 通过 | SHA-256 完全匹配 |
+| OCR 尺寸/证据 | 通过 | `confirmed`、11 条尺寸证据、4 个结构特征 |
+| OCR → 参数配方 | 通过 | 100×50×10、70×30×30、R15/U40、2×Ø20、中心距70 |
+| RBAC | 通过 | designer 可仿真不可放行；manufacturing 可放行；token 校验通过 |
+| PDM | 通过 | 原图与参数各创建 revision 1，不可变内容 SHA-256 匹配 |
+| CAM/NC | 通过 | `deterministic-precheck` 通过，reviewer 审批后由独立 manufacturing 角色放行 |
+| FastAPI 导入 | 当前机跳过 | 当前 Python 环境未安装 `apps/api[dev]`；代码与集成测试已提供 |
+| CadQuery/OCCT 导出 | 当前机跳过 | 当前 Python 环境未安装 `[geometry]`；fallback 导出代码与测试已提供 |
+
+“跳过”不等于生产验收通过。发布 CI 必须安装开发依赖，并用 `--strict-optional`
+把 FastAPI/CadQuery 缺失视为失败；只有 `engine=cadquery-occt` 且
+`productionReady=true` 的 STEP 才能进入生产实体复核。
+
+### 复现命令
+
+```bash
+# 标准服务/测试环境
+cd apps/api
+python3 -m pip install -e '.[dev,geometry]'
+python3 -m pytest
+cd ../..
+
+# 精确原图验收
+python3 apps/api/scripts/acceptance_check.py --drawing /path/to/drawing.jpg
+
+# 发布门禁：FastAPI/CadQuery 缺失时失败
+python3 apps/api/scripts/acceptance_check.py --strict-optional --drawing /path/to/drawing.jpg
+```
+
+验收脚本不会写入仓库：PDM/RBAC 使用临时 SQLite，生成的 token、CAM 计划和 NC 草案
+仅存在于本次进程/临时目录。真实 API 默认把 PDM/RBAC 数据保存到
+`apps/api/data/joyniu.sqlite3`，也可用 `JOYNIU_DB` 改写路径。
