@@ -36,14 +36,27 @@ class BracketParameters(ApiModel):
     base_width: float = Field(50.0, alias="baseWidth")
     base_thickness: float = Field(10.0, alias="baseThickness")
     upper_length: float = Field(70.0, alias="upperLength")
-    upper_width: float = Field(30.0, alias="upperWidth")
+    # The calibrated drawing uses the full 50 mm base width for the upper
+    # body.  Earlier revisions treated the right-view 30 mm callout as this
+    # field; that value is actually the length of the two shallow pockets.
+    upper_width: float = Field(50.0, alias="upperWidth")
     upper_height: float = Field(30.0, alias="upperHeight")
     total_height: float = Field(40.0, alias="totalHeight")
     notch_opening: float = Field(40.0, alias="notchOpening")
     notch_radius: float = Field(15.0, alias="notchRadius")
     boss_diameter: float = Field(20.0, alias="bossDiameter")
     boss_center_distance: float = Field(70.0, alias="bossCenterDistance")
+    # ``boss*`` names remain in the wire contract for older clients.  In the
+    # current drawing recipe the circles are subtractive side holes, not
+    # additive bosses.  The explicit fields below make the new semantics
+    # unambiguous while keeping old payloads accepted.
     boss_height: float | None = Field(None, alias="bossHeight")
+    slot_length: float = Field(30.0, alias="slotLength")
+    slot_width: float = Field(10.0, alias="slotWidth")
+    pocket_depth: float = Field(10.0, alias="pocketDepth")
+    saddle_depth: float | None = Field(None, alias="saddleDepth")
+    hole_depth: float | None = Field(None, alias="holeDepth")
+    hole_through: bool = Field(True, alias="holeThrough")
     material: str = "45# 钢"
     units: Literal["mm"] = "mm"
 
@@ -60,6 +73,11 @@ class BracketParameters(ApiModel):
         "boss_diameter",
         "boss_center_distance",
         "boss_height",
+        "slot_length",
+        "slot_width",
+        "pocket_depth",
+        "saddle_depth",
+        "hole_depth",
     )
     @classmethod
     def finite_number(cls, value: float | None) -> float | None:
@@ -69,7 +87,36 @@ class BracketParameters(ApiModel):
 
     @property
     def resolved_boss_height(self) -> float:
-        return self.boss_height if self.boss_height is not None else self.upper_height
+        """Return the legacy display value for ``bossHeight``.
+
+        ``bossHeight`` was the height of an additive boss in the first API
+        revision (30 mm for the acceptance drawing).  It remains exposed for
+        old clients and reports, but it must not drive the C-recipe geometry;
+        :attr:`resolved_hole_depth` is the authoritative value for the new
+        subtractive side holes.
+        """
+
+        return float(self.boss_height if self.boss_height is not None else self.upper_height)
+
+    @property
+    def resolved_hole_depth(self) -> float:
+        """Depth of the subtractive vertical holes, measured from Z=0."""
+
+        if self.hole_through:
+            return float(self.total_height)
+        if self.hole_depth is not None:
+            return float(self.hole_depth)
+        # A legacy ``bossHeight`` value is accepted as a blind-hole depth only
+        # when the caller explicitly disables through-hole semantics.
+        if self.boss_height is not None:
+            return float(self.boss_height)
+        return float(self.total_height)
+
+    @property
+    def resolved_saddle_depth(self) -> float:
+        """Y span of the horizontal saddle cutter (defaults to base width)."""
+
+        return float(self.saddle_depth if self.saddle_depth is not None else self.base_width)
 
 
 class Severity(str, Enum):

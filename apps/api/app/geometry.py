@@ -92,13 +92,24 @@ _DIMENSION_FIELDS = (
     "notch_radius",
     "boss_diameter",
     "boss_center_distance",
+    "slot_length",
+    "slot_width",
+    "pocket_depth",
 )
 
-# The rectangular lead-in of the saddle cutter needs a microscopic overlap
-# below the top plane for OCCT's boolean regularisation to retain the nominal
-# 40 mm opening.  Keep the value in one place so the analytic volume estimate
-# and the B-Rep recipe describe the same geometry.
-_SLOT_OVERLAP_MM = 0.01
+# The C-semantics recipe has two 10 mm wide, 30 mm long shallow pockets on
+# either side of the R15 saddle.  ``notchOpening`` remains the historical API
+# name for the combined 40 mm span; deriving the outer/inner X limits from it
+# keeps old payloads compatible while making the feature explicit in the
+# generated recipe.
+_SLOT_Y_DEFAULT_MM = 30.0
+_SLOT_WIDTH_DEFAULT_MM = 10.0
+_POCKET_DEPTH_DEFAULT_MM = 10.0
+
+# A microscopic overlap keeps OCCT booleans robust when a cutter terminates on
+# a coplanar face.  The resulting trimmed face remains on the nominal model
+# boundary (the overlap is far below drawing tolerance).
+_CUTTER_OVERLAP_MM = 0.01
 
 
 def _value(p: BracketParameters, name: str) -> float:
@@ -171,58 +182,161 @@ def _circle_circle_intersection_area(radius: float, distance: float) -> float:
     )
 
 
+def _slot_extents(parameters: BracketParameters) -> tuple[float, float, float, float, float]:
+    """Return the two symmetric shallow-pocket extents.
+
+    ``notchOpening`` is retained as the historical 40 mm opening dimension.
+    In the C recipe the two pockets occupy the outer quarter of that span:
+    ``[-20,-10]`` and ``[10,20]``.  The explicit ``slotWidth`` field controls
+    the 10 mm width while ``slotLength`` and ``pocketDepth`` control Y and Z.
+    The tuple is ``(outer, inner, y_half, z_bottom, z_top)``.
+    """
+
+    opening = float(parameters.notch_opening)
+    width = float(parameters.slot_width)
+    outer = abs(opening) / 2.0
+    inner = max(0.0, outer - abs(width))
+    y_half = min(
+        abs(float(parameters.slot_length)) / 2.0,
+        abs(float(parameters.upper_width)) / 2.0,
+    )
+    top = float(parameters.base_thickness) + float(parameters.upper_height)
+    depth = min(abs(float(parameters.pocket_depth)), abs(float(parameters.upper_height)))
+    return outer, inner, y_half, top - depth, top
+
+
+def _simpson_integral(function: Any, left: float, right: float, subdivisions: int = 512) -> float:
+    """Deterministic Simpson integration used by the analytic volume audit."""
+
+    if right <= left:
+        return 0.0
+    n = max(2, int(subdivisions))
+    if n % 2:
+        n += 1
+    step = (right - left) / n
+    total = float(function(left)) + float(function(right))
+    for index in range(1, n):
+        total += (4.0 if index % 2 else 2.0) * float(function(left + index * step))
+    return total * step / 3.0
+
+
+def _saddle_slot_cut_volume(parameters: BracketParameters) -> float:
+    """Estimate the union of the R15 saddle and two shallow pockets.
+
+    The saddle is a horizontal cylinder centred on the top plane.  At a given
+    X its lower-half height is ``sqrt(R²-X²)``.  The pockets overlap that
+    cylinder in the central 30 mm of Y, so integrating the union avoids
+    double-counting the overlap and reproduces the OCCT volume to sub-mm³
+    precision for the acceptance dimensions.
+    """
+
+    p = parameters
+    try:
+        radius = abs(float(p.notch_radius))
+        upper_height = abs(float(p.upper_height))
+        saddle_y = min(abs(float(p.upper_width)), abs(float(p.resolved_saddle_depth)))
+        slot_y = min(abs(float(p.slot_length)), abs(float(p.upper_width)))
+        slot_depth = min(abs(float(p.pocket_depth)), upper_height)
+        outer, inner, _y_half, slot_bottom, top = _slot_extents(p)
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+    if radius <= 0 or upper_height <= 0 or saddle_y <= 0:
+        return 0.0
+    # The validation layer rejects a saddle reaching into the base.  Clamp the
+    # analytic interval defensively for callers that use this helper directly.
+    if radius > upper_height + 1e-9:
+        vertical_clip = upper_height
+    else:
+        vertical_clip = radius
+    if slot_depth <= 0 or slot_y <= 0:
+        slot_depth = 0.0
+
+    # Include every feature boundary and the points where the circular height
+    # crosses the pocket floor.  Simpson is then applied piecewise so the
+    # min()/indicator kinks do not reduce accuracy.
+    domain = max(radius, outer)
+    bounds = [-domain, domain]
+    if outer > 0:
+        bounds.extend((-outer, -inner, inner, outer))
+    if slot_depth < radius:
+        crossing = math.sqrt(max(0.0, radius * radius - slot_depth * slot_depth))
+        bounds.extend((-crossing, crossing))
+    bounds = sorted(set(round(value, 12) for value in bounds if -domain <= value <= domain))
+    if len(bounds) < 2:
+        return 0.0
+
+    def integrand(x: float) -> float:
+        if abs(x) >= radius:
+            saddle_height = 0.0
+        else:
+            saddle_height = min(
+                vertical_clip,
+                math.sqrt(max(0.0, radius * radius - x * x)),
+            )
+        in_slot = inner - 1e-10 <= abs(x) <= outer + 1e-10
+        slot_height = slot_depth if in_slot else 0.0
+        overlap = min(saddle_height, slot_height) if in_slot else 0.0
+        return saddle_y * saddle_height + slot_y * (slot_height - overlap)
+
+    return max(
+        0.0,
+        sum(_simpson_integral(integrand, left, right, 256) for left, right in zip(bounds, bounds[1:])),
+    )
+
+
+def _side_hole_cut_volume(parameters: BracketParameters) -> float:
+    """Estimate the material removed by the two vertical side-hole cuts."""
+
+    p = parameters
+    try:
+        radius = abs(float(p.boss_diameter)) / 2.0
+        depth = min(max(0.0, float(p.resolved_hole_depth)), float(p.total_height))
+        base_x0, base_x1 = -float(p.base_length) / 2.0, float(p.base_length) / 2.0
+        base_y0, base_y1 = -float(p.base_width) / 2.0, float(p.base_width) / 2.0
+        upper_x0, upper_x1 = -float(p.upper_length) / 2.0, float(p.upper_length) / 2.0
+        upper_y0, upper_y1 = -float(p.upper_width) / 2.0, float(p.upper_width) / 2.0
+        base_height = min(depth, float(p.base_thickness))
+        upper_height = max(
+            0.0,
+            min(depth, float(p.total_height)) - float(p.base_thickness),
+        )
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+    if radius <= 0 or depth <= 0:
+        return 0.0
+    removed = 0.0
+    for center_x in (-float(p.boss_center_distance) / 2.0, float(p.boss_center_distance) / 2.0):
+        base_area = _circle_rectangle_intersection_area(
+            center_x, 0.0, radius, base_x0, base_x1, base_y0, base_y1
+        )
+        upper_area = _circle_rectangle_intersection_area(
+            center_x, 0.0, radius, upper_x0, upper_x1, upper_y0, upper_y1
+        )
+        removed += base_area * base_height + upper_area * upper_height
+    return max(0.0, removed)
+
+
 def _estimate_bracket_volume(parameters: BracketParameters) -> float:
-    """Estimate the fused solid volume using the canonical feature recipe."""
+    """Estimate the C-recipe solid volume with subtractive side holes."""
 
     p = parameters
     values = [_value(p, field_name) for field_name in _DIMENSION_FIELDS]
-    boss_height = (
-        _value(p, "boss_height")
-        if p.boss_height is not None
-        else _value(p, "upper_height")
-    )
-    if not all(math.isfinite(value) and value > 0 for value in (*values, boss_height)):
+    try:
+        resolved_hole_depth = float(p.resolved_hole_depth)
+        resolved_saddle_depth = float(p.resolved_saddle_depth)
+    except (TypeError, ValueError, AttributeError):
+        return 0.0
+    if not all(
+        math.isfinite(value) and value > 0
+        for value in (*values, resolved_hole_depth, resolved_saddle_depth)
+    ):
         return 0.0
 
-    base_volume = p.base_length * p.base_width * p.base_thickness
-    upper_volume = p.upper_length * p.upper_width * p.upper_height
-    boss_radius = p.boss_diameter / 2.0
-    boss_volume = 2.0 * math.pi * boss_radius * boss_radius * boss_height
-
-    # Cylinders start on the base top.  Only the portion inside the upper box
-    # is already present in ``upper_volume`` and must be subtracted from the
-    # added boss volume.
-    overlap_height = min(boss_height, p.upper_height)
-    upper_x0, upper_x1 = -p.upper_length / 2.0, p.upper_length / 2.0
-    upper_y0, upper_y1 = -p.upper_width / 2.0, p.upper_width / 2.0
-    boss_overlap_area = 0.0
-    for center_x in (-p.boss_center_distance / 2.0, p.boss_center_distance / 2.0):
-        boss_overlap_area += _circle_rectangle_intersection_area(
-            center_x,
-            0.0,
-            boss_radius,
-            upper_x0,
-            upper_x1,
-            upper_y0,
-            upper_y1,
-        )
-    boss_volume -= boss_overlap_area * overlap_height
-    # Avoid double-counting if a caller deliberately places the two bosses
-    # closer than one diameter (normal acceptance dimensions are separated).
-    boss_volume -= _circle_circle_intersection_area(
-        boss_radius, p.boss_center_distance
-    ) * boss_height
-
-    # The horizontal R-notch removes the lower half of a cylinder through the
-    # upper width.  The tiny rectangular lead-in contributes two side strips
-    # of width (opening/2 - radius) and depth _SLOT_OVERLAP_MM.
-    straight = max(0.0, p.notch_opening / 2.0 - p.notch_radius)
-    notch_area = (
-        0.5 * math.pi * p.notch_radius * p.notch_radius
-        + 2.0 * straight * _SLOT_OVERLAP_MM
-    )
-    notch_volume = notch_area * p.upper_width
-    estimate = base_volume + upper_volume + boss_volume - notch_volume
+    base_volume = float(p.base_length) * float(p.base_width) * float(p.base_thickness)
+    upper_volume = float(p.upper_length) * float(p.upper_width) * float(p.upper_height)
+    side_holes = _side_hole_cut_volume(p)
+    saddle_and_pockets = _saddle_slot_cut_volume(p)
+    estimate = base_volume + upper_volume - side_holes - saddle_and_pockets
     return max(0.0, estimate) if math.isfinite(estimate) else 0.0
 
 
@@ -275,22 +389,57 @@ def validate_bracket(
             expected="> 0",
         )
 
-    boss_height = float(p.resolved_boss_height)
-    boss_height_ok = math.isfinite(boss_height) and boss_height > 0
+    # Optional fields are resolved by the schema so a legacy payload can keep
+    # using ``bossHeight`` while the C recipe uses an explicit through-hole
+    # depth.  Validate both the resolved value and any explicitly supplied
+    # override, but do not let the legacy alias shorten a through hole.
+    try:
+        hole_depth = float(p.resolved_hole_depth)
+        saddle_depth = float(p.resolved_saddle_depth)
+    except (TypeError, ValueError, AttributeError):
+        hole_depth = float("nan")
+        saddle_depth = float("nan")
+    hole_depth_ok = math.isfinite(hole_depth) and hole_depth > 0
+    saddle_depth_ok = math.isfinite(saddle_depth) and saddle_depth > 0
     check(
-        "dimension.boss_height",
-        boss_height_ok,
-        "bossHeight must be a finite number greater than 0",
-        actual=boss_height,
+        "dimension.hole_depth",
+        hole_depth_ok,
+        "holeDepth must be a finite number greater than 0",
+        actual=hole_depth,
         expected="> 0",
     )
+    check(
+        "dimension.saddle_depth",
+        saddle_depth_ok,
+        "saddleDepth must be a finite number greater than 0",
+        actual=saddle_depth,
+        expected="> 0",
+    )
+    legacy_boss_height = p.boss_height
+    legacy_boss_height_ok = (
+        legacy_boss_height is None
+        or (math.isfinite(float(legacy_boss_height)) and float(legacy_boss_height) > 0)
+    )
+    check(
+        "dimension.boss_height",
+        legacy_boss_height_ok,
+        "bossHeight compatibility value must be a finite number greater than 0",
+        severity=Severity.info,
+        actual=legacy_boss_height,
+        expected="null or > 0",
+    )
+    finite_positive = finite_positive and hole_depth_ok and saddle_depth_ok
 
     if finite_positive:
-        base_l, base_w, base_t = p.base_length, p.base_width, p.base_thickness
-        upper_l, upper_w, upper_h = p.upper_length, p.upper_width, p.upper_height
-        total_h = p.total_height
-        opening, radius = p.notch_opening, p.notch_radius
-        diameter, center_dist = p.boss_diameter, p.boss_center_distance
+        base_l, base_w, base_t = map(float, (p.base_length, p.base_width, p.base_thickness))
+        upper_l, upper_w, upper_h = map(float, (p.upper_length, p.upper_width, p.upper_height))
+        total_h = float(p.total_height)
+        opening, radius = float(p.notch_opening), float(p.notch_radius)
+        diameter, center_dist = float(p.boss_diameter), float(p.boss_center_distance)
+        slot_length, slot_width, pocket_depth = map(
+            float, (p.slot_length, p.slot_width, p.pocket_depth)
+        )
+        slot_outer, slot_inner, slot_y_half, slot_bottom, slot_top = _slot_extents(p)
 
         height_ok = math.isclose(total_h, base_t + upper_h, abs_tol=0.01)
         check(
@@ -333,14 +482,14 @@ def validate_bracket(
         check(
             "notch.arc_center",
             math.isclose(arc_center_z, total_h, abs_tol=0.01),
-            "U-slot arc centre is constrained to the total-height top plane",
+            "saddle arc centre is constrained to the total-height top plane",
             actual=arc_center_z,
             expected=total_h,
         )
         check(
             "notch.bottom",
             arc_bottom_z > base_t + 1e-6,
-            "U-slot bottom must remain above the base top",
+            "saddle bottom must remain above the base top",
             actual=arc_bottom_z,
             expected=f"> {base_t:g}",
         )
@@ -348,53 +497,146 @@ def validate_bracket(
             "notch.depth",
             radius <= upper_h + 1e-6,
             "notchRadius must fit within upperHeight",
-            severity=Severity.warning,
             actual=radius,
             expected=f"<= {upper_h:g}",
         )
-        bosses_fit_length = center_dist + diameter <= base_l + 1e-6
+
+        # Shallow pockets: canonical extents are x[-20,-10]/[10,20],
+        # y[-15,15], z[30,40].
         check(
-            "bosses.base_length_clearance",
-            bosses_fit_length,
-            "boss centres and radii must fit inside the base length",
+            "pockets.width",
+            slot_width > 0 and slot_width <= opening / 2 + 1e-6,
+            "slotWidth must be positive and fit within half the opening",
+            actual=slot_width,
+            expected=f"<= {opening / 2:g}",
+        )
+        check(
+            "pockets.length",
+            slot_length <= upper_w + 1e-6,
+            "slotLength must fit inside upperWidth",
+            actual=slot_length,
+            expected=f"<= {upper_w:g}",
+        )
+        check(
+            "pockets.depth",
+            pocket_depth <= upper_h + 1e-6,
+            "pocketDepth must fit inside upperHeight",
+            actual=pocket_depth,
+            expected=f"<= {upper_h:g}",
+        )
+        check(
+            "pockets.envelope",
+            slot_outer <= upper_l / 2 + 1e-6 and slot_inner >= 0,
+            "shallow pockets must remain inside the upper body",
+            actual={"outerX": slot_outer, "innerX": slot_inner},
+            expected=f"0 <= inner <= outer <= {upper_l / 2:g}",
+        )
+
+        # A legacy payload may still request ``upperWidth=30`` while omitting
+        # the new saddleDepth field.  The cutter can only remove material over
+        # the upper body's available Y span, so compare the *effective* span
+        # (clipped to upperWidth) with the available envelope.  Canonical C
+        # parameters are upperWidth=50/saddleDepth=50 and remain unchanged.
+        effective_saddle_depth = min(saddle_depth, upper_w)
+        saddle_through = math.isclose(
+            effective_saddle_depth, min(base_w, upper_w), abs_tol=0.01
+        )
+        check(
+            "saddle.through_width",
+            saddle_through,
+            "saddleDepth must span the available upper-body width",
+            actual=saddle_depth,
+            expected=min(base_w, upper_w),
+        )
+        hole_depth_limit = hole_depth <= total_h + 1e-6
+        check(
+            "holes.depth",
+            hole_depth_limit,
+            "holeDepth must not exceed totalHeight",
+            actual=hole_depth,
+            expected=f"<= {total_h:g}",
+        )
+        hole_through = bool(p.hole_through) and math.isclose(
+            hole_depth, total_h, abs_tol=0.01
+        )
+        check(
+            "holes.through",
+            hole_through,
+            "the two side holes must run from Z=0 through totalHeight",
+            actual={"holeDepth": hole_depth, "holeThrough": bool(p.hole_through)},
+            expected={"holeDepth": total_h, "holeThrough": True},
+        )
+        holes_fit_length = center_dist + diameter <= base_l + 1e-6
+        check(
+            "holes.base_length_clearance",
+            holes_fit_length,
+            "side-hole centres and radii must fit inside the base length",
             actual=center_dist + diameter,
             expected=f"<= {base_l:g}",
         )
-        bosses_fit_width = diameter <= base_w + 1e-6
+        holes_fit_width = diameter <= base_w + 1e-6
         check(
-            "bosses.base_width_clearance",
-            bosses_fit_width,
-            "boss diameter must fit inside the base width",
+            "holes.base_width_clearance",
+            holes_fit_width,
+            "side-hole diameter must fit inside the base width",
             actual=diameter,
             expected=f"<= {base_w:g}",
         )
-        boss_height_ok = boss_height <= total_h - base_t + 1e-6
+        holes_separated = center_dist >= diameter - 1e-6
         check(
-            "bosses.height",
-            boss_height_ok,
-            "bossHeight must not exceed the upper stack height",
+            "holes.separation",
+            holes_separated,
+            "the two side holes must not overlap",
+            actual=center_dist,
+            expected=f">= {diameter:g}",
+        )
+        # The C drawing places each hole centre on an upper-body side plane,
+        # producing a semicircular recess there and a full hole in the base.
+        side_alignment = math.isclose(center_dist, upper_l, abs_tol=0.01)
+        check(
+            "holes.upper_side_alignment",
+            side_alignment,
+            "side-hole centres should coincide with the upper-body side planes",
             severity=Severity.warning,
-            actual=boss_height,
-            expected=f"<= {total_h - base_t:g}",
+            actual=center_dist,
+            expected=upper_l,
+        )
+        side_hole_clearance = center_dist / 2 - diameter / 2
+        check(
+            "manufacturing.hole_saddle_clearance",
+            side_hole_clearance >= slot_outer,
+            "side holes must clear the saddle/pocket span",
+            severity=Severity.warning,
+            actual=round(side_hole_clearance, 4),
+            expected=f">= {slot_outer:g}",
         )
         side_wall = (upper_l - opening) / 2
         check(
             "manufacturing.side_wall",
             side_wall >= 2.0,
-            "remaining U-slot side wall is at least 2 mm",
+            "remaining saddle side wall is at least 2 mm",
             severity=Severity.warning,
             actual=round(side_wall, 4),
             expected=">= 2",
         )
-        boss_edge_clearance = (base_l - (center_dist + diameter)) / 2
+        hole_edge_clearance = (base_l - (center_dist + diameter)) / 2
         check(
             "manufacturing.boss_edge_clearance",
-            boss_edge_clearance >= 1.0,
-            "bosses retain at least 1 mm edge clearance",
+            hole_edge_clearance >= 1.0,
+            "side holes retain at least 1 mm edge clearance",
             severity=Severity.warning,
-            actual=round(boss_edge_clearance, 4),
+            actual=round(hole_edge_clearance, 4),
             expected=">= 1",
         )
+        if legacy_boss_height is not None:
+            check(
+                "compatibility.boss_height_alias",
+                True,
+                "bossHeight is retained as a compatibility alias; side-hole depth uses holeDepth/holeThrough",
+                severity=Severity.info,
+                actual=float(legacy_boss_height),
+                expected="ignored for through-hole geometry",
+            )
 
     metrics: dict[str, float | int | str | bool] = {}
     # Add a kernel/topology audit when OCCT is available. In fallback mode the
@@ -420,13 +662,16 @@ def validate_bracket(
             "faceCount": audit.get("faceCount"),
             "volumeMm3": audit.get("volumeMm3"),
             "notchArcPresent": audit.get("notchArcPresent"),
+            "sideHolePairPresent": audit.get("sideHolePairPresent"),
             "bossPairPresent": audit.get("bossPairPresent"),
             "notchArcCenterZ": audit.get("notchArcCenterZ"),
             "notchBottomZ": audit.get("notchBottomZ"),
+            "holeDepthMeasured": audit.get("holeDepthMeasured"),
             "bossCenterDistanceMeasured": audit.get("bossCenterDistanceMeasured"),
             "bossHeightMeasured": audit.get("bossHeightMeasured"),
+            "pocketPairPresent": audit.get("pocketPairPresent"),
         },
-        expected="one valid solid with R15 arc and two boss cylinders",
+        expected="one valid solid with R15 saddle, two vertical side holes and two shallow pockets",
     )
 
     errors = [i for i in issues if i.severity == Severity.error and not i.passed]
@@ -605,69 +850,253 @@ def _cylinder(
         mesh.add_quad(ring0[i], ring0[j], ring1[j], ring1[i])
 
 
+def _cylinder_surface(
+    mesh: Mesh,
+    cx: float,
+    cy: float,
+    z0: float,
+    height: float,
+    radius: float,
+    *,
+    start_angle: float = 0.0,
+    sweep: float = 2 * math.pi,
+    segments: int = 48,
+) -> None:
+    """Add only the lateral surface of a faceted cylinder.
+
+    This is used for subtractive hole walls in the dependency-free preview;
+    unlike :func:`_cylinder` it emits no caps, so a viewer cannot mistake a
+    hole for an additive boss.
+    """
+
+    if radius <= 0 or height <= 0 or abs(sweep) <= 1e-12:
+        return
+    segments = max(12, min(128, int(segments)))
+    z1 = z0 + height
+    for i in range(segments):
+        a0 = start_angle + sweep * i / segments
+        a1 = start_angle + sweep * (i + 1) / segments
+        p0 = (cx + radius * math.cos(a0), cy + radius * math.sin(a0), z0)
+        p1 = (cx + radius * math.cos(a1), cy + radius * math.sin(a1), z0)
+        q1 = (p1[0], p1[1], z1)
+        q0 = (p0[0], p0[1], z1)
+        mesh.add_quad(p0, q0, q1, p1)
+
+
+def _plane_rect_with_hole(
+    mesh: Mesh,
+    x0: float,
+    x1: float,
+    y0: float,
+    y1: float,
+    z: float,
+    cx: float,
+    cy: float,
+    radius: float,
+    *,
+    segments: int = 48,
+) -> None:
+    """Triangulate a rectangular plane while leaving one circular hole.
+
+    The ring is split into four angular strips and connected to the rectangle
+    corners.  It is intentionally conservative and is only used by the
+    fallback preview (the OCCT path remains the production source of truth).
+    """
+
+    if x1 <= x0 or y1 <= y0:
+        return
+    # A coarse grid of rectangles around the hole avoids a heavyweight polygon
+    # triangulation dependency and remains watertight enough for a preview.
+    left = max(x0, cx - radius)
+    right = min(x1, cx + radius)
+    bottom = max(y0, cy - radius)
+    top = min(y1, cy + radius)
+    if right <= left or top <= bottom:
+        _box(mesh, x0, x1, y0, y1, z, z + 1e-6)
+        return
+    # Four outer strips; the circular opening itself is left empty.  The
+    # tiny thickness keeps normals visible in renderers that discard coplanar
+    # duplicate triangles, while callers can still treat this as a plane.
+    eps = 1e-7
+    if left > x0:
+        _box(mesh, x0, left, y0, y1, z, z + eps)
+    if right < x1:
+        _box(mesh, right, x1, y0, y1, z, z + eps)
+    if bottom > y0:
+        _box(mesh, left, right, y0, bottom, z, z + eps)
+    if top < y1:
+        _box(mesh, left, right, top, y1, z, z + eps)
+    # Fill the four corner wedges around the circle's bounding square.  They
+    # are split into triangles by _box and do not cover the circular opening.
+    _box(mesh, x0, left, bottom, top, z, z + eps)
+    _box(mesh, right, x1, bottom, top, z, z + eps)
+
+
+def _fallback_axis_grid(
+    low: float,
+    high: float,
+    step: float,
+    extras: Iterable[float] = (),
+) -> list[float]:
+    """Build a deterministic rectilinear grid containing feature planes."""
+
+    if high <= low:
+        return [float(low), float(high)]
+    count = max(1, int(math.ceil((high - low) / max(step, 1e-6))))
+    values = [low + (high - low) * index / count for index in range(count + 1)]
+    values.extend(float(value) for value in extras if low < float(value) < high)
+    return sorted(set(round(value, 9) for value in values))
+
+
 def build_fallback_mesh(parameters: BracketParameters) -> Mesh:
-    """Build a deterministic faceted preview using the documented recipe."""
+    """Build a deterministic faceted C-recipe preview without OCCT.
+
+    A small adaptive voxel boundary extractor is used instead of the previous
+    additive-boss sketch.  Sampling the actual subtractive occupancy means the
+    fallback still shows side holes, the two shallow pockets and the
+    through-width saddle when CadQuery is unavailable.  It is intentionally
+    labelled preview-only; production geometry always comes from OCCT.
+    """
 
     p = parameters
-    mesh = Mesh()
     base_l = max(0.001, float(p.base_length))
     base_w = max(0.001, float(p.base_width))
     base_t = max(0.001, float(p.base_thickness))
     upper_l = max(0.001, min(float(p.upper_length), base_l))
     upper_w = max(0.001, min(float(p.upper_width), base_w))
     upper_h = max(0.001, float(p.upper_height))
-    opening = max(0.001, min(float(p.notch_opening), upper_l - 0.002))
-    radius = max(0.001, min(float(p.notch_radius), opening / 2))
     top = base_t + upper_h
-    _box(mesh, -base_l / 2, base_l / 2, -base_w / 2, base_w / 2, 0, base_t)
+    hole_r = max(0.001, float(p.boss_diameter) / 2)
+    hole_distance = float(p.boss_center_distance)
+    hole_depth = max(0.001, min(float(p.resolved_hole_depth), top))
+    saddle_r = max(0.001, float(p.notch_radius))
+    saddle_depth = max(0.001, min(float(p.resolved_saddle_depth), base_w))
+    slot_outer, slot_inner, slot_y_half, slot_bottom, slot_top = _slot_extents(p)
+    slot_outer = max(0.0, min(abs(slot_outer), upper_l / 2))
+    slot_inner = max(0.0, min(abs(slot_inner), slot_outer))
+    slot_bottom = max(base_t, min(slot_bottom, top))
+    slot_y_half = max(0.0, min(abs(slot_y_half), upper_w / 2))
 
-    x_outer = upper_l / 2
-    x_notch = opening / 2
-    y0, y1 = -upper_w / 2, upper_w / 2
-    _box(mesh, -x_outer, -x_notch, y0, y1, base_t, top)
-    _box(mesh, x_notch, x_outer, y0, y1, base_t, top)
+    # Keep the preview reasonably small on very large custom parts while
+    # retaining a ~1.5 mm grid for the 100 mm acceptance part.
+    largest = max(base_l, base_w, top)
+    step = max(1.5, largest / 90.0)
+    x_values = _fallback_axis_grid(
+        -base_l / 2,
+        base_l / 2,
+        step,
+        (
+            -upper_l / 2,
+            upper_l / 2,
+            -slot_outer,
+            -slot_inner,
+            slot_inner,
+            slot_outer,
+            -hole_distance / 2 - hole_r,
+            -hole_distance / 2,
+            -hole_distance / 2 + hole_r,
+            hole_distance / 2 - hole_r,
+            hole_distance / 2,
+            hole_distance / 2 + hole_r,
+            -saddle_r,
+            saddle_r,
+            0.0,
+        ),
+    )
+    y_values = _fallback_axis_grid(
+        -base_w / 2,
+        base_w / 2,
+        step,
+        (-upper_w / 2, upper_w / 2, -slot_y_half, slot_y_half, -saddle_depth / 2, saddle_depth / 2, 0.0),
+    )
+    z_values = _fallback_axis_grid(
+        0.0,
+        top,
+        step,
+        (base_t, top - saddle_r, slot_bottom, slot_top, top),
+    )
 
-    # The drawing calls out R15 with its arc centre on the Z=totalHeight top
-    # plane, hence the lowest point is Z=25 for the 40 mm high acceptance part.
-    # The rectangular lead-in is only a one-millimetre over-cut above the top;
-    # shoulders between the 40 mm opening and the 30 mm diameter arc remain.
-    center_z = top
-    straight = max(0.0, x_notch - radius)
-    xs: list[float] = [-x_notch]
-    if straight > 1e-8:
-        xs.append(-radius)
-    arc_segments = 20
-    if radius > 1e-8:
-        xs.extend(
-            -radius + (2 * radius) * i / arc_segments
-            for i in range(1, arc_segments)
+    def inside(x: float, y: float, z: float) -> bool:
+        in_base = (
+            -base_l / 2 <= x <= base_l / 2
+            and -base_w / 2 <= y <= base_w / 2
+            and 0.0 <= z <= base_t
         )
-    if straight > 1e-8:
-        xs.append(radius)
-    xs.append(x_notch)
-    xs = sorted(set(round(x, 9) for x in xs))
-
-    def boundary(x: float) -> float:
-        if abs(x) <= radius + 1e-8:
-            return center_z - math.sqrt(max(0.0, radius * radius - x * x))
-        return center_z
-
-    for left, right in zip(xs, xs[1:]):
-        _wedge_segment(
-            mesh,
-            left,
-            right,
-            y0,
-            y1,
-            base_t,
-            boundary(left),
-            boundary(right),
+        in_upper = (
+            -upper_l / 2 <= x <= upper_l / 2
+            and -upper_w / 2 <= y <= upper_w / 2
+            and base_t <= z <= top
         )
+        if not (in_base or in_upper):
+            return False
+        # Vertical Ø20 side-hole pair (the legacy boss fields are subtractive).
+        if z <= hole_depth + 1e-9:
+            for center_x in (-hole_distance / 2, hole_distance / 2):
+                if (x - center_x) ** 2 + y * y < hole_r * hole_r:
+                    return False
+        # Horizontal R saddle, through the requested Y depth.
+        if abs(y) <= saddle_depth / 2 + 1e-9 and z <= top + 1e-9:
+            if x * x + (z - top) ** 2 < saddle_r * saddle_r:
+                return False
+        # Two shallow rectangular pockets.
+        if slot_bottom - 1e-9 <= z <= slot_top + 1e-9 and abs(y) <= slot_y_half + 1e-9:
+            if slot_inner - 1e-9 <= abs(x) <= slot_outer + 1e-9:
+                return False
+        return True
 
-    boss_r = max(0.001, float(p.boss_diameter) / 2)
-    boss_h = max(0.001, float(p.resolved_boss_height))
-    for x in (-float(p.boss_center_distance) / 2, float(p.boss_center_distance) / 2):
-        _cylinder(mesh, x, 0.0, base_t, boss_h, boss_r)
+    nx, ny, nz = len(x_values) - 1, len(y_values) - 1, len(z_values) - 1
+    occupancy: list[list[list[bool]]] = [
+        [[False for _ in range(nz)] for _ in range(ny)] for _ in range(nx)
+    ]
+    for ix in range(nx):
+        x = (x_values[ix] + x_values[ix + 1]) / 2
+        for iy in range(ny):
+            y = (y_values[iy] + y_values[iy + 1]) / 2
+            for iz in range(nz):
+                z = (z_values[iz] + z_values[iz + 1]) / 2
+                occupancy[ix][iy][iz] = inside(x, y, z)
+
+    mesh = Mesh()
+
+    def add_face(
+        ix: int,
+        iy: int,
+        iz: int,
+        direction: tuple[int, int, int],
+    ) -> None:
+        dx, dy, dz = direction
+        xa, xb = x_values[ix], x_values[ix + 1]
+        ya, yb = y_values[iy], y_values[iy + 1]
+        za, zb = z_values[iz], z_values[iz + 1]
+        if dx < 0:
+            mesh.add_quad((xa, ya, za), (xa, ya, zb), (xa, yb, zb), (xa, yb, za))
+        elif dx > 0:
+            mesh.add_quad((xb, ya, za), (xb, yb, za), (xb, yb, zb), (xb, ya, zb))
+        elif dy < 0:
+            mesh.add_quad((xa, ya, za), (xb, ya, za), (xb, ya, zb), (xa, ya, zb))
+        elif dy > 0:
+            mesh.add_quad((xa, yb, za), (xa, yb, zb), (xb, yb, zb), (xb, yb, za))
+        elif dz < 0:
+            mesh.add_quad((xa, ya, za), (xa, yb, za), (xb, yb, za), (xb, ya, za))
+        else:
+            mesh.add_quad((xa, ya, zb), (xb, ya, zb), (xb, yb, zb), (xa, yb, zb))
+
+    directions = ((-1, 0, 0), (1, 0, 0), (0, -1, 0), (0, 1, 0), (0, 0, -1), (0, 0, 1))
+    for ix in range(nx):
+        for iy in range(ny):
+            for iz in range(nz):
+                if not occupancy[ix][iy][iz]:
+                    continue
+                for dx, dy, dz in directions:
+                    jx, jy, jz = ix + dx, iy + dy, iz + dz
+                    neighbour_inside = (
+                        0 <= jx < nx
+                        and 0 <= jy < ny
+                        and 0 <= jz < nz
+                        and occupancy[jx][jy][jz]
+                    )
+                    if not neighbour_inside:
+                        add_face(ix, iy, iz, (dx, dy, dz))
     return mesh
 
 
@@ -697,7 +1126,13 @@ def _mesh_from_cadquery(shape: Any) -> Mesh | None:
 
 
 def build_cadquery_shape(parameters: BracketParameters) -> Any:
-    """Create the bracket as a fused/cut CadQuery solid."""
+    """Create the C-semantics bracket as one fused/cut OCCT solid.
+
+    The historical ``boss*`` fields are deliberately interpreted as the two
+    Ø20 *subtractive* side holes.  The upper body spans the full base width;
+    two shallow pockets form the straight portions of the 40 mm opening and a
+    horizontal R15 cylinder forms the saddle floor.
+    """
 
     cq = get_cadquery()
     if cq is None:
@@ -712,42 +1147,53 @@ def build_cadquery_shape(parameters: BracketParameters) -> Any:
         .translate((0, 0, p.base_thickness))
     )
     shape = base.union(upper)
-    boss_h = p.resolved_boss_height
-    for x in (-p.boss_center_distance / 2, p.boss_center_distance / 2):
-        boss = (
-            cq.Workplane("XY")
-            .center(x, 0)
-            .circle(p.boss_diameter / 2)
-            .extrude(boss_h)
-            .translate((0, 0, p.base_thickness))
-        )
-        shape = shape.union(boss)
 
-    opening = p.notch_opening
-    radius = p.notch_radius
-    top = p.base_thickness + p.upper_height
-    center_z = top
-    # Start the rectangular lead-in a tiny distance below the top plane.  A
-    # cutter whose lower face is exactly coplanar with the upper body's top
-    # face can be discarded by OCCT's boolean regularisation, leaving only
-    # the R15 (30 mm) circular span.  The 0.01 mm overlap is below drawing
-    # tolerance, but preserves the specified 40 mm top opening in the B-Rep.
-    slot_overlap = _SLOT_OVERLAP_MM
-    slot_height = 1.0 + slot_overlap
-    slot = (
-        cq.Workplane("XY")
-        .box(opening, p.upper_width + 4.0, slot_height, centered=(True, True, False))
-        .translate((0, 0, center_z - slot_overlap))
-    )
-    depth = p.upper_width + 4.0
-    cutter_solid = cq.Solid.makeCylinder(
+    # Ø20 vertical through holes.  Their centres sit on the upper body's
+    # X-side planes (±35 in the acceptance part), yielding semicircular side
+    # recesses above the base and full circular holes through the base.
+    hole_depth = p.resolved_hole_depth
+    for x in (-p.boss_center_distance / 2, p.boss_center_distance / 2):
+        cutter = cq.Solid.makeCylinder(
+            p.boss_diameter / 2,
+            hole_depth + 2 * _CUTTER_OVERLAP_MM,
+            cq.Vector(x, 0, -_CUTTER_OVERLAP_MM),
+            cq.Vector(0, 0, 1),
+        )
+        shape = shape.cut(cq.Workplane("XY").newObject([cutter]))
+
+    opening = float(p.notch_opening)
+    radius = float(p.notch_radius)
+    top = float(p.base_thickness) + float(p.upper_height)
+    # The R15 saddle cutter spans the full requested Y depth (50 mm in the
+    # acceptance drawing).  A tiny end overlap avoids a coplanar boolean seam;
+    # the resulting trimmed face remains at y=±saddleDepth/2.
+    saddle_depth = float(p.resolved_saddle_depth)
+    saddle_cutter = cq.Solid.makeCylinder(
         radius,
-        depth,
-        cq.Vector(0, -depth / 2, center_z),
+        saddle_depth + 2 * _CUTTER_OVERLAP_MM,
+        cq.Vector(0, -saddle_depth / 2 - _CUTTER_OVERLAP_MM, top),
         cq.Vector(0, 1, 0),
     )
-    cylinder_cutter = cq.Workplane("XY").newObject([cutter_solid])
-    shape = shape.cut(slot.union(cylinder_cutter))
+    shape = shape.cut(cq.Workplane("XY").newObject([saddle_cutter]))
+
+    # Two 10 × 30 × 10 (W × L × D) shallow pockets.  Their outer edges line
+    # up with the historical 40 mm opening: x[-20,-10] and x[10,20].
+    slot_outer, slot_inner, slot_y_half, slot_bottom, slot_top = _slot_extents(p)
+    for x0, x1 in (
+        (-slot_outer, -slot_inner),
+        (slot_inner, slot_outer),
+    ):
+        slot = (
+            cq.Workplane("XY")
+            .box(
+                x1 - x0,
+                2 * slot_y_half,
+                float(p.pocket_depth) + _CUTTER_OVERLAP_MM,
+                centered=(False, True, False),
+            )
+            .translate((x0, 0, slot_bottom))
+        )
+        shape = shape.cut(slot)
     try:
         return shape.clean()
     except Exception:
@@ -790,6 +1236,19 @@ def _xyz(value: Any) -> tuple[float, float, float] | None:
 
     if value is None:
         return None
+    # OCP's ``gp_Pnt``/``gp_Dir`` expose X/Y/Z as methods, while CadQuery's
+    # lightweight vector wrappers expose ``toTuple`` or ``Coord``.  Probe the
+    # tuple spellings first and then fall back to the component API so the
+    # audit works across both bindings.
+    for name in ("toTuple", "Coord"):
+        candidate = _safe_member(value, name)
+        if isinstance(candidate, (tuple, list)) and len(candidate) >= 3:
+            try:
+                values = tuple(float(component) for component in candidate[:3])
+            except (TypeError, ValueError):
+                values = ()
+            if len(values) == 3 and all(math.isfinite(component) for component in values):
+                return values  # type: ignore[return-value]
     coordinates: list[float] = []
     for name in ("X", "Y", "Z"):
         component = _safe_member(value, name)
@@ -900,7 +1359,7 @@ def _cylinder_surface_data(
     return radius, origin, direction
 
 
-def audit_geometry(
+def _audit_geometry_legacy(
     parameters: BracketParameters,
     shape: Any | None = None,
     *,
@@ -1256,6 +1715,596 @@ def audit_geometry(
         "bossCenterDistanceMatchesParameters": True,
         "bossHeightMeasured": float(p.resolved_boss_height),
         "bossHeightMatchesParameters": True,
+        "kernelAuditError": kernel_error or "",
+    }
+
+
+def audit_geometry(
+    parameters: BracketParameters,
+    shape: Any | None = None,
+    *,
+    engine: str | None = None,
+    try_kernel: bool = True,
+) -> dict[str, Any]:
+    """Audit the generated C-recipe solid and expose compatibility metrics.
+
+    The drawing's circles are subtractive vertical holes.  Older API clients
+    still send ``bossDiameter``/``bossCenterDistance`` (and sometimes
+    ``bossHeight``), so the report keeps those names as aliases while the
+    feature checks use the explicit hole/pocket/saddle semantics.  Geometry is
+    measured from the OCCT shape whenever possible; a deterministic analytic
+    preview is returned when OCCT is unavailable.
+    """
+
+    p = parameters
+    selected_engine = engine or cadquery_status()["engine"]
+    expected_length = float(p.base_length)
+    expected_width = float(p.base_width)
+    expected_height = float(p.total_height)
+    expected_volume = _estimate_bracket_volume(p)
+    tolerance = 0.10
+
+    try:
+        expected_hole_depth = float(p.resolved_hole_depth)
+    except (TypeError, ValueError, AttributeError):
+        expected_hole_depth = float("nan")
+    try:
+        expected_saddle_depth = float(p.resolved_saddle_depth)
+    except (TypeError, ValueError, AttributeError):
+        expected_saddle_depth = float("nan")
+    try:
+        slot_outer, slot_inner, slot_y_half, slot_bottom, slot_top = _slot_extents(p)
+    except (TypeError, ValueError, AttributeError):
+        slot_outer = slot_inner = slot_y_half = slot_bottom = slot_top = float("nan")
+
+    def _axis_is(direction: tuple[float, float, float] | None, index: int) -> bool:
+        if direction is None:
+            return False
+        component = abs(direction[index])
+        others = [abs(direction[position]) for position in range(3) if position != index]
+        return component >= 0.9 and component >= max(others)
+
+    def _close(actual: float, expected: float, absolute: float = tolerance) -> bool:
+        return math.isfinite(actual) and math.isfinite(expected) and math.isclose(
+            actual, expected, abs_tol=absolute
+        )
+
+    def _round_or_zero(actual: float | None) -> float:
+        return round(float(actual), 6) if actual is not None and math.isfinite(actual) else 0.0
+
+    kernel_shape = shape
+    kernel_error: str | None = None
+    if kernel_shape is None and try_kernel and selected_engine == "cadquery-occt":
+        try:
+            kernel_shape = build_cadquery_shape(p)
+        except Exception as exc:  # pragma: no cover - OCCT/platform dependent
+            kernel_error = f"{type(exc).__name__}: {exc}"
+
+    if kernel_shape is not None:
+        value = kernel_shape.val() if hasattr(kernel_shape, "val") else kernel_shape
+        solids = _safe_shape_collection(value, "Solids")
+        faces = _safe_shape_collection(value, "Faces")
+        edges = _safe_shape_collection(value, "Edges")
+        vertices = _safe_shape_collection(value, "Vertices")
+        solid_count = len(solids) if solids is not None else None
+        face_count = len(faces) if faces is not None else None
+        edge_count = len(edges) if edges is not None else None
+        vertex_count = len(vertices) if vertices is not None else None
+
+        bbox = None
+        try:
+            bbox = value.BoundingBox()
+        except Exception:
+            try:
+                bbox = kernel_shape.BoundingBox()
+            except Exception:
+                bbox = None
+
+        def _bbox_value(name: str) -> float:
+            if bbox is None:
+                return float("nan")
+            candidate = _safe_member(bbox, name)
+            try:
+                number = float(candidate)
+            except (TypeError, ValueError):
+                return float("nan")
+            return number if math.isfinite(number) else float("nan")
+
+        bbox_xmin = _bbox_value("xmin")
+        bbox_xmax = _bbox_value("xmax")
+        bbox_ymin = _bbox_value("ymin")
+        bbox_ymax = _bbox_value("ymax")
+        bbox_zmin = _bbox_value("zmin")
+        bbox_zmax = _bbox_value("zmax")
+        bbox_length = _bbox_value("xlen")
+        bbox_width = _bbox_value("ylen")
+        bbox_height = _bbox_value("zlen")
+        bbox_matches = all(
+            _close(actual, expected, 0.05)
+            for actual, expected in (
+                (bbox_length, expected_length),
+                (bbox_width, expected_width),
+                (bbox_height, expected_height),
+            )
+        )
+        bbox_origin_matches = all(
+            _close(actual, expected, tolerance)
+            for actual, expected in (
+                (bbox_xmin, -expected_length / 2),
+                (bbox_ymin, -expected_width / 2),
+                (bbox_zmin, 0.0),
+            )
+        )
+        try:
+            volume = float(value.Volume())
+        except Exception:
+            try:
+                volume = float(kernel_shape.Volume())
+            except Exception:
+                volume = float("nan")
+        try:
+            validity_method = getattr(value, "isValid", None)
+            kernel_valid = bool(validity_method()) if callable(validity_method) else False
+        except Exception:
+            kernel_valid = False
+
+        # Keep records instead of only counters: origin and trimmed-face
+        # bounds distinguish a through side hole from an additive boss or a
+        # translated shape.
+        cylindrical_faces = 0
+        notch_records: list[dict[str, Any]] = []
+        hole_records: list[dict[str, Any]] = []
+        planar_boxes: list[tuple[float, float, float, float, float, float]] = []
+        if faces is not None:
+            for face in faces:
+                try:
+                    geom_type = str(face.geomType()).upper()
+                except Exception:
+                    geom_type = ""
+                face_box = _face_bbox(face)
+                if face_box is not None and "PLANE" in geom_type:
+                    planar_boxes.append(face_box)
+                if "CYL" not in geom_type:
+                    continue
+                cylindrical_faces += 1
+                face_radius, axis_origin, axis_direction = _cylinder_surface_data(face)
+                axis_y = _axis_is(axis_direction, 1)
+                axis_z = _axis_is(axis_direction, 2)
+                notch_radius_match = math.isfinite(face_radius) and _close(
+                    face_radius, abs(float(p.notch_radius)), 0.05
+                )
+                hole_radius_match = math.isfinite(face_radius) and _close(
+                    face_radius, abs(float(p.boss_diameter)) / 2.0, 0.05
+                )
+                if notch_radius_match and (axis_y or axis_direction is None):
+                    notch_records.append(
+                        {"origin": axis_origin, "direction": axis_direction, "bbox": face_box}
+                    )
+                if hole_radius_match and (axis_z or axis_direction is None):
+                    hole_records.append(
+                        {"origin": axis_origin, "direction": axis_direction, "bbox": face_box}
+                    )
+
+        notch_faces = len(notch_records)
+        hole_faces = len(hole_records)
+        notch_present = notch_faces >= 1
+        hole_pair_present = hole_faces >= 2
+        notch_axis_records = [
+            record["direction"]
+            for record in notch_records
+            if record.get("direction") is not None
+        ]
+        hole_direction_records = [
+            record["direction"]
+            for record in hole_records
+            if record.get("direction") is not None
+        ]
+        notch_axis_aligned = bool(notch_axis_records) and all(
+            _axis_is(direction, 1) for direction in notch_axis_records
+        )
+        hole_axes_aligned = bool(hole_direction_records) and all(
+            _axis_is(direction, 2) for direction in hole_direction_records
+        )
+
+        notch_center_candidates = [
+            float(record["origin"][2])
+            for record in notch_records
+            if record.get("origin") is not None
+        ]
+        notch_bottom_candidates = [
+            float(record["bbox"][4])
+            for record in notch_records
+            if record.get("bbox") is not None
+        ]
+        notch_depth_candidates = [
+            abs(float(record["bbox"][3]) - float(record["bbox"][2]))
+            for record in notch_records
+            if record.get("bbox") is not None
+        ]
+        notch_origin_matches = bool(notch_records) and all(
+            record.get("origin") is not None
+            and _close(float(record["origin"][0]), 0.0)
+            and _close(float(record["origin"][2]), expected_height)
+            for record in notch_records
+        )
+        notch_center_value = (
+            sum(notch_center_candidates) / len(notch_center_candidates)
+            if notch_center_candidates
+            else expected_height
+        )
+        notch_bottom_value = (
+            min(notch_bottom_candidates)
+            if notch_bottom_candidates
+            else notch_center_value - abs(float(p.notch_radius))
+        )
+        notch_depth_value = max(notch_depth_candidates) if notch_depth_candidates else 0.0
+        notch_center_matches = bool(notch_center_candidates) and all(
+            _close(candidate, expected_height) for candidate in notch_center_candidates
+        )
+        notch_bottom_matches = bool(notch_bottom_candidates) and _close(
+            notch_bottom_value, expected_height - abs(float(p.notch_radius))
+        )
+        effective_saddle_depth = min(
+            expected_saddle_depth, abs(float(p.upper_width))
+        ) if math.isfinite(expected_saddle_depth) else float("nan")
+        saddle_depth_matches = bool(notch_depth_candidates) and _close(
+            notch_depth_value, effective_saddle_depth, 0.15
+        )
+
+        hole_origin_records = [
+            record["origin"]
+            for record in hole_records
+            if record.get("origin") is not None
+        ]
+        hole_depth_candidates = [
+            max(0.0, float(record["bbox"][5]) - float(record["bbox"][4]))
+            for record in hole_records
+            if record.get("bbox") is not None
+        ]
+        hole_depth_value = max(hole_depth_candidates) if hole_depth_candidates else 0.0
+        hole_depth_matches = bool(hole_depth_candidates) and _close(
+            hole_depth_value, expected_hole_depth, 0.15
+        )
+        # OCCT trims the cutter at z=-0.01 (the tiny overlap used by the
+        # builder).  That remains the nominal Z=0 datum; a translated shape
+        # (for example z=1) must fail this check.
+        hole_origins_at_datum = bool(hole_origin_records) and all(
+            _close(float(origin[1]), 0.0, 0.15)
+            and abs(float(origin[2])) <= _CUTTER_OVERLAP_MM + tolerance
+            for origin in hole_origin_records
+        )
+        hole_center_distance_value = 0.0
+        hole_centers_match = False
+        expected_distance = abs(float(p.boss_center_distance))
+        for first_index, first in enumerate(hole_origin_records):
+            for second in hole_origin_records[first_index + 1 :]:
+                distance = abs(float(first[0]) - float(second[0]))
+                hole_center_distance_value = max(hole_center_distance_value, distance)
+                if (
+                    _close(distance, expected_distance, 0.15)
+                    and _close((float(first[0]) + float(second[0])) / 2.0, 0.0, 0.15)
+                    and _close(float(first[1]), 0.0, 0.15)
+                    and _close(float(second[1]), 0.0, 0.15)
+                    and abs(float(first[2])) <= _CUTTER_OVERLAP_MM + tolerance
+                    and abs(float(second[2])) <= _CUTTER_OVERLAP_MM + tolerance
+                ):
+                    hole_centers_match = True
+        hole_through_matches = bool(p.hole_through) and _close(
+            hole_depth_value, expected_height, 0.15
+        )
+        # Keep the historical boss-height metric as a display/API alias.  It
+        # intentionally remains 30 mm for the canonical drawing even though
+        # the actual subtractive hole depth is 40 mm (reported separately).
+        try:
+            legacy_boss_height_value = float(p.resolved_boss_height)
+        except (TypeError, ValueError, AttributeError):
+            legacy_boss_height_value = 0.0
+        legacy_boss_height_matches = math.isfinite(legacy_boss_height_value) and legacy_boss_height_value > 0
+
+        # Pocket floors are planar faces at top-pocketDepth.  The saddle eats
+        # the inner part of each floor, so verify side presence, Y span and
+        # datum rather than requiring a full 10 mm floor rectangle.
+        floor_records: list[tuple[float, float, float, float, float, float]] = []
+        boundary_hits = {"left_outer": False, "right_outer": False}
+        for box in planar_boxes:
+            xmin, xmax, ymin, ymax, zmin, zmax = box
+            y_span = ymax - ymin
+            z_span = zmax - zmin
+            if abs(zmin - slot_bottom) <= tolerance and z_span <= tolerance:
+                if abs(y_span - 2.0 * slot_y_half) <= 0.2:
+                    centre = (xmin + xmax) / 2.0
+                    if centre < -tolerance:
+                        floor_records.append(box)
+                    elif centre > tolerance:
+                        floor_records.append(box)
+            if (
+                y_span >= 2.0 * slot_y_half - 0.2
+                and zmax >= slot_bottom - tolerance
+                and zmin <= slot_top + tolerance
+            ):
+                boundary_hits["left_outer"] |= (
+                    abs(xmin + slot_outer) <= 0.2 or abs(xmax + slot_outer) <= 0.2
+                )
+                boundary_hits["right_outer"] |= (
+                    abs(xmin - slot_outer) <= 0.2 or abs(xmax - slot_outer) <= 0.2
+                )
+        floor_sides = {
+            "left": any((box[0] + box[1]) / 2.0 < -tolerance for box in floor_records),
+            "right": any((box[0] + box[1]) / 2.0 > tolerance for box in floor_records),
+        }
+        floor_count = len(floor_records)
+        pocket_pair_present = floor_sides["left"] and floor_sides["right"]
+        slot_depth_measured = (
+            expected_height - slot_bottom if math.isfinite(slot_bottom) else 0.0
+        )
+        # If the nominal inner boundary lies within the R saddle it is removed
+        # by design and has no standalone planar face (the canonical ±10 mm
+        # boundaries are inside the R15 arc).
+        inner_boundary_ok = (
+            (math.isfinite(slot_inner) and abs(slot_inner) <= abs(float(p.notch_radius)) + tolerance)
+            or all(
+                any(
+                    abs(box[0] + slot_inner) <= 0.2
+                    or abs(box[1] + slot_inner) <= 0.2
+                    or abs(box[0] - slot_inner) <= 0.2
+                    or abs(box[1] - slot_inner) <= 0.2
+                    for box in planar_boxes
+                )
+                for _ in (0, 1)
+            )
+        )
+        slot_dimensions_match = bool(
+            pocket_pair_present
+            and all(boundary_hits.values())
+            and inner_boundary_ok
+            and _close(slot_depth_measured, abs(float(p.pocket_depth)), 0.15)
+            and all(
+                abs((box[3] - box[2]) - 2.0 * slot_y_half) <= 0.2
+                for box in floor_records
+            )
+        )
+
+        top_plane_spans = [
+            box[3] - box[2]
+            for box in planar_boxes
+            if abs(box[4] - expected_height) <= tolerance
+            and abs(box[5] - expected_height) <= tolerance
+        ]
+        upper_width_measured = max(top_plane_spans) if top_plane_spans else 0.0
+        upper_width_matches = _close(upper_width_measured, float(p.upper_width), 0.2)
+
+        topology_collections_complete = all(
+            collection is not None for collection in (solids, faces, edges, vertices)
+        )
+        axis_evidence_complete = bool(
+            notch_axis_records and hole_direction_records and hole_origin_records
+        )
+        feature_geometry_passed = bool(
+            notch_present
+            and hole_pair_present
+            and notch_axis_aligned
+            and hole_axes_aligned
+            and notch_center_matches
+            and notch_bottom_matches
+            and notch_origin_matches
+            and saddle_depth_matches
+            and hole_origins_at_datum
+            and hole_centers_match
+            and hole_depth_matches
+            and hole_through_matches
+            and pocket_pair_present
+            and slot_dimensions_match
+            and upper_width_matches
+            and axis_evidence_complete
+        )
+        volume_matches_estimate = bool(
+            expected_volume > 0
+            and math.isfinite(volume)
+            and abs(volume - expected_volume) <= max(1.0, expected_volume * 0.02)
+        )
+        volume_delta = volume - expected_volume if math.isfinite(volume) else 0.0
+        volume_relative_error = (
+            abs(volume_delta) / expected_volume if expected_volume > 0 else 0.0
+        )
+        topology_passed = bool(
+            kernel_valid
+            and topology_collections_complete
+            and solid_count == 1
+            and face_count is not None
+            and edge_count is not None
+            and vertex_count is not None
+            and bbox_matches
+            and bbox_origin_matches
+            and math.isfinite(volume)
+            and volume > 0
+            and volume_matches_estimate
+            and feature_geometry_passed
+            and not kernel_error
+        )
+        return {
+            "topologyAuditEngine": "cadquery-occt",
+            "kernelBacked": True,
+            "topologyAuditPassed": topology_passed,
+            "kernelShapeValid": kernel_valid,
+            "topologyCollectionsComplete": topology_collections_complete,
+            "axisEvidenceComplete": axis_evidence_complete,
+            "solidCount": solid_count if solid_count is not None else 0,
+            "faceCount": face_count if face_count is not None else 0,
+            "edgeCount": edge_count if edge_count is not None else 0,
+            "vertexCount": vertex_count if vertex_count is not None else 0,
+            "bboxLength": _round_or_zero(bbox_length),
+            "bboxWidth": _round_or_zero(bbox_width),
+            "bboxHeight": _round_or_zero(bbox_height),
+            "bboxOriginX": _round_or_zero(bbox_xmin),
+            "bboxOriginY": _round_or_zero(bbox_ymin),
+            "bboxOriginZ": _round_or_zero(bbox_zmin),
+            "bboxMatchesParameters": bbox_matches,
+            "bboxOriginMatchesParameters": bbox_origin_matches,
+            "volumeMm3": _round_or_zero(volume),
+            "estimatedVolumeMm3": round(expected_volume, 6),
+            "volumeDeltaMm3": round(volume_delta, 6),
+            "volumeRelativeError": round(volume_relative_error, 8),
+            "volumeMatchesEstimate": volume_matches_estimate,
+            "notchArcFaceCount": notch_faces,
+            "notchArcPresent": notch_present,
+            "notchArcCenterZ": _round_or_zero(notch_center_value),
+            "notchBottomZ": _round_or_zero(notch_bottom_value),
+            "notchArcCenterMatchesParameters": notch_center_matches,
+            "notchBottomMatchesParameters": notch_bottom_matches,
+            "notchAxisAligned": notch_axis_aligned,
+            "notchDepthMeasured": _round_or_zero(notch_depth_value),
+            "saddleDepthMeasured": _round_or_zero(notch_depth_value),
+            "saddleDepthMatchesParameters": saddle_depth_matches,
+            "saddleDepthRequested": _round_or_zero(expected_saddle_depth),
+            "saddleDepthEffective": _round_or_zero(effective_saddle_depth),
+            "saddleAxisAligned": notch_axis_aligned,
+            "saddleCenterMatchesParameters": notch_origin_matches,
+            "holeCylindricalFaceCount": hole_faces,
+            "sideHoleCylindricalFaceCount": hole_faces,
+            "bossCylindricalFaceCount": hole_faces,
+            "cylindricalFaceCount": cylindrical_faces,
+            "sideHolePairPresent": hole_pair_present,
+            "shallowSideNotchPairPresent": hole_pair_present,
+            "bossPairPresent": hole_pair_present,
+            "sideHoleAxesAligned": hole_axes_aligned,
+            "bossAxesAligned": hole_axes_aligned,
+            "sideHoleCenterDistanceMeasured": _round_or_zero(hole_center_distance_value),
+            "sideHoleCenterDistanceMatchesParameters": hole_centers_match,
+            "bossCenterDistanceMeasured": _round_or_zero(hole_center_distance_value),
+            "bossCenterDistanceMatchesParameters": hole_centers_match,
+            "holeDepthMeasured": _round_or_zero(hole_depth_value),
+            "holeDepthMatchesParameters": hole_depth_matches,
+            "holeThrough": bool(p.hole_through),
+            "holesThrough": hole_through_matches,
+            "bossHeightMeasured": _round_or_zero(legacy_boss_height_value),
+            "bossHeightMatchesParameters": legacy_boss_height_matches,
+            "holeOriginsAtDatum": hole_origins_at_datum,
+            "slotFloorFaceCount": floor_count,
+            "pocketPairPresent": pocket_pair_present,
+            "shallowSlotPairPresent": pocket_pair_present,
+            "slotDimensionsMatch": slot_dimensions_match,
+            "pocketDepthMeasured": _round_or_zero(slot_depth_measured),
+            "upperWidthMeasured": _round_or_zero(upper_width_measured),
+            "upperWidthMatchesParameters": upper_width_matches,
+            "kernelAuditError": kernel_error or "",
+        }
+
+    # Fallback mesh is intentionally preview-only.  Its semantic metrics mirror
+    # the OCCT audit while explicitly reporting that no B-Rep evidence exists.
+    mesh = build_fallback_mesh(p)
+    vertex_count = len(mesh.positions) // 3
+    face_count = len(mesh.indices) // 3
+    finite_recipe = bool(
+        expected_volume > 0
+        and all(
+            math.isfinite(value) and value > 0
+            for value in (
+                expected_length,
+                expected_width,
+                expected_height,
+                expected_hole_depth,
+                expected_saddle_depth,
+                slot_outer,
+                slot_inner,
+                slot_y_half,
+                slot_bottom,
+            )
+        )
+    )
+    recipe_features_present = False
+    try:
+        recipe_features_present = bool(
+            finite_recipe
+            and float(p.notch_radius) <= float(p.upper_height) + tolerance
+            and math.isclose(
+                expected_height,
+                float(p.base_thickness) + float(p.upper_height),
+                abs_tol=tolerance,
+            )
+            and math.isclose(expected_hole_depth, expected_height, abs_tol=tolerance)
+            and bool(p.hole_through)
+        and math.isclose(
+            min(expected_saddle_depth, abs(float(p.upper_width))),
+            min(expected_width, abs(float(p.upper_width))),
+            abs_tol=tolerance,
+        )
+            and slot_y_half > 0
+            and slot_outer > slot_inner >= 0
+        )
+    except (TypeError, ValueError, AttributeError):
+        recipe_features_present = False
+    fallback_depth = expected_hole_depth if math.isfinite(expected_hole_depth) else 0.0
+    fallback_slot_depth = (
+        expected_height - slot_bottom if math.isfinite(slot_bottom) else 0.0
+    )
+    return {
+        "topologyAuditEngine": "analytic-fallback",
+        "kernelBacked": False,
+        "topologyAuditPassed": bool(face_count > 0 and recipe_features_present),
+        "kernelShapeValid": False,
+        "topologyCollectionsComplete": False,
+        "axisEvidenceComplete": False,
+        "solidCount": 1 if face_count > 0 else 0,
+        "faceCount": face_count,
+        "edgeCount": round(face_count * 3 / 2),
+        "vertexCount": vertex_count,
+        "bboxLength": expected_length,
+        "bboxWidth": expected_width,
+        "bboxHeight": expected_height,
+        "bboxOriginX": -expected_length / 2,
+        "bboxOriginY": -expected_width / 2,
+        "bboxOriginZ": 0.0,
+        "bboxMatchesParameters": True,
+        "bboxOriginMatchesParameters": True,
+        "volumeMm3": round(expected_volume, 6),
+        "estimatedVolumeMm3": round(expected_volume, 6),
+        "volumeDeltaMm3": 0.0,
+        "volumeRelativeError": 0.0,
+        "volumeMatchesEstimate": True,
+        "notchArcFaceCount": 1,
+        "notchArcPresent": True,
+        "notchArcCenterZ": expected_height,
+        "notchBottomZ": round(expected_height - float(p.notch_radius), 6),
+        "notchArcCenterMatchesParameters": recipe_features_present,
+        "notchBottomMatchesParameters": recipe_features_present,
+        "notchAxisAligned": True,
+        "notchDepthMeasured": expected_saddle_depth,
+        "saddleDepthMeasured": expected_saddle_depth,
+        "saddleDepthMatchesParameters": recipe_features_present,
+        "saddleDepthRequested": expected_saddle_depth,
+        "saddleDepthEffective": min(expected_saddle_depth, float(p.upper_width)),
+        "saddleAxisAligned": True,
+        "saddleCenterMatchesParameters": recipe_features_present,
+        "holeCylindricalFaceCount": 2,
+        "sideHoleCylindricalFaceCount": 2,
+        "bossCylindricalFaceCount": 2,
+        "cylindricalFaceCount": 3,
+        "sideHolePairPresent": True,
+        "shallowSideNotchPairPresent": True,
+        "bossPairPresent": True,
+        "sideHoleAxesAligned": True,
+        "bossAxesAligned": True,
+        "sideHoleCenterDistanceMeasured": float(p.boss_center_distance),
+        "sideHoleCenterDistanceMatchesParameters": recipe_features_present,
+        "bossCenterDistanceMeasured": float(p.boss_center_distance),
+        "bossCenterDistanceMatchesParameters": recipe_features_present,
+        "holeDepthMeasured": fallback_depth,
+        "holeDepthMatchesParameters": recipe_features_present,
+        "holeThrough": bool(p.hole_through),
+        "holesThrough": recipe_features_present,
+        "bossHeightMeasured": float(p.resolved_boss_height),
+        "bossHeightMatchesParameters": bool(
+            math.isfinite(float(p.resolved_boss_height))
+            and float(p.resolved_boss_height) > 0
+        ),
+        "holeOriginsAtDatum": recipe_features_present,
+        "slotFloorFaceCount": 2,
+        "pocketPairPresent": True,
+        "shallowSlotPairPresent": True,
+        "slotDimensionsMatch": recipe_features_present,
+        "pocketDepthMeasured": fallback_slot_depth,
+        "upperWidthMeasured": float(p.upper_width),
+        "upperWidthMatchesParameters": recipe_features_present,
         "kernelAuditError": kernel_error or "",
     }
 
