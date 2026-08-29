@@ -691,6 +691,9 @@ class CAMService:
         expected_revision: int | None = None,
         engine: SimulationEngine | None = None,
     ) -> SimulationResult:
+        # Simulation is a CAM-plan operation as well as a simulator action;
+        # requiring both permissions keeps service/HTTP semantics aligned.
+        self._require(actor_id, Permission.CAM_PLAN)
         self._require(actor_id, Permission.CAM_SIMULATE)
         plan = self.get_plan(plan_id)
         if expected_revision is not None and expected_revision != plan.revision:
