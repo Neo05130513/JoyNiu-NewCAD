@@ -242,3 +242,44 @@ def test_cam_routes_enforce_role_separation_and_release_gate() -> None:
     assert release.status_code == 200, release.text
     assert release.json()["status"] == "released"
     assert release.json()["text"].startswith("%\n")
+
+
+def test_cam_http_gate_rejects_same_account_approval_and_release() -> None:
+    """Even a dual-role account must use a distinct reviewer identity."""
+
+    services = build_platform_services(":memory:", auth_secret="s" * 32)
+    dual = services.auth.create_user(
+        "dual@example.com",
+        "a-very-long-password",
+        "Dual role",
+        roles=["reviewer", "manufacturing"],
+    )
+    app = FastAPI()
+    app.include_router(create_platform_router(services), prefix="/api/v1")
+    client = TestClient(app)
+    auth = {"Authorization": f"Bearer {services.auth.issue_token(dual).token}"}
+    plan = client.post(
+        "/api/v1/cam/plans",
+        headers=auth,
+        json={"geometryHash": "s" * 64, "stock": {"length": 110, "width": 60, "height": 45}},
+    )
+    assert plan.status_code == 201, plan.text
+    plan_id = plan.json()["id"]
+    assert client.post(
+        f"/api/v1/cam/plans/{plan_id}/operations",
+        headers=auth,
+        json={"operationType": "facing", "toolId": "T10", "depth": 1},
+    ).status_code == 201
+    simulation = client.post(
+        f"/api/v1/cam/plans/{plan_id}/simulate", headers=auth, json={}
+    )
+    assert simulation.status_code == 200, simulation.text
+    approval = client.post(
+        f"/api/v1/cam/plans/{plan_id}/approve",
+        headers=auth,
+        json={"simulationId": simulation.json()["id"]},
+    )
+    assert approval.status_code == 201, approval.text
+    release = client.post(f"/api/v1/cam/plans/{plan_id}/release", headers=auth, json={})
+    assert release.status_code == 409, release.text
+    assert "separate_reviewer" in str(release.json())

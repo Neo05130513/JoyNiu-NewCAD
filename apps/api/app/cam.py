@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 
-from .platform import AuthorizationError, Permission, ValidationError
+from .platform import AuthorizationError, Permission, PlatformError, ValidationError
 
 
 def _now() -> str:
@@ -36,7 +36,9 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-class CAMError(RuntimeError):
+class CAMError(PlatformError):
+    """Base CAM domain error mapped by the shared platform HTTP adapter."""
+
     pass
 
 
