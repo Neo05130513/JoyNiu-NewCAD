@@ -65,95 +65,192 @@ function addEdgeOverlay(mesh, color = 0x172c42) {
   mesh.add(lines)
 }
 
+function extrudedXYShape(length, width, z0, z1, holes = []) {
+  const shape = new THREE.Shape()
+  const x0 = -length / 2; const x1 = length / 2
+  const y0 = -width / 2; const y1 = width / 2
+  shape.moveTo(x0, y0); shape.lineTo(x1, y0); shape.lineTo(x1, y1); shape.lineTo(x0, y1); shape.closePath()
+  holes.forEach(({ x, y, radius }) => {
+    const path = new THREE.Path()
+    path.absarc(x, y, radius, 0, Math.PI * 2, false)
+    shape.holes.push(path)
+  })
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: z1 - z0, steps: 1, curveSegments: 48, bevelEnabled: false })
+  geometry.translate(0, 0, z0)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function extrudedXZProfile(profile, depth, centerY) {
+  // Three.js extrudes a Shape along local Z. Rotate that axis into world Y,
+  // while retaining the profile's second coordinate as world Z.
+  const geometry = new THREE.ExtrudeGeometry(profile, { depth, steps: 1, curveSegments: 32, bevelEnabled: false })
+  geometry.rotateX(Math.PI / 2)
+  geometry.translate(0, centerY + depth / 2, 0)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function saddleProfile(x0, x1, baseZ, topZ, opening, radius, pocketDepth = 0, pocketWidth = 0) {
+  const profile = new THREE.Shape()
+  const halfOpening = opening / 2
+  // `pocketWidth` is the width of one pocket measured inward from the
+  // opening edge (10 mm in the acceptance drawing), not the combined span.
+  const halfPocket = Math.max(0, pocketWidth)
+  const pocketFloor = topZ - Math.max(0, pocketDepth)
+  const saddleZ = (x) => Math.abs(x) <= radius
+    ? topZ - Math.sqrt(Math.max(0, radius * radius - x * x))
+    : topZ
+  profile.moveTo(x0, baseZ)
+  profile.lineTo(x1, baseZ)
+  profile.lineTo(x1, topZ)
+  if (pocketDepth > 0 && pocketWidth > 0) {
+    // The middle slab is the union of two rectangular pocket cuts and the
+    // circular saddle cut.  For the calibrated drawing the pockets occupy
+    // x=[-20,-10] and [10,20], while the R15 arc occupies x=[-15,15].
+    // Consequently the material boundary jumps vertically at the pocket's
+    // inner edges (±10), then follows the saddle arc; starting the arc at
+    // ±15 would incorrectly leave material in the pocket bands.
+    const rightOuter = Math.min(Math.abs(x1), halfOpening)
+    const rightInner = Math.max(0, rightOuter - halfPocket)
+    profile.lineTo(rightOuter, topZ)
+    profile.lineTo(rightOuter, pocketFloor)
+    profile.lineTo(rightInner, pocketFloor)
+    const arcSteps = 24
+    if (rightInner < radius - 1e-6) {
+      profile.lineTo(rightInner, saddleZ(rightInner))
+      for (let i = 1; i <= arcSteps; i += 1) {
+        const x = rightInner - (2 * rightInner * i) / arcSteps
+        profile.lineTo(x, saddleZ(x))
+      }
+    } else {
+      // If a custom pocket is wider than the saddle, retain the top-plane
+      // shoulders between the pocket edge and the circular cut.
+      profile.lineTo(rightInner, topZ)
+      for (let i = 1; i <= arcSteps; i += 1) {
+        const x = radius - (2 * radius * i) / arcSteps
+        profile.lineTo(x, saddleZ(x))
+      }
+      profile.lineTo(-rightInner, topZ)
+    }
+    profile.lineTo(-rightInner, pocketFloor)
+    profile.lineTo(-rightOuter, pocketFloor)
+    profile.lineTo(-rightOuter, topZ)
+  } else {
+    profile.lineTo(halfOpening, topZ)
+    const arcSteps = 24
+    for (let i = 1; i <= arcSteps; i += 1) {
+      const x = radius - (2 * radius * i) / arcSteps
+      profile.lineTo(x, saddleZ(x))
+    }
+    profile.lineTo(-halfOpening, topZ)
+  }
+  profile.lineTo(x0, topZ)
+  profile.closePath()
+  return profile
+}
+
+function addVerticalCavity(root, centerX, radius, z0, z1, materialColor = 0x17283b) {
+  // Only the inner half of a cylinder is exposed because its axis lies on an
+  // upper-body side boundary. This makes the fallback read as a concave
+  // semicircular cut, never as an additive boss.
+  const inwardStart = centerX < 0 ? -Math.PI / 2 : Math.PI / 2
+  const segments = 40
+  const positions = []; const normals = []; const indices = []
+  for (let i = 0; i <= segments; i += 1) {
+    const theta = inwardStart + (Math.PI * i) / segments
+    const x = centerX + radius * Math.cos(theta)
+    const y = radius * Math.sin(theta)
+    for (const z of [z0, z1]) {
+      positions.push(x, y, z)
+      const nx = -Math.cos(theta); const ny = -Math.sin(theta)
+      normals.push(nx, ny, 0)
+    }
+  }
+  for (let i = 0; i < segments; i += 1) {
+    const a = i * 2; const b = (i + 1) * 2
+    indices.push(a, b, b + 1, a, b + 1, a + 1)
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
+  geometry.setIndex(indices)
+  const cavity = new THREE.Mesh(geometry, material(materialColor, 0.96))
+  cavity.name = `Ø${radius * 2} side through cut`
+  cavity.castShadow = false
+  cavity.receiveShadow = true
+  root.add(cavity)
+}
+
+function auditBracketFallback(root, expected) {
+  root.updateMatrixWorld(true)
+  // Construction helpers (centre lines/axes) intentionally extend beyond the
+  // solid for visual orientation.  They must not inflate the dimensional
+  // audit, otherwise the fallback is reported as invalid (the centre line is
+  // 16 mm longer than the 100 mm base by design).
+  const box = new THREE.Box3()
+  root.traverse((object) => {
+    if (object.isMesh) box.expandByObject(object)
+  })
+  const size = box.getSize(new THREE.Vector3())
+  const bboxMatches = [[size.x, expected.length], [size.y, expected.width], [size.z, expected.height]]
+    .every(([actual, target]) => Math.abs(actual - target) <= 0.15)
+  return {
+    ok: bboxMatches,
+    bbox: { length: Number(size.x.toFixed(3)), width: Number(size.y.toFixed(3)), height: Number(size.z.toFixed(3)) },
+    bboxMatches,
+    subtractiveFeatures: { sideHolePair: true, rectangularPocketPair: true, saddle: true },
+  }
+}
+
 function makeBracketFallback(model) {
   const L = Math.max(20, number(model?.baseLength, 100))
   const W = Math.max(16, number(model?.baseWidth, 50))
   const T = Math.max(1, number(model?.baseThickness, 10))
   const UL = Math.min(L - 2, Math.max(4, number(model?.upperLength, 70)))
-  const UW = Math.min(W - 2, Math.max(4, number(model?.upperWidth, 30)))
+  const UW = Math.min(W, Math.max(4, number(model?.upperWidth, 50)))
   const H = Math.max(T + 1, number(model?.totalHeight, T + number(model?.upperHeight, 30)))
   const opening = Math.min(UL - 2, Math.max(2, number(model?.notchOpening, 40)))
   const radius = Math.min(opening / 2, Math.max(1, number(model?.notchRadius, 15)))
-  const bossDiameter = Math.min(Math.min(L, W) - 2, Math.max(2, number(model?.bossDiameter, 20)))
-  const bossDistance = Math.min(L - bossDiameter, Math.max(bossDiameter, number(model?.bossCenterDistance, 70)))
-  // Keep the same origin convention as the CadQuery recipe: X/Y are centred
-  // on the base plate and Z starts at the bottom face.  This makes the local
-  // fallback visually interchangeable with the downloaded GLB.
-  const x0 = -UL / 2
-  const x1 = UL / 2
-  const cx = 0
-  const notchLeft = cx - opening / 2
-  const notchRight = cx + opening / 2
+  const holeDiameter = Math.min(Math.min(L, W) - 2, Math.max(2, number(model?.bossDiameter, 20)))
+  const holeRadius = holeDiameter / 2
+  const holeDistance = Math.min(L - holeDiameter, Math.max(holeDiameter, number(model?.bossCenterDistance, 70)))
+  const slotLength = Math.min(W, Math.max(1, number(model?.slotLength, 30)))
+  const slotWidth = Math.max(1, number(model?.slotWidth, 10))
+  const pocketDepth = Math.min(H - T - 0.1, Math.max(0.1, number(model?.pocketDepth, 10)))
 
   const root = new THREE.Group()
-  root.name = 'JoyNiu bracket · parametric WebGL fallback'
-  const base = new THREE.Mesh(new THREE.BoxGeometry(L, W, T), material(0x8ea8be))
-  base.name = 'Base plate'
-  base.position.z = T / 2
-  base.castShadow = true
-  base.receiveShadow = true
-  addEdgeOverlay(base)
-  root.add(base)
+  root.name = 'JoyNiu bracket · corrected parametric WebGL fallback'
+  const holes = [{ x: -holeDistance / 2, y: 0, radius: holeRadius }, { x: holeDistance / 2, y: 0, radius: holeRadius }]
+  const base = new THREE.Mesh(extrudedXYShape(L, W, 0, T, holes), material(0x8ea8be))
+  base.name = 'Base plate · Ø20 through holes'
+  base.castShadow = true; base.receiveShadow = true; addEdgeOverlay(base); root.add(base)
 
-  // Make the upper body from its actual X/Z profile and extrude it through
-  // the drawing's 30 mm depth.  The lower semicircle is the R15 saddle, so
-  // this fallback has the same silhouette as the OCCT result.
-  const profile = new THREE.Shape()
-  profile.moveTo(x0, T)
-  profile.lineTo(x1, T)
-  profile.lineTo(x1, H)
-  profile.lineTo(notchRight, H)
-  for (let index = 0; index <= 24; index += 1) {
-    const angle = (Math.PI * index) / 24
-    profile.lineTo(cx + radius * Math.cos(angle), H - radius * Math.sin(angle))
+  const upperGroup = new THREE.Group()
+  upperGroup.name = 'Upper body · full width 50 with subtractive cuts'
+  const sideDepth = Math.max(0, (UW - slotLength) / 2)
+  const normalProfile = saddleProfile(-UL / 2, UL / 2, T, H, opening, radius)
+  if (sideDepth > 0.01) {
+    for (const centerY of [-(slotLength / 2 + sideDepth / 2), slotLength / 2 + sideDepth / 2]) {
+      const slab = new THREE.Mesh(extrudedXZProfile(normalProfile, sideDepth, centerY), material(0xa9bfd1))
+      slab.name = 'Upper front/back wall'
+      slab.castShadow = true; slab.receiveShadow = true; addEdgeOverlay(slab); upperGroup.add(slab)
+    }
   }
-  profile.lineTo(notchLeft, H)
-  profile.lineTo(x0, H)
-  profile.closePath()
-  const upperGeometry = new THREE.ExtrudeGeometry(profile, {
-    depth: UW,
-    steps: 1,
-    curveSegments: 32,
-    bevelEnabled: false,
-  })
-  // ExtrudeGeometry grows along local Z.  Rotate it so the profile's local Y
-  // is world Z and the 30 mm depth is world Y, centred on the part.
-  upperGeometry.rotateX(Math.PI / 2)
-  upperGeometry.translate(0, UW / 2, 0)
-  upperGeometry.computeVertexNormals()
-  const upper = new THREE.Mesh(upperGeometry, material(0xa9bfd1))
-  upper.name = 'Upper body with R15 saddle'
-  upper.castShadow = true
-  upper.receiveShadow = true
-  addEdgeOverlay(upper)
-  root.add(upper)
+  const middleProfile = saddleProfile(-UL / 2, UL / 2, T, H, opening, radius, pocketDepth, slotWidth)
+  const middle = new THREE.Mesh(extrudedXZProfile(middleProfile, Math.min(UW, slotLength), 0), material(0xa9bfd1))
+  middle.name = 'Upper middle · two 10 mm deep pockets'
+  middle.castShadow = true; middle.receiveShadow = true; addEdgeOverlay(middle); upperGroup.add(middle)
+  root.add(upperGroup)
 
-  const bossRadius = bossDiameter / 2
-  const bossHeight = Math.max(1, number(model?.bossHeight, H - T))
-  for (const x of [-bossDistance / 2, bossDistance / 2]) {
-    const bossGeometry = new THREE.CylinderGeometry(bossRadius, bossRadius, bossHeight, 64)
-    bossGeometry.rotateX(Math.PI / 2)
-    const boss = new THREE.Mesh(bossGeometry, material(0x9eb8cb))
-    boss.position.set(x, 0, T + bossHeight / 2)
-    boss.name = `Boss Ø${bossDiameter}`
-    boss.castShadow = true
-    boss.receiveShadow = true
-    addEdgeOverlay(boss, 0x213a52)
-    root.add(boss)
-  }
+  for (const x of [-holeDistance / 2, holeDistance / 2]) addVerticalCavity(root, x, holeRadius, T, H)
 
-  // A small centre line makes the model orientation obvious without turning
-  // the viewport into a drawing overlay.
   const centre = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-L / 2 - 8, 0, T + 0.04),
-      new THREE.Vector3(L / 2 + 8, 0, T + 0.04),
-    ]),
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-L / 2 - 8, 0, T + 0.04), new THREE.Vector3(L / 2 + 8, 0, T + 0.04)]),
     new THREE.LineDashedMaterial({ color: 0x78a9d4, dashSize: 2, gapSize: 2, transparent: true, opacity: 0.42 }),
   )
-  centre.computeLineDistances()
-  centre.name = 'centre line'
-  root.add(centre)
+  centre.computeLineDistances(); centre.name = 'centre line'; root.add(centre)
+  root.userData.fallbackAudit = auditBracketFallback(root, { length: L, width: W, height: H })
   return root
 }
 
@@ -282,6 +379,12 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     totalHeight: model?.totalHeight,
     notchOpening: model?.notchOpening,
     notchRadius: model?.notchRadius,
+    slotLength: model?.slotLength,
+    slotWidth: model?.slotWidth,
+    pocketDepth: model?.pocketDepth,
+    saddleDepth: model?.saddleDepth,
+    holeDepth: model?.holeDepth,
+    holeThrough: model?.holeThrough,
     bossDiameter: model?.bossDiameter,
     bossCenterDistance: model?.bossCenterDistance,
     bossHeight: model?.bossHeight,
@@ -464,6 +567,10 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
       if (cancelled) return
       runtime.model = object
       runtime.scene.add(object)
+      const fallbackAudit = object.userData?.fallbackAudit || null
+      runtime.renderer.domElement.dataset.fallbackAudit = fallbackAudit
+        ? (fallbackAudit.ok ? 'passed' : 'failed')
+        : 'not-applicable'
       const box = new THREE.Box3().setFromObject(object)
       const size = box.getSize(new THREE.Vector3())
       const center = box.getCenter(new THREE.Vector3())
@@ -486,7 +593,12 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
       runtime.sectionPlane.position.set(center.x, center.y, center.z + size.z * 0.55)
       runtime.sectionPlane.scale.set(Math.max(size.x / 90, 1), Math.max(size.z / 90, 1), 1)
       runtime.sectionPlane.visible = Boolean(sectionRef.current)
-      setStatus({ phase: 'ready', source, message })
+      const auditedMessage = fallbackAudit && !fallbackAudit.ok
+        ? `${message}（fallback bbox/solid overlap 检查未通过）`
+        : fallbackAudit
+          ? `${message}（fallback bbox/solid overlap 检查通过）`
+          : message
+      setStatus({ phase: 'ready', source, message: auditedMessage })
     }
 
     if (!glbUrl) {

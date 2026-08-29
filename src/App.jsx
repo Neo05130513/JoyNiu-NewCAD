@@ -24,39 +24,87 @@ const bracketModel = {
   baseWidth: 50,
   baseThickness: 10,
   upperLength: 70,
-  upperWidth: 30,
+  // The right view's 30 mm callout is the length of the two central pockets;
+  // the upper body itself spans the full 50 mm base width.
+  upperWidth: 50,
   upperHeight: 30,
   totalHeight: 40,
   notchOpening: 40,
   notchRadius: 15,
   notchCenterZ: 40,
   notchBottomZ: 25,
+  slotLength: 30,
+  slotWidth: 10,
+  pocketDepth: 10,
+  saddleDepth: 50,
+  holeDepth: 40,
+  holeThrough: true,
+  // Kept in the public model for backwards-compatible API payloads.  These
+  // dimensions describe the two Ø20 side cutouts, never additive bosses.
   bossDiameter: 20,
   bossCenterDistance: 70,
-  bossPositions: [{ x: -35, y: 0, z: 10 }, { x: 35, y: 0, z: 10 }],
+  bossHeight: 30,
+  bossPositions: [{ x: -35, y: 0, z: 0 }, { x: 35, y: 0, z: 0 }],
   material: '45# 钢',
   updatedAt: '刚刚',
 }
 
 const acceptanceDrawingSha256 = 'ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366'
-const bracketParameterKeys = ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'bossDiameter', 'bossCenterDistance', 'bossHeight', 'material', 'units']
+const bracketParameterKeys = ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'slotLength', 'slotWidth', 'pocketDepth', 'saddleDepth', 'holeDepth', 'holeThrough', 'bossDiameter', 'bossCenterDistance', 'bossHeight', 'material', 'units']
+function normalizeStoredModel(value) {
+  if (!value || typeof value !== 'object') return value
+  if (value.kind !== 'bracket') return value
+  // Models saved by the pre-correction build had no pocket fields and used
+  // upperWidth=30 for the right-view callout.  Migrate that snapshot to the
+  // calibrated drawing interpretation instead of silently showing the old
+  // convex-boss geometry after a browser refresh.
+  const legacy = value.slotLength === undefined && value.pocketDepth === undefined
+  return {
+    ...bracketModel,
+    ...value,
+    ...(legacy ? {
+      upperWidth: 50,
+      slotLength: 30,
+      slotWidth: 10,
+      pocketDepth: 10,
+      saddleDepth: 50,
+      holeDepth: 40,
+      holeThrough: true,
+      bossPositions: bracketModel.bossPositions,
+    } : {}),
+  }
+}
 const snakeToCamel = (value) => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
 const emptyPlatformState = () => ({ token: '', user: null, users: [], project: null, manifest: null, camPlan: null, approval: null, simulation: null, gate: null, nc: null, busy: false, error: '' })
 
 function parametersFromRecognition(recognition) {
   if (!recognition) return null
-  if (recognition.parameters) return recognition.parameters
-  if (recognition.modelRecipe?.parameters) return recognition.modelRecipe.parameters
+  const normalize = (raw) => {
+    if (!raw || typeof raw !== 'object') return null
+    const aliases = {
+      base_length: 'baseLength', base_width: 'baseWidth', base_thickness: 'baseThickness',
+      upper_length: 'upperLength', upper_width: 'upperWidth', upper_height: 'upperHeight',
+      total_height: 'totalHeight', notch_opening: 'notchOpening', notch_radius: 'notchRadius',
+      slot_length: 'slotLength', slot_width: 'slotWidth', pocket_depth: 'pocketDepth',
+      saddle_depth: 'saddleDepth', hole_depth: 'holeDepth',
+      hole_through: 'holeThrough', boss_diameter: 'bossDiameter',
+      boss_center_distance: 'bossCenterDistance', boss_height: 'bossHeight',
+    }
+    const converted = Object.fromEntries(Object.entries(raw).map(([key, value]) => [aliases[key] || key, value]))
+    return { ...bracketModel, ...converted, kind: 'bracket' }
+  }
+  if (recognition.parameters) return normalize(recognition.parameters)
+  if (recognition.modelRecipe?.parameters) return normalize(recognition.modelRecipe.parameters)
   if (Array.isArray(recognition.dimensions)) {
     const parameters = {}
     recognition.dimensions.forEach((item) => {
       const key = snakeToCamel(String(item.field || ''))
       if (bracketParameterKeys.includes(key)) parameters[key] = item.value
     })
-    return Object.keys(parameters).length ? parameters : null
+    return Object.keys(parameters).length ? normalize(parameters) : null
   }
   const parameters = Object.fromEntries(bracketParameterKeys.filter((key) => recognition[key] !== undefined).map((key) => [key, recognition[key]]))
-  return Object.keys(parameters).length ? parameters : null
+  return Object.keys(parameters).length ? normalize(parameters) : null
 }
 
 function recognitionEvidence(recognition) {
@@ -86,8 +134,18 @@ function dxfForModel(model) {
   if (model.kind === 'bracket') {
     const length = Number(model.baseLength); const width = Number(model.baseWidth)
     line(-length / 2, -width / 2, length / 2, -width / 2); line(length / 2, -width / 2, length / 2, width / 2); line(length / 2, width / 2, -length / 2, width / 2); line(-length / 2, width / 2, -length / 2, -width / 2)
+    // Top-view evidence: Ø20 features are subtractive through holes whose
+    // axes sit on the upper-body side boundaries, and the centre pair of
+    // rectangles are shallow pockets rather than additive ribs.
     circle(-Number(model.bossCenterDistance) / 2, 0, Number(model.bossDiameter) / 2)
     circle(Number(model.bossCenterDistance) / 2, 0, Number(model.bossDiameter) / 2)
+    const slotLength = Number(model.slotLength || 30); const slotWidth = Number(model.slotWidth || 10)
+    for (const center of [-15, 15]) {
+      line(center - slotWidth / 2, -slotLength / 2, center + slotWidth / 2, -slotLength / 2, 'POCKET')
+      line(center + slotWidth / 2, -slotLength / 2, center + slotWidth / 2, slotLength / 2, 'POCKET')
+      line(center + slotWidth / 2, slotLength / 2, center - slotWidth / 2, slotLength / 2, 'POCKET')
+      line(center - slotWidth / 2, slotLength / 2, center - slotWidth / 2, -slotLength / 2, 'POCKET')
+    }
   } else {
     const length = Number(model.length); const diameter = Number(model.outerDiameter)
     line(0, -diameter / 2, length, -diameter / 2); line(length, -diameter / 2, length, diameter / 2); line(length, diameter / 2, 0, diameter / 2); line(0, diameter / 2, 0, -diameter / 2)
@@ -125,9 +183,10 @@ function getBracketFeatures(model) {
   return [
     { id: 'origin', icon: '◎', label: '原点', meta: '基准' },
     { id: 'base', icon: '▰', label: `底板 · ${value('baseLength', 100)} × ${value('baseWidth', 50)} × ${value('baseThickness', 10)}`, meta: '实体' },
-    { id: 'upper', icon: '▰', label: `上部实体 · ${value('upperLength', 70)} × ${value('upperWidth', 30)} × ${value('upperHeight', 30)}`, meta: '实体' },
-    { id: 'notch', icon: '∪', label: `U 型缺口 · ${value('notchOpening', 40)} / R${value('notchRadius', 15)}`, meta: '切除' },
-    { id: 'bosses', icon: '◉', label: `圆柱凸台 × 2 · Ø${value('bossDiameter', 20)} · ${value('bossCenterDistance', 70)} 间距`, meta: '实体' },
+    { id: 'upper', icon: '▰', label: `上部实体 · ${value('upperLength', 70)} × ${value('upperWidth', 50)} × ${value('upperHeight', 30)}`, meta: '实体' },
+    { id: 'notch', icon: '∪', label: `R${value('notchRadius', 15)} 横向鞍槽 · 开口 ${value('notchOpening', 40)}`, meta: '切除 · 贯穿 Y' },
+    { id: 'pockets', icon: '▤', label: `矩形浅槽 × 2 · ${value('slotWidth', 10)} × ${value('slotLength', 30)} · 深 ${value('pocketDepth', 10)}`, meta: '切除' },
+    { id: 'holes', icon: '◌', label: `侧向 Ø${value('bossDiameter', 20)} 贯穿凹槽 × 2 · 中心距 ${value('bossCenterDistance', 70)}`, meta: '切除 · 贯穿 Z' },
     { id: 'edge', icon: '◇', label: '边缘处理 · 保留锐边', meta: '细节' },
   ]
 }
@@ -145,7 +204,7 @@ function parsePrompt(prompt, current) {
   // The drawing-to-3D workflow can hand the copilot a bracket model. Keep
   // bracket dimensions separate from the shaft grammar so a follow-up prompt
   // never overwrites the model with undefined shaft fields.
-  if (current.kind === 'bracket' || /支架|底板|缺口|凸台/.test(prompt)) {
+  if (current.kind === 'bracket' || /支架|底板|缺口|凹槽|浅槽|凸台|贯穿孔/.test(prompt)) {
     next.kind = 'bracket'
     next.name = current.kind === 'bracket' ? current.name : '安装支架 · AI 参数化'
     const bracketMatch = (patterns, fallback) => {
@@ -164,8 +223,11 @@ function parsePrompt(prompt, current) {
     next.totalHeight = bracketMatch([/总高(?:度)?\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.totalHeight ?? (next.baseThickness + next.upperHeight))
     next.notchOpening = bracketMatch([/(?:缺口|开口)[^\d]{0,8}(?:宽|开口)?[^\d]*(\d+(?:\.\d+)?)/i], current.notchOpening ?? bracketModel.notchOpening)
     next.notchRadius = bracketMatch([/(?:缺口|圆弧)[^\d]{0,8}(?:半径|R)\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /R\s*(\d+(?:\.\d+)?)/i], current.notchRadius ?? bracketModel.notchRadius)
-    next.bossDiameter = bracketMatch([/(?:凸台|圆柱)[^\d]{0,8}(?:直径|Ø|φ)\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /[ØΦφ]\s*(\d+(?:\.\d+)?)/i], current.bossDiameter ?? bracketModel.bossDiameter)
-    next.bossCenterDistance = bracketMatch([/(?:凸台)?中心距\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.bossCenterDistance ?? bracketModel.bossCenterDistance)
+    next.slotLength = bracketMatch([/(?:浅槽|槽)[^\d]{0,8}(?:长|长度|沿Y)[^\d]*(\d+(?:\.\d+)?)/i, /槽长\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.slotLength ?? bracketModel.slotLength)
+    next.slotWidth = bracketMatch([/(?:浅槽|槽)[^\d]{0,8}(?:宽|宽度)[^\d]*(\d+(?:\.\d+)?)/i, /槽宽\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.slotWidth ?? bracketModel.slotWidth)
+    next.pocketDepth = bracketMatch([/(?:浅槽|口袋|槽)[^\d]{0,8}(?:深|深度)[^\d]*(\d+(?:\.\d+)?)/i], current.pocketDepth ?? bracketModel.pocketDepth)
+    next.bossDiameter = bracketMatch([/(?:凸台|圆柱|凹槽|贯穿孔|侧孔)[^\d]{0,8}(?:直径|Ø|φ)\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /[ØΦφ]\s*(\d+(?:\.\d+)?)/i], current.bossDiameter ?? bracketModel.bossDiameter)
+    next.bossCenterDistance = bracketMatch([/(?:凸台|凹槽|孔)?中心距\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.bossCenterDistance ?? bracketModel.bossCenterDistance)
     if (/铝|al6061/i.test(prompt)) next.material = 'AL6061 铝合金'
     if (/不锈钢|304/i.test(prompt)) next.material = 'SUS304 不锈钢'
     return next
@@ -202,7 +264,7 @@ function App() {
   const [activeMode, setActiveMode] = useState('3D 建模')
   const [activePanel, setActivePanel] = useState('参数')
   const [model, setModel] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('joyniu-model')) || defaultModel } catch { return defaultModel }
+    try { return normalizeStoredModel(JSON.parse(localStorage.getItem('joyniu-model'))) || defaultModel } catch { return defaultModel }
   })
   const [projects, setProjects] = useState(() => {
     try { return JSON.parse(localStorage.getItem('joyniu-projects')) || defaultProjects } catch { return defaultProjects }
@@ -271,7 +333,7 @@ function App() {
     setGeneration((current) => current ? { ...current, stale: true } : current)
   }
   const modelValid = model.kind === 'bracket'
-    ? ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'bossDiameter', 'bossCenterDistance'].every((key) => Number(model[key]) > 0) && Number(model.upperLength) <= Number(model.baseLength) && Number(model.upperWidth) <= Number(model.baseWidth) && Number(model.baseThickness) < Number(model.totalHeight) && Math.abs(Number(model.totalHeight) - Number(model.baseThickness) - Number(model.upperHeight)) < 1e-6 && Number(model.notchOpening) >= Number(model.notchRadius) * 2
+    ? ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'slotLength', 'slotWidth', 'pocketDepth', 'bossDiameter', 'bossCenterDistance'].every((key) => Number(model[key]) > 0) && Number(model.upperLength) <= Number(model.baseLength) && Number(model.upperWidth) <= Number(model.baseWidth) && Number(model.slotLength) <= Number(model.baseWidth) && Number(model.pocketDepth) <= Number(model.upperHeight) && Number(model.baseThickness) < Number(model.totalHeight) && Math.abs(Number(model.totalHeight) - Number(model.baseThickness) - Number(model.upperHeight)) < 1e-6 && Number(model.notchOpening) >= Number(model.notchRadius) * 2
     : ['outerDiameter', 'length', 'holeDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'].every((key) => Number(model[key]) > 0)
   const currentFeatures = model.kind === 'bracket' ? getBracketFeatures(model) : features
   const filteredLibrary = useMemo(() => libraryItems.filter((item) => (libraryGroup === '全部' || item.group === libraryGroup) && `${item.name}${item.spec}`.includes(libraryQuery)), [libraryGroup, libraryQuery])
@@ -285,7 +347,7 @@ function App() {
       setModel({ ...next, updatedAt: '刚刚' })
       setGeneration((current) => current ? { ...current, stale: true } : current)
       const resultText = next.kind === 'bracket'
-        ? `参数已更新：底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；上部 ${next.upperLength} × ${next.upperWidth} × ${next.upperHeight} mm；缺口 ${next.notchOpening} / R${next.notchRadius}，双凸台 Ø${next.bossDiameter}。`
+        ? `参数已更新：底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；上部 ${next.upperLength} × ${next.upperWidth} × ${next.upperHeight} mm；R${next.notchRadius} 横向鞍槽、两条 ${next.slotWidth} × ${next.slotLength} × ${next.pocketDepth} 浅槽、2×Ø${next.bossDiameter} 贯穿凹槽。`
         : `参数已更新：Ø${next.outerDiameter} × ${next.length} mm，通孔 Ø${next.holeDiameter}；键槽 ${next.keywayWidth} × ${next.keywayDepth} × ${next.keywayLength} mm。`
       setMessages((prev) => [...prev, { role: 'ai', text: resultText }])
       setIsGenerating(false)
@@ -732,7 +794,7 @@ function App() {
     setZoom(1)
     const metrics = generated.validation?.metrics || {}
     const productionText = generated.validation?.productionReady ? 'OCCT 实体与 STEP 已通过拓扑检查' : '当前是浏览器预览，未形成生产 STEP'
-    setMessages((prev) => [...prev, { role: 'ai', text: `图纸已确认：${recognizedParameters.baseLength} × ${recognizedParameters.baseWidth} × ${recognizedParameters.baseThickness} 底板、${recognizedParameters.upperLength} × ${recognizedParameters.upperWidth} × ${recognizedParameters.upperHeight} 上部实体、U 型缺口 ${recognizedParameters.notchOpening} / R${recognizedParameters.notchRadius}、双 Ø${recognizedParameters.bossDiameter} 凸台。${productionText}；包络 ${metrics.boundingLength || 100} × ${metrics.boundingWidth || 50} × ${metrics.boundingHeight || 40} mm。` }])
+    setMessages((prev) => [...prev, { role: 'ai', text: `图纸已确认：${recognizedParameters.baseLength} × ${recognizedParameters.baseWidth} × ${recognizedParameters.baseThickness} 底板、${recognizedParameters.upperLength} × ${recognizedParameters.upperWidth} × ${recognizedParameters.upperHeight} 上部实体；R${recognizedParameters.notchRadius} 横向鞍槽、两条 ${recognizedParameters.slotWidth || 10} × ${recognizedParameters.slotLength || 30} × ${recognizedParameters.pocketDepth || 10} 浅槽、2×Ø${recognizedParameters.bossDiameter} 贯穿凹槽。${productionText}；包络 ${metrics.boundingLength || 100} × ${metrics.boundingWidth || 50} × ${metrics.boundingHeight || 40} mm。` }])
     setActiveMode('3D 建模')
     setIsGenerating(false)
     showToast(generated.validation?.productionReady ? '安装支架实体与 STEP 已生成并通过校验' : '已生成支架预览；启动后端后可生成生产 STEP')
@@ -844,17 +906,18 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
   const read = (key, fallback) => recognizedParameters && recognizedParameters[key] !== undefined ? recognizedParameters[key] : fallback
   const evidenceRows = [
     ['底板', `${read('baseLength', 100)} × ${read('baseWidth', 50)} × ${read('baseThickness', 10)} mm`, sourceFor('baseLength', '俯视 / 主视')],
-    ['上部实体', `${read('upperLength', 70)} × ${read('upperWidth', 30)} × ${read('upperHeight', 30)} mm`, sourceFor('upperLength', '主视 / 右视')],
+    ['上部实体', `${read('upperLength', 70)} × ${read('upperWidth', 50)} × ${read('upperHeight', 30)} mm`, sourceFor('upperLength', '主视 / 右视')],
     ['总高度', `${read('totalHeight', 40)} mm`, sourceFor('totalHeight', '主视')],
     ['U 型缺口', `开口 ${read('notchOpening', 40)} · R${read('notchRadius', 15)}`, sourceFor('notchOpening', '主视')],
-    ['圆柱凸台', `2 × Ø${read('bossDiameter', 20)}`, sourceFor('bossDiameter', '俯视')],
-    ['凸台中心距', `${read('bossCenterDistance', 70)} mm`, sourceFor('bossCenterDistance', '投影对齐推导')],
+    ['矩形浅槽', `2 × ${read('slotWidth', 10)} × ${read('slotLength', 30)} · 深 ${read('pocketDepth', 10)}`, sourceFor('slotLength', '俯视 / 右视')],
+    ['侧向贯穿凹槽', `2 × Ø${read('bossDiameter', 20)}`, sourceFor('bossDiameter', '俯视 / 主视')],
+    ['凹槽中心距', `${read('bossCenterDistance', 70)} mm`, sourceFor('bossCenterDistance', '俯视投影')],
   ]
   const evidenceWarning = evidence?.warnings?.length
     ? evidence.warnings.join('；')
     : evidence?.status === 'confirmed'
-      ? '尺寸证据已锁定；中心距 70 mm 已与俯视图投影关系关联，生成结果仍会经过 OCCT 拓扑检查。'
-      : '中心距 70 mm 来自俯视图与主视图投影关系，生成前请人工确认；确认后将按上述参数生成实体。'
+      ? '尺寸证据已锁定；Ø20 为两处贯穿竖孔/侧边半圆凹槽，30 mm 为中段浅槽长度，生成结果仍会经过 OCCT 拓扑检查。'
+      : '请确认 Ø20 是贯穿竖孔/侧边半圆凹槽，30 mm 是两条浅槽沿 Y 的长度；确认后将按上述参数生成实体。'
   return <div className="secondary-workspace import-workspace">
     <div className="secondary-heading"><div><span className="eyebrow">DRAWING → 3D</span><h1>图纸转三维</h1><p>上传一张工程图，识别关键尺寸后生成可编辑实体</p></div><div className="heading-actions"><span className={`backend-status compact ${backend?.status || 'checking'}`}><i />{backend?.productionReady ? 'CadQuery / OCCT 在线' : backend?.status === 'offline' ? 'API 离线' : '连接中'}</span><button className="secondary-button" onClick={() => showToast('支持 JPG、PNG、WEBP、PDF、DXF')}>支持格式</button><button className="primary-button" data-testid="confirm-generate" disabled={!evidence || drawingJob.status === 'analyzing' || drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={generateFromDrawing}>{drawingJob.status === 'generated' ? '已生成 3D' : '确认并生成 3D'} <Icon>↗</Icon></button></div></div>
     <div className="import-steps" aria-label="图纸转三维流程"><span className="done"><i>1</i>上传图纸</span><span className={evidence ? 'done' : drawingJob.status === 'analyzing' ? 'active' : ''}><i>2</i>识别尺寸</span><span className={evidence ? 'active' : ''}><i>3</i>复核证据</span><span className={drawingJob.status === 'generated' ? 'ready' : ''}><i>4</i>生成实体</span></div>
@@ -956,10 +1019,14 @@ function ParameterPanel({ model, modelValid, updateModel, resetModel }) {
 }
 
 function BracketParameterPanel({ model, modelValid, updateModel, resetModel }) {
-  const groups = [{ title: '底板尺寸', fields: [['baseLength', '长度'], ['baseWidth', '宽度'], ['baseThickness', '厚度']] }, { title: '上部实体', fields: [['upperLength', '长度'], ['upperWidth', '深度'], ['upperHeight', '高度'], ['totalHeight', '总高']] }, { title: '关键特征', fields: [['notchOpening', '缺口开口'], ['notchRadius', '缺口半径'], ['bossDiameter', '凸台直径'], ['bossCenterDistance', '凸台中心距']] }]
+  const groups = [
+    { title: '底板尺寸', fields: [['baseLength', '长度'], ['baseWidth', '宽度'], ['baseThickness', '厚度']] },
+    { title: '上部实体', fields: [['upperLength', '长度'], ['upperWidth', '全宽'], ['upperHeight', '高度'], ['totalHeight', '总高']] },
+    { title: '切除特征', fields: [['notchOpening', '鞍槽开口'], ['notchRadius', '鞍槽半径'], ['slotLength', '浅槽长度 Y'], ['slotWidth', '浅槽宽度 X'], ['pocketDepth', '浅槽深度'], ['bossDiameter', '侧向凹槽 Ø'], ['bossCenterDistance', '凹槽中心距']] },
+  ]
   const numeric = (key) => Number(model[key])
-  const relationWarning = numeric('upperLength') > numeric('baseLength') || numeric('upperWidth') > numeric('baseWidth') || numeric('notchOpening') < numeric('notchRadius') * 2 || Math.abs(numeric('totalHeight') - numeric('baseThickness') - numeric('upperHeight')) > 1e-6
-  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{model.name}</b><small>图纸识别实体 · 证据已锁定</small></div><span className={`valid-chip ${modelValid ? '' : 'invalid'}`}>{modelValid ? '有效' : '待修正'}</span></div>{groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => <NumberField key={key} label={label} value={model[key]} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} />)}</div>)}<div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>凸台中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z {Math.round(numeric('baseThickness') || 10)}</small><small>缺口圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small></div></div>{relationWarning && <div className="bracket-constraint"><span>!</span><span>请确认总高 = 底板厚度 + 上部高度、上部实体不超过底板，且开口 ≥ 2R。</span></div>}<div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><div className="evidence-mini"><Icon>✓</Icon><span>所有尺寸均可回溯到上传图纸的视图和标注。</span></div><button className="reset-link" onClick={resetModel}>↻ 恢复支架基准参数</button></div>
+  const relationWarning = numeric('upperLength') > numeric('baseLength') || numeric('upperWidth') > numeric('baseWidth') || numeric('slotLength') > numeric('baseWidth') || numeric('pocketDepth') > numeric('upperHeight') || numeric('notchOpening') < numeric('notchRadius') * 2 || Math.abs(numeric('totalHeight') - numeric('baseThickness') - numeric('upperHeight')) > 1e-6
+  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{model.name}</b><small>图纸识别实体 · 证据已锁定</small></div><span className={`valid-chip ${modelValid ? '' : 'invalid'}`}>{modelValid ? '有效' : '待修正'}</span></div>{groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => <NumberField key={key} label={label} value={model[key]} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} />)}</div>)}<div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>侧向凹槽中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>{relationWarning && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}<div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><div className="evidence-mini"><Icon>✓</Icon><span>所有尺寸均可回溯到上传图纸的视图和校验状态。</span></div><button className="reset-link" onClick={resetModel}>↻ 恢复支架基准参数</button></div>
 }
 
 function NumberField({ label, value, prefix, suffix, onChange }) { return <label className="number-field"><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value} type="number" min="0.1" step="0.1" onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
