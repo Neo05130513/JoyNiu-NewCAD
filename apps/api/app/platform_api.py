@@ -834,7 +834,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             # but may not supply the approval itself.  Admins are the explicit
             # emergency/administrative exception and are still subject to the
             # separate release-actor gate.
-            actor_roles = {str(item).casefold() for item in actor.roles}
+            actor_roles = {
+                (item.value if isinstance(item, Role) else str(item)).casefold()
+                for item in actor.roles
+            }
             if Role.REVIEWER.value not in actor_roles and Role.ADMIN.value not in actor_roles:
                 raise AuthorizationError("reviewer role is required to approve a CAM plan")
             requested_role = str(data.get("role", Role.REVIEWER.value)).strip().casefold()
@@ -862,7 +865,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.CAM_RELEASE)
-            actor_roles = {str(item).casefold() for item in actor.roles}
+            actor_roles = {
+                (item.value if isinstance(item, Role) else str(item)).casefold()
+                for item in actor.roles
+            }
             if Role.MANUFACTURING.value not in actor_roles and Role.ADMIN.value not in actor_roles:
                 raise AuthorizationError("manufacturing or admin role is required to release NC")
             program = services.cam.release_nc(
