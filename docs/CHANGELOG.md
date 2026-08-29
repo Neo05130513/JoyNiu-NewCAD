@@ -1,5 +1,41 @@
 # 变更记录
 
+## v0.2.1 · 2026-08-30 · 多模态 AI Copilot
+
+### Added
+
+- 新增服务端 AI Copilot 代理：`POST /api/v1/ai/conversation` 与兼容别名
+  `/api/v1/ai/chat`，以及不暴露密钥的 `GET /api/v1/ai/status`。对话可携带当前模型状态、上一轮 `previousResponseId`和多个附件。
+- 支持图片、PDF、DXF、DWG 多模态输入。图片以 Responses `input_image`
+  发送，PDF/DXF/DWG 以 `input_file` 发送；最多 4 个附件，单件上限 20 MiB。
+- 默认使用 `gpt-5.6-sol` 与 `reasoning.effort=high`，输出仅包含说明、问题、审查状态和参数白名单内的 `parameterPatch`。通过白名单、类型、有限值和正数边界校验后才能更新 CAD 模型。
+- 对验收支架的已确认图纸或明确尺寸修改，三维工作台可在补丁通过几何校验后自动请求 STEP + GLB，并更新参数面板、特征树和预览。
+- 远端 AI 不可用时增加可解释的本地路径：哈希校准的验收图和匹配明确中文参数可继续应用；未知图纸仍保持人工复核。
+
+### Security
+
+- AI 供应商凭证仅从 API 服务端的 `JOYNIU_AI_API_KEY` 或
+  `JOYNIU_AI_API_KEY_FILE` 读取（`JOYNIU_LLM_*` 为兼容配置），不进入前端 bundle、localStorage 或响应体。
+- AI 对话默认需要 Bearer token 和 `ai:chat` 权限，仅 designer/admin 可用；匿名演示必须由本地部署显式开启。供应商原始错误不转发给浏览器。
+- 附件会传至部署所配置的远程 AI 端点；生产部署必须在数据分类、传输、保留和供应商合规完成后才能上传保密图纸。
+
+### Changed
+
+- AI 对话改为“参数补丁 → 几何校验 → 实体生成”的闭环；参数变更会将旧 STEP/GLB 标记为过期，失败或待复核时不展示为生产交付。
+- 产品规格升级为 v0.2.1；原 v0.2.0 图纸几何验收尺寸、OCCT 生产边界、PDM/RBAC 和 CAM/NC 门禁保持不变。
+
+### Verification
+
+- Copilot 接口覆盖多轮 `previousResponseId`、模型状态传递、附件类型/大小限制、响应白名单和无效补丁拒绝。
+- 验收图的哈希证据可与对话补丁合并；在 CadQuery/OCCT 环境中，通过校验后自动产生 `productionReady=true` 的 STEP 与 GLB。
+
+### Known limitations
+
+- 多模态 AI 仅是参数化轴类/支架编辑助手，不是任意图纸的通用 CAD 重建器。未知图纸不会自动确认或生成虚构几何。
+- PDF/DXF/DWG 当前以文件输入转发，不保证原生 DWG 实体解析、所有 DXF entity 拓扑重建或多页 PDF 视图对齐。
+- 没有 CadQuery/OCCT 时的 faceted 文件只能审阅；任何 AI 回复、GLB 或 fallback STEP 都不能替代 OCCT 回读、PDM 版本和 CAM 审批/放行。
+- 远程模型的延迟、限流、成本、保留策略和图纸合规风险需由部署方自行评估；关闭 response 存储会限制多轮对话。
+
 ## v0.2.0 · 2026-08-29 · 图纸转三维与平台服务
 
 ### Added
