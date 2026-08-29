@@ -557,7 +557,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         try:
             services.auth.require(actor, Permission.PROJECT_WRITE)
             owner_id = str(data.get("ownerId", data.get("owner_id", actor.id)))
-            if owner_id != actor.id:
+            if owner_id.casefold() != str(actor.id).casefold():
                 services.auth.require(actor, Permission.USER_MANAGE)
             metadata = data.get("metadata")
             if metadata is None:
@@ -638,7 +638,11 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 raw_metadata = data.get("metadata")
                 if not isinstance(raw_metadata, Mapping):
                     raise ValidationError("metadata must be an object")
-                metadata = dict(raw_metadata)
+                # PATCH semantics preserve existing project metadata keys while
+                # allowing callers to update just ``members`` or one auxiliary
+                # field.
+                metadata = dict(project.metadata) if isinstance(project.metadata, Mapping) else {}
+                metadata.update(dict(raw_metadata))
                 if "members" in metadata:
                     # A regular project member may rename/describe a project,
                     # but changing the ACL is reserved for owner/admin.
@@ -646,7 +650,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     metadata["members"] = _validate_members_payload(metadata["members"])
             return services.pdm.rename_project(
                 project_id,
-                str(data.get("name", "")),
+                str(data["name"]) if "name" in data else project.name,
                 description=(str(data["description"]) if "description" in data else None),
                 actor_id=actor.id,
                 metadata=metadata,
