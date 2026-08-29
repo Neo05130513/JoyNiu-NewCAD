@@ -1083,12 +1083,22 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             # Store the source before geometry generation; this is the durable
             # audit anchor even when a kernel or validation step rejects the
             # requested model.
+            # Keep the complete recognition/evidence envelope in document and
+            # version metadata.  The in-memory ``recognitions`` index is only
+            # a fast hand-off cache; this metadata is the durable audit record
+            # that survives a service restart and still ties every generated
+            # artifact back to the exact source hash and reviewer decision.
+            recognition_audit = recognition.to_dict()
             source_document = services.pdm.create_document(
                 project.id,
                 filename,
                 "drawing",
                 actor.id,
-                metadata={"sha256": recognition.source_sha256, "recognitionId": recognition.id},
+                metadata={
+                    "sha256": recognition.source_sha256,
+                    "recognitionId": recognition.id,
+                    "recognition": recognition_audit,
+                },
             )
             source_version = services.pdm.create_version(
                 source_document.id,
@@ -1096,7 +1106,11 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 actor.id,
                 file_name=filename,
                 content_type=str(data.get("contentType", "application/octet-stream")),
-                metadata={"recognitionId": recognition.id, "sourceSha256": recognition.source_sha256},
+                metadata={
+                    "recognitionId": recognition.id,
+                    "sourceSha256": recognition.source_sha256,
+                    "recognition": recognition_audit,
+                },
             )
 
             from .geometry import generate_artifacts, validate_bracket

@@ -95,6 +95,10 @@ def test_unknown_ocr_never_claims_confirmation() -> None:
     assert result.status == "needs_review"
     assert result.engine == "none"
     assert result.unresolved
+    # A reviewer cannot turn an unknown topology into a bracket merely by
+    # clicking confirm; a known part recipe is required first.
+    with pytest.raises(ValidationError):
+        OCRService().confirm(result, reviewer_id="reviewer-1")
 
 
 def test_fixture_id_cannot_spoof_another_drawing_sha() -> None:

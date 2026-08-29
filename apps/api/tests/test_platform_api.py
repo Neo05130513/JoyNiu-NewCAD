@@ -202,6 +202,13 @@ def test_drawing_to_model_workflow_persists_source_parameters_and_artifacts() ->
     assert payload["recognition"]["status"] == "confirmed"
     assert payload["validation"]["valid"] is True
     assert len(payload["pdm"]["artifacts"]) == 2
+    # Recognition evidence is copied into durable PDM metadata; the in-memory
+    # OCR index is only a request-time hand-off and may be lost on restart.
+    source_metadata = payload["pdm"]["sourceDocument"]["metadata"]
+    assert source_metadata["recognition"]["sourceSha256"] == payload["recognition"]["sourceSha256"]
+    assert source_metadata["recognition"]["id"] == payload["recognition"]["id"]
+    assert source_metadata["recognition"]["dimensions"]
+    assert source_metadata["recognition"]["status"] == "confirmed"
     manifest = client.get(payload["next"]["manifestPath"], headers=auth)
     assert manifest.status_code == 200, manifest.text
     assert len(manifest.json()["documents"]) == 4
