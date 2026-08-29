@@ -101,6 +101,31 @@ def test_unknown_ocr_never_claims_confirmation() -> None:
         OCRService().confirm(result, reviewer_id="reviewer-1")
 
 
+def test_reviewer_override_typo_is_rejected() -> None:
+    source = b"known review payload"
+    service = OCRService()
+    # Inject a deterministic, reviewable recipe without claiming that the
+    # source bytes are the acceptance fixture.
+    import hashlib
+
+    service.fixtures["reviewable"] = {
+        "fixture_id": "reviewable",
+        "source_sha256": hashlib.sha256(source).hexdigest(),
+        "part_type": "bracket",
+        "verified": False,
+        "model_recipe": {"parameters": {
+            "baseLength": 100, "baseWidth": 50, "baseThickness": 10,
+            "upperLength": 70, "upperWidth": 30, "upperHeight": 30,
+            "totalHeight": 40, "notchOpening": 40, "notchRadius": 15,
+            "bossDiameter": 20, "bossCenterDistance": 70,
+        }},
+        "unresolved": [],
+    }
+    result = service.analyze(source, fixture_id="reviewable")
+    with pytest.raises(ValidationError, match="unknown parameter override"):
+        service.confirm(result, reviewer_id="reviewer-1", parameter_overrides={"notchRadiu": 15})
+
+
 def test_fixture_id_cannot_spoof_another_drawing_sha() -> None:
     """Known fixture ids are ignored unless the uploaded SHA matches."""
 
