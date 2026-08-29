@@ -71,7 +71,7 @@ VITE_API_BASE=http://localhost:8010/api/v1 npm run dev
 
 ```bash
 cd apps/api
-python3 -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev,geometry,ocr]'
 export JOYNIU_AUTH_SECRET='use-a-random-secret-of-at-least-24-bytes'
 export JOYNIU_DB="$PWD/data/joyniu.sqlite3"
 uvicorn app.main:app --reload --port 8010
@@ -85,7 +85,8 @@ python3 -m pip install -e '.[ocr]'       # Pillow + pytesseract；还需 tessera
 ```
 
 首次运行没有 CadQuery 时仍可生成可审计的 GLB/三角面 STEP；响应中的 `engine`、
-`warnings` 和 `productionReady` 会说明降级状态。
+`warnings` 和 `productionReady` 会说明降级状态。需要生产 B-Rep 交付时应使用
+`requireCadQuery=true`，OCCT 不可用会明确返回 503，而不是静默降级。
 
 ## 图纸验收（本次客户图片）
 
@@ -131,8 +132,11 @@ CAM 碰撞门禁和审核者/放行者分离；API 集成测试在安装 FastAPI
 
 ## 生产边界
 
-本仓库已经接入服务接口和可审计降级路径，但它仍不是机床生产系统：没有配置生产级
-账号存储、集群任务队列、完整 OCCT 拓扑回读、机床后处理器认证或材料去除仿真时，
-不能把 fallback STEP/GLB 或 deterministic CAM pre-check 标记为生产交付。下一阶段
-应接入持久化对象存储、真实视觉模型/人工复核流、组织级 PDM 权限、机床仿真和经过
-验证的 NC postprocessor。
+当前仓库已经把 FastAPI、CadQuery/OCCT、证据优先 OCR、SQLite PDM、账号/RBAC 和
+CAM/NC 工作流接入到同一条可复现链路：OCCT 模式会做实体拓扑、包络、体积、关键圆柱
+轴线检查，并重新打开 STEP 做一致性复核；平台工作流会把原图、OCR 证据、参数、验证
+报告和模型版本关联保存。缺少 OCCT 时的 fallback 仍只能审阅，不能标记为生产 B-Rep。
+
+要部署为真正的制造生产系统，还需要把本地 SQLite/进程缓存替换为组织级数据库和对象
+存储、接入集群任务队列与多租户审计、采用经过认证的机床后处理器，并运行机床专用材料
+去除/碰撞仿真。未知图纸也会保持 `needs_review`，不会因为 OCR 猜测而自动放行。

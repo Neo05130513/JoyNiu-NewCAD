@@ -7,12 +7,12 @@ on FastAPI, so the same rules can run in a worker or a test.  The optional
 
 ## Start the API
 
-From this directory, install the API and development extras declared in
-`pyproject.toml`:
+From this directory, install the API and the extras used by the complete local
+acceptance flow:
 
 ```bash
-python -m pip install -e '.[dev]'
-uvicorn app.main:app --reload --port 8000
+python -m pip install -e '.[dev,geometry,ocr]'
+uvicorn app.main:app --reload --port 8010
 ```
 
 The geometry entrypoint can mount the platform router as follows:
@@ -29,8 +29,17 @@ app.include_router(create_platform_router(services), prefix="/api/v1")
 
 Set `JOYNIU_AUTH_SECRET` in deployments instead of putting a secret in source.
 The default `":memory:"` database is intended for tests and demos; use a
-filesystem path for PDM/account persistence.  CAM plans and OCR recognition
-objects are process-local until their manifests are saved as PDM versions.
+filesystem path for a single-node deployment. Auth, PDM and CAM share that
+SQLite path: CAM writes a transactional, versioned snapshot and automatically
+restores plans, operations, simulations, approvals and NC text after a restart.
+The short-lived OCR recognition map is intentionally kept in memory; the
+drawing-to-model workflow persists its source bytes, evidence/recipe metadata,
+parameters and generated artifacts as immutable PDM versions. A future
+multi-node deployment should move blobs/sessions to managed storage.
+
+Useful server environment variables are documented in the repository
+`.env.example`: `JOYNIU_DB`, `JOYNIU_AUTH_SECRET`, `JOYNIU_OCR_ENGINE`,
+`JOYNIU_CORS_ORIGINS` and the upload limit.
 
 ## API surface
 
@@ -40,8 +49,9 @@ All routes below are relative to the prefix selected by the host application.
 | --- | --- |
 | Auth/RBAC | `POST /auth/users`, `POST /auth/login`, `GET /auth/me`, role/active administration |
 | PDM | project/document CRUD, immutable `POST /pdm/documents/{id}/versions`, content download, status transitions |
-| OCR | `GET /ocr/fixtures`, JSON base64 `POST /ocr/analyze`, binary `POST /ocr/analyze-bytes`, human confirmation |
-| CAM/NC | plan/tools, operation creation, simulation, gate status, reviewer approval, NC release/download |
+| OCR | `GET /ocr/fixtures`, JSON base64 `POST /ocr/analyze`, binary `POST /ocr/analyze-bytes`, reviewer confirmation |
+| Workflow | `POST /workflows/drawing-to-model` (SHA-anchored OCR → OCCT → PDM transaction) |
+| CAM/NC | plan/tools, operation creation, simulation, gate status, reviewer approval, NC release/download, admin snapshot import/export |
 
 The first local account creation is an explicit bootstrap operation.  Further
 accounts require `user:manage`.  Roles are intentionally small and auditable:

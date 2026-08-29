@@ -2,4 +2,9 @@ node_modules
 dist
 .DS_Store
 .env
-
+__pycache__
+*.py[cod]
+.pytest_cache
+.venv
+apps/api/data
+apps/api/artifacts

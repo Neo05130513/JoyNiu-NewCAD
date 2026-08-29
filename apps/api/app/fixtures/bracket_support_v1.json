@@ -1,0 +1,222 @@
+{
+  "fixture_id": "bracket_support_v1",
+  "aliases": ["acceptance_bracket", "codex_bracket_2026_08"],
+  "description": "Acceptance drawing supplied in the CurrentCAD clone brief (four-view bracket).",
+  "source_sha256": "ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366",
+  "image_width": 1753,
+  "image_height": 1275,
+  "part_type": "bracket",
+  "verified": true,
+  "confidence": 0.99,
+  "created_at": "2026-08-29T00:00:00Z",
+  "ocr_text": "100 50 10 40 70 40 R15 30 Ø20",
+  "dimensions": [
+    {
+      "id": "dim-base-length",
+      "field": "base_length",
+      "value": 100,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "100",
+      "view": "top",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 389, "y": 612, "width": 484, "height": 42}
+    },
+    {
+      "id": "dim-base-width",
+      "field": "base_width",
+      "value": 50,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "50",
+      "view": "top",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 324, "y": 694, "width": 38, "height": 246}
+    },
+    {
+      "id": "dim-base-thickness",
+      "field": "base_thickness",
+      "value": 10,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "10",
+      "view": "front",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 335, "y": 409, "width": 37, "height": 83}
+    },
+    {
+      "id": "dim-total-height",
+      "field": "total_height",
+      "value": 40,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "40",
+      "view": "front",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 296, "y": 264, "width": 45, "height": 210}
+    },
+    {
+      "id": "dim-upper-length",
+      "field": "upper_length",
+      "value": 70,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "70",
+      "view": "front",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 460, "y": 166, "width": 345, "height": 43}
+    },
+    {
+      "id": "dim-notch-opening",
+      "field": "notch_opening",
+      "value": 40,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "40",
+      "view": "front",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 535, "y": 207, "width": 198, "height": 42}
+    },
+    {
+      "id": "dim-notch-radius",
+      "field": "notch_radius",
+      "value": 15,
+      "unit": "mm",
+      "kind": "radius",
+      "source_text": "R15",
+      "view": "front",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 628, "y": 293, "width": 121, "height": 91}
+    },
+    {
+      "id": "dim-upper-width",
+      "field": "upper_width",
+      "value": 30,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "30",
+      "view": "right",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 1183, "y": 179, "width": 151, "height": 42}
+    },
+    {
+      "id": "dim-wall-thickness",
+      "field": "wall_thickness",
+      "value": 10,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "10",
+      "view": "right",
+      "confidence": 0.98,
+      "verified": true,
+      "bbox": {"x": 1036, "y": 271, "width": 46, "height": 82}
+    },
+    {
+      "id": "dim-boss-diameter",
+      "field": "boss_diameter",
+      "value": 20,
+      "unit": "mm",
+      "kind": "diameter",
+      "source_text": "Ø20",
+      "view": "top",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 772, "y": 769, "width": 93, "height": 108}
+    },
+    {
+      "id": "dim-boss-center-distance",
+      "field": "boss_center_distance",
+      "value": 70,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "70 (centres)",
+      "view": "top",
+      "confidence": 0.95,
+      "verified": true,
+      "bbox": null
+    }
+  ],
+  "features": [
+    {
+      "id": "feat-base",
+      "feature_type": "base_box",
+      "parameters": {"length": 100, "width": 50, "height": 10, "origin": "center_xy"},
+      "evidence_ids": ["dim-base-length", "dim-base-width", "dim-base-thickness"],
+      "view": "top",
+      "confidence": 0.99,
+      "verified": true
+    },
+    {
+      "id": "feat-upper-box",
+      "feature_type": "upper_box",
+      "parameters": {"length": 70, "width": 30, "height": 30, "z_start": 10},
+      "evidence_ids": ["dim-upper-length", "dim-upper-width", "dim-total-height"],
+      "view": "front",
+      "confidence": 0.98,
+      "verified": true
+    },
+    {
+      "id": "feat-saddle-notch",
+      "feature_type": "through_saddle_notch",
+      "parameters": {"opening": 40, "radius": 15, "axis": "Y", "through": true},
+      "evidence_ids": ["dim-notch-opening", "dim-notch-radius"],
+      "view": "front",
+      "confidence": 0.98,
+      "verified": true
+    },
+    {
+      "id": "feat-boss-pair",
+      "feature_type": "vertical_boss_pair",
+      "parameters": {"diameter": 20, "height": 30, "center_distance": 70, "centers": [[-35, 0], [35, 0]]},
+      "evidence_ids": ["dim-boss-diameter", "dim-boss-center-distance"],
+      "view": "top",
+      "confidence": 0.96,
+      "verified": true
+    }
+  ],
+  "model_recipe": {
+    "recipe_id": "bracket_support_v1",
+    "coordinate_system": {"origin": "base_center", "x": "length_100", "y": "width_50", "z": "up"},
+    "parameters": {
+      "baseLength": 100,
+      "baseWidth": 50,
+      "baseThickness": 10,
+      "upperLength": 70,
+      "upperWidth": 30,
+      "upperHeight": 30,
+      "totalHeight": 40,
+      "notchOpening": 40,
+      "notchRadius": 15,
+      "bossDiameter": 20,
+      "bossCenterDistance": 70,
+      "bossHeight": 30,
+      "material": "45# 钢",
+      "units": "mm"
+    },
+    "operations": [
+      {"id": "op-base", "type": "box", "size": [100, 50, 10], "origin": [-50, -25, 0]},
+      {"id": "op-upper", "type": "box", "size": [70, 30, 30], "origin": [-35, -15, 10], "fuse": true},
+      {"id": "op-notch", "type": "saddle_cut", "opening": 40, "radius": 15, "axis": "Y", "through": true, "z_center": 40},
+      {"id": "op-boss-left", "type": "cylinder", "diameter": 20, "height": 30, "center": [-35, 0, 10], "fuse": true},
+      {"id": "op-boss-right", "type": "cylinder", "diameter": 20, "height": 30, "center": [35, 0, 10], "fuse": true}
+    ]
+  },
+  "assumptions": [
+    "All dimensions are millimetres; the drawing has no title-block unit override.",
+    "The base origin is the centre of the 100 x 50 footprint; Z=0 is the bottom face.",
+    "The R15 saddle is a through cut along Y in the 70 x 30 upper box.",
+    "The two Ø20 circles are vertical bosses fused to the base/upper body at X ±35, Y=0."
+  ],
+  "warnings": [
+    "Fixture is deterministic and reviewable; production release still requires a solid-kernel validation report."
+  ],
+  "unresolved": []
+}

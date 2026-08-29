@@ -123,7 +123,10 @@ def run_check(
         payload = b"joyniu-acceptance-fixture-placeholder"
         checks.append(_check("drawing file readable", None, "using explicit fixture id (no file supplied)"))
 
-    ocr = OCRService()
+    # ``--fixture`` is an explicit fixture-only smoke mode and may use the
+    # placeholder payload; real uploads always require the fixture SHA to
+    # match the bytes, preventing fixture-id spoofing in the API.
+    ocr = OCRService(allow_unverified_fixture=drawing is None)
     recognition = ocr.analyze(payload, filename=source_name, fixture_id=fixture_id)
     parameters = recognition.model_recipe.get("parameters", {})
     missing = [key for key, expected in EXPECTED.items() if float(parameters.get(key, -1)) != expected]

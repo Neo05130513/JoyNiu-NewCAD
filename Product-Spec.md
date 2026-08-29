@@ -126,11 +126,12 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 
 ### 强制技术能力
 
-- FastAPI 接收图片/PDF（DXF 可通过后续解析器接入），创建可查询的图纸结果。
+- FastAPI 接收图片/PDF/DXF/DWG（栅格化与实体解析按部署能力启用），创建可查询的图纸结果。
 - OCR/图纸识别结果必须包含数值、单位、来源视图、置信度和确认状态。
 - CadQuery/OCCT 生成真实拓扑实体，并导出 STEP；缺少原生内核时必须明确返回 `fallback`，不能声称生产可用。
-- 当前实体生成后核对包络 100 × 50 × 40 mm、参数约束和估算体积；安装 OCCT 后再执行
-  实体数量、关键圆柱面和 R15 缺口曲面的拓扑回读（列入 v0.3）。
+- 当前实体生成后核对包络 100 × 50 × 40 mm、参数约束和体积，并在 OCCT 可用时回读
+  实体数量、关键圆柱面、圆柱轴线位置和 R15 缺口曲面的拓扑；STEP 会重新导入做一致性
+  复核。更完整的通用拓扑规则仍列入 v0.3。
 - PDM 保存原图、参数快照、生成物和不可变版本记录。
 - RBAC 区分查看者、设计师、审核者、制造放行者和管理员；设计师可生成/仿真，审核者
   可审批，manufacturing 角色才能在独立审批后放行 NC。
@@ -187,6 +188,8 @@ python3 apps/api/scripts/acceptance_check.py --drawing /path/to/drawing.jpg
 python3 apps/api/scripts/acceptance_check.py --strict-optional --drawing /path/to/drawing.jpg
 ```
 
-验收脚本不会写入仓库：PDM/RBAC 使用临时 SQLite，生成的 token、CAM 计划和 NC 草案
-仅存在于本次进程/临时目录。真实 API 默认把 PDM/RBAC 数据保存到
-`apps/api/data/joyniu.sqlite3`，也可用 `JOYNIU_DB` 改写路径。
+验收脚本不会写入仓库：PDM/RBAC/CAM 使用临时 SQLite，生成的 token 和 NC 草案只在
+验收数据库中存在。真实 API 默认把账号、PDM 文档版本以及 CAM 计划/仿真/审批/NC
+快照保存到 `apps/api/data/joyniu.sqlite3`，也可用 `JOYNIU_DB` 改写路径；直接几何
+artifact 缓存和 OCR 识别 hand-off map 仍是进程内缓存，但 drawing-to-model 工作流会
+把完整识别证据、参数和生成物写入不可变 PDM 版本。

@@ -1,0 +1,25 @@
+{
+  "id": "orthographic_mounting_bracket_v1",
+  "description": "正投影安装支架验收夹具",
+  "units": "mm",
+  "source_views": ["front", "right", "top", "isometric_reference"],
+  "parameters": {
+    "base_length": 100,
+    "base_width": 50,
+    "base_thickness": 10,
+    "upper_length": 70,
+    "upper_width": 30,
+    "upper_height": 30,
+    "total_height": 40,
+    "notch_opening": 40,
+    "notch_radius": 15,
+    "boss_diameter": 20,
+    "boss_center_distance": 70,
+    "boss_centers": [[-35, 0, 10], [35, 0, 10]]
+  },
+  "expected": {
+    "bounding_box": [100, 50, 40],
+    "solid_count": 1,
+    "production_usable": true
+  }
+}

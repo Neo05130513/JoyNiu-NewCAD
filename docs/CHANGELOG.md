@@ -53,8 +53,10 @@
   Tesseract 并由人工确认，复杂视图/公差/标题栏尚未自动建模。
 - CAM `deterministic-precheck` 是流程门禁，不是机床级材料去除、刀具负载或碰撞仿真；
   生成的 NC 是设计草案，仍需组织批准的仿真和 postprocessor。
-- PDM/CAM 服务默认单进程/本地 SQLite；对象存储、集群队列、组织级 ACL、STEP 拓扑回读
-  和多人协作计划在 v0.3/v1.0。
+- PDM、账号和 CAM/NC 快照在配置 `JOYNIU_DB` 后可跨 API 重启恢复；直接几何 artifact
+  下载缓存和 OCR 识别 hand-off map 仍是进程内的短期缓存，drawing-to-model 会把审计
+  证据与生成物写入 PDM。对象存储、集群队列、组织级多租户 ACL、完整通用拓扑规则、
+  机床级材料去除仿真和多人协作计划仍列入 v0.3/v1.0。
 
 ## v0.1.0 · 2026-08-29 · 浏览器工作台原型
 
