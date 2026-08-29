@@ -151,7 +151,9 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 ### 2026-08-29 本地验收结果
 
 使用客户原图（107,532 bytes）运行 `apps/api/scripts/acceptance_check.py`，其 SHA-256
-与 fixture 完全一致。当前依赖最小环境得到 9 项通过、2 项可选依赖跳过、0 项失败：
+与 fixture 完全一致。在仓库提供的 `apps/api/.venv`（含 FastAPI、CadQuery/OCCT）中，
+当前得到 12 项通过、0 项跳过、0 项失败；若仅使用未安装可选依赖的系统 Python，脚本会
+保留核心 9 项通过并将 FastAPI/CadQuery 标记为可选跳过：
 
 | 检查 | 结果 | 证据 |
 | --- | --- | --- |
@@ -161,8 +163,8 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 | RBAC | 通过 | designer 可仿真不可放行；manufacturing 可放行；token 校验通过 |
 | PDM | 通过 | 原图与参数各创建 revision 1，不可变内容 SHA-256 匹配 |
 | CAM/NC | 通过 | `deterministic-precheck` 通过，reviewer 审批后由独立 manufacturing 角色放行 |
-| FastAPI 导入 | 当前机跳过 | 当前 Python 环境未安装 `apps/api[dev]`；代码与集成测试已提供 |
-| CadQuery/OCCT 导出 | 当前机跳过 | 当前 Python 环境未安装 `[geometry]`；fallback 导出代码与测试已提供 |
+| FastAPI 导入 | 通过（带依赖环境） | `apps/api/.venv` 可导入；无 `apps/api[dev]` 时按可选项跳过 |
+| CadQuery/OCCT 导出 | 通过（带依赖环境） | `engine=cadquery-occt`、`productionReady=true`；无 `[geometry]` 时使用显式 fallback |
 
 “跳过”不等于生产验收通过。发布 CI 必须安装开发依赖，并用 `--strict-optional`
 把 FastAPI/CadQuery 缺失视为失败；只有 `engine=cadquery-occt` 且
@@ -171,7 +173,7 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 ### 复现命令
 
 ```bash
-# 标准服务/测试环境
+# 标准服务/测试环境（建议使用仓库已有虚拟环境）
 cd apps/api
 python3 -m pip install -e '.[dev,geometry]'
 python3 -m pytest
