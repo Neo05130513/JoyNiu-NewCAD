@@ -63,7 +63,8 @@ JoyNiu NewCAD 是面向机械设计师、工艺工程师和制造团队的浏览
 - 本地账号使用 PBKDF2 密码哈希、HMAC token 和 RBAC，区分 viewer、designer、
   reviewer、manufacturing、admin，并对敏感操作进行权限校验。
 - CAM/NC 已有计划、刀具、工序、确定性仿真预检查、碰撞/干涉/包络门禁、审核和 NC
-  放行；预检查不是机床级材料去除仿真，不能单独作为生产批准。
+  放行；审批仅限 reviewer/admin，放行仅限 manufacturing/admin，并要求审核者与放行者
+  身份分离。预检查不是机床级材料去除仿真，不能单独作为生产批准。
 
 ## 6. 核心流程
 

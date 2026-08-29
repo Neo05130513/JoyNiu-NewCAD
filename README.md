@@ -19,7 +19,8 @@ CurrentCAD 线程中验证过的交互，并在 v0.2.0 增加了“上传图纸 
 - 账号与权限：PBKDF2 密码哈希、HMAC Bearer token、viewer/designer/reviewer/
   manufacturing/admin RBAC 及账号审计。
 - CAM/NC：工序和刀具 IR、确定性仿真预检查、碰撞/干涉/包络门禁、审核者审批、
-  独立放行者和 NC 下载；预检查结果明确声明不能替代机床级材料去除仿真。
+  独立放行者和 NC 下载；审批仅授予 reviewer/admin，放行仅授予
+  manufacturing/admin；预检查结果明确声明不能替代机床级材料去除仿真。
 
 ## 目录与服务入口
 
