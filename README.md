@@ -113,9 +113,12 @@ python3 apps/api/scripts/acceptance_check.py --fixture bracket_support_v1
 python3 apps/api/scripts/acceptance_check.py --strict-optional --drawing /path/to/drawing.jpg
 ```
 
-验收尺寸为：底板 `100×50×10 mm`、上部实体 `70×30×30 mm`、总高 `40 mm`、
-U 型通槽开口 `40 mm`/`R15`、两处竖直 `Ø20 mm` 凸台中心距 `70 mm`（中心位于
-`X=±35, Y=0, Z=10`）。fixture 结果为 `status=confirmed`，但生产交付仍必须看
+验收尺寸为：底板 `100×50×10 mm`、上部实体 `70×50×30 mm`、总高 `40 mm`；右视图的
+`30 mm` 是沿 Y 的矩形槽长，槽宽（X）`10 mm`、槽深 `10 mm`；R15 鞍形切口沿 Y
+贯穿全宽 `50 mm`；两处竖直 `Ø20 mm` 是贯穿 Z=0..40 的切孔（与上部侧壁相切后
+形成半圆侧缺口），中心距 `70 mm`、中心位于 `X=±35, Y=0`。`bossDiameter` /
+`bossCenterDistance` 仅作为旧客户端兼容别名，不代表实体凸台。fixture 结果为
+`status=confirmed`，但生产交付仍必须看
 几何引擎的 `productionReady` 和实体校验报告。
 
 ## 测试与文件化开发

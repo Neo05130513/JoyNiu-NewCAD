@@ -5,8 +5,11 @@ generator.  A recognition result carries the source hash, bounding boxes,
 confidence and assumptions that led to every dimension.  The included
 acceptance drawing is registered as a deterministic fixture so CI and local
 demo runs produce the same result even when a machine does not have an OCR
-engine installed.  Unknown drawings can be sent to the optional Tesseract
-adapter; those results remain ``needs_review`` until a human confirms them.
+engine installed.  Its recipe follows the four-view C interpretation: the
+upper body is full-width, the 30-mm callout is a Y-oriented pocket length, and
+the Ø20 circles are subtractive vertical through holes/side notches.  Unknown
+drawings can be sent to the optional Tesseract adapter; those results remain
+``needs_review`` until a human confirms them.
 """
 
 from __future__ import annotations
@@ -141,10 +144,21 @@ class FeatureEvidence:
     evidence_ids: tuple[str, ...] = ()
     view: str = "unknown"
     verified: bool = False
+    # A feature can expose a descriptive semantic name and a compatibility
+    # alias without creating two physical features in the recipe.  This is
+    # used by the acceptance bracket where the Ø20 cut is both a
+    # ``side_notch_cut_pair`` and a ``vertical_through_hole_pair``.  Imported
+    # legacy fixtures may still carry an old label for migration, but the
+    # calibrated fixture never emits it as its primary feature type.
+    feature_type_aliases: tuple[str, ...] = ()
+    legacy_feature_type: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["evidence_ids"] = list(self.evidence_ids)
+        data["feature_type_aliases"] = list(self.feature_type_aliases)
+        if self.legacy_feature_type is None:
+            data.pop("legacy_feature_type", None)
         return data
 
 
@@ -299,6 +313,9 @@ def _dimension_field(value: float, marker: str = "") -> tuple[str, str]:
     if marker in {"R", "RAD", "RADIUS"}:
         return "notch_radius", "radius"
     if marker in {"Ø", "Φ", "D", "DIA", "DIAMETER"}:
+        # Keep the historical field name for API compatibility.  In the
+        # calibrated bracket recipe this diameter belongs to subtractive
+        # vertical holes/side notches, not additive bosses.
         return "boss_diameter", "diameter"
     # Generic OCR fallback.  The caller can remap repeated values by view.
     return "unclassified", "linear"
@@ -489,6 +506,20 @@ class OCRService:
                 evidence_ids=tuple(raw.get("evidence_ids", raw.get("evidenceIds", []))),
                 view=str(raw.get("view", "unknown")),
                 verified=bool(raw.get("verified", fixture.get("verified", False))),
+                feature_type_aliases=tuple(
+                    str(item)
+                    for item in raw.get(
+                        "feature_type_aliases",
+                        raw.get("featureTypeAliases", []),
+                    )
+                ),
+                legacy_feature_type=(
+                    str(raw.get("legacy_feature_type"))
+                    if raw.get("legacy_feature_type") is not None
+                    else str(raw.get("legacyFeatureType"))
+                    if raw.get("legacyFeatureType") is not None
+                    else None
+                ),
             )
             for raw in fixture.get("features", [])
         )
@@ -638,7 +669,9 @@ class OCRService:
                 allowed = {
                     "baseLength", "baseWidth", "baseThickness", "upperLength",
                     "upperWidth", "upperHeight", "totalHeight", "notchOpening",
-                    "notchRadius", "bossDiameter", "bossCenterDistance", "bossHeight",
+                    "notchRadius", "slotLength", "slotWidth", "pocketDepth",
+                    "saddleDepth", "holeDepth", "holeThrough", "bossDiameter",
+                    "bossCenterDistance", "bossHeight",
                     "material", "units",
                 }
             unknown = sorted(str(key) for key in overrides if str(key) not in allowed)
@@ -720,6 +753,13 @@ def recognize_drawing_bytes(
             "total_height": "totalHeight",
             "notch_opening": "notchOpening",
             "notch_radius": "notchRadius",
+            "slot_length": "slotLength",
+            "slot_width": "slotWidth",
+            "feature_depth": "pocketDepth",
+            "pocket_depth": "pocketDepth",
+            "saddle_depth": "saddleDepth",
+            "hole_depth": "holeDepth",
+            "hole_through": "holeThrough",
             "boss_diameter": "bossDiameter",
             "boss_center_distance": "bossCenterDistance",
             "boss_height": "bossHeight",

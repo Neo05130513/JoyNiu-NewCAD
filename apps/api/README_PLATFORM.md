@@ -67,9 +67,14 @@ the supplied four-view bracket drawing (SHA-256
 the verified dimensions and model recipe:
 
 * base `100 x 50 x 10 mm`;
-* upper box `70 x 30 x 30 mm` (total height `40 mm`);
-* through saddle opening `40 mm`, radius `R15`;
-* two vertical `Ø20` bosses, centre distance `70 mm`.
+* upper box `70 x 50 x 30 mm` (total height `40 mm`);
+* two rectangular top pockets, each `10 mm` wide in X, `30 mm` long in Y and
+  `10 mm` deep;
+* through saddle opening `40 mm`, radius `R15`, along Y through the full
+  `50 mm` width;
+* two vertical `Ø20` through-hole cuts, centre distance `70 mm`.  The portions
+  tangent to the upper side walls appear as semicircular side notches;
+  `bossDiameter`/`bossCenterDistance` remain compatibility aliases only.
 
 An exact upload is automatically matched by hash.  For deterministic demos a
 caller may send `fixtureId=bracket_support_v1`; the response still includes the

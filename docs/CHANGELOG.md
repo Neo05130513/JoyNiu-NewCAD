@@ -17,8 +17,9 @@
 - 登记客户四视图支架验收 fixture `bracket_support_v1`（兼容别名
   `acceptance_bracket`），源图 SHA-256：
   `ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366`。
-  fixture 参数为底板 `100×50×10`、上部 `70×30×30`、总高 `40`、U 槽 `40/R15`、
-  两处 `Ø20` 凸台中心距 `70 mm`。
+  fixture 参数为底板 `100×50×10`、上部全宽 `70×50×30`、总高 `40`、U 槽
+  `40/R15`（沿 Y 贯穿50）、矩形顶槽长/宽/深 `30/10/10`，以及两处 `Ø20`
+  竖向贯穿切孔（中心距 `70 mm`，侧边显示为半圆缺口）。
 - 新增 SQLite PDM：项目/文件、不可变版本、内容 SHA-256、乐观 revision、回收/恢复、
   manifest 和审计事件。
 - 新增本地账号与 RBAC：PBKDF2 密码哈希、HMAC bearer token、viewer/designer/
@@ -33,6 +34,11 @@
 
 ### Changed
 
+- 修正四视图支架验收配方的几何语义：上部实体为全宽 `70×50×30`（不再把右视图
+  `30` 误作上部宽度）；`30` 表示沿 Y 的槽长，矩形顶槽为宽 X=`10`、深=`10`；
+  R15 鞍形切口沿 Y 贯穿 `50`；Ø20 圆为 Z 向贯穿切孔/侧边半圆缺口。旧
+  `boss*` 参数名保留为兼容别名，feature type 改为 `side_notch_cut_pair` /
+  `vertical_through_hole_pair`。
 - 产品规格升级为 v0.2.0，记录客户图纸验收尺寸、SHA-256 和六阶段审核流程。
 - 前端 API client 增加健康检查、图纸识别、几何生成、认证、PDM、CAM 调用边界；离线
   localStorage 演示仍可独立运行。
@@ -43,8 +49,9 @@
 
 - 仓库虚拟环境执行验收脚本：12 项通过、0 项跳过、0 项失败；仅安装核心依赖时仍会
   将 FastAPI/CadQuery 标记为可选跳过，`--strict-optional` 可作为发布门禁。
-- 精确客户图片上传命中 fixture，OCR 结果 `status=confirmed`、11 条尺寸证据和 4 个
-  结构特征；PDM 原图/参数版本关联、CAM 仿真、reviewer → manufacturing 放行链路通过。
+- 精确客户图片上传命中 fixture，OCR 结果 `status=confirmed`、16 条尺寸证据和 5 个
+  结构特征（含矩形顶槽与侧边切孔）；PDM 原图/参数版本关联、CAM 仿真、reviewer →
+  manufacturing 放行链路通过。
 - 安装依赖后使用 `cd apps/api && python -m pytest` 执行几何/API/平台测试；发布门禁使用
   `python scripts/acceptance_check.py --strict-optional --drawing <file>`。
 

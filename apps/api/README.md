@@ -66,10 +66,12 @@ calibrated to:
 | Field | Value (mm) |
 | --- | ---: |
 | baseLength x baseWidth x baseThickness | 100 x 50 x 10 |
-| upperLength x upperWidth x upperHeight | 70 x 30 x 30 |
+| upperLength x upperWidth x upperHeight | 70 x 50 x 30 |
 | totalHeight | 40 |
 | notchOpening / notchRadius | 40 / 15 |
-| bossDiameter / bossCenterDistance | 20 / 70 |
+| slotLength / slotWidth / pocketDepth | 30 (Y) / 10 (X) / 10 |
+| saddleDepth | 50 (R15 cut through Y) |
+| bossDiameter / bossCenterDistance | 20 / 70 (legacy aliases for vertical cuts) |
 
 OCR is attempted when Pillow + Tesseract are installed. If they are not, the
 response explicitly says that a calibrated/reviewable profile was used. A
@@ -98,9 +100,10 @@ curl -X POST http://localhost:8010/api/v1/ocr/<recognitionId>/confirm \
 curl -X POST http://localhost:8010/api/brackets/validate \
   -H 'content-type: application/json' \
   -d '{"baseLength":100,"baseWidth":50,"baseThickness":10,
-       "upperLength":70,"upperWidth":30,"upperHeight":30,"totalHeight":40,
-       "notchOpening":40,"notchRadius":15,"bossDiameter":20,
-       "bossCenterDistance":70}'
+       "upperLength":70,"upperWidth":50,"upperHeight":30,"totalHeight":40,
+       "notchOpening":40,"notchRadius":15,"slotLength":30,"slotWidth":10,
+       "pocketDepth":10,"saddleDepth":50,"holeDepth":40,"holeThrough":true,
+       "bossDiameter":20,"bossCenterDistance":70}'
 ~~~
 
 Validation is non-throwing and returns all rules. valid=false means an
@@ -114,9 +117,10 @@ include notch.arc_center (Z=totalHeight) and notch.bottom
 curl -X POST http://localhost:8010/api/brackets/generate \
   -H 'content-type: application/json' \
   -d '{"parameters":{"baseLength":100,"baseWidth":50,"baseThickness":10,
-       "upperLength":70,"upperWidth":30,"upperHeight":30,"totalHeight":40,
-       "notchOpening":40,"notchRadius":15,"bossDiameter":20,
-       "bossCenterDistance":70},"formats":["step","glb"]}'
+       "upperLength":70,"upperWidth":50,"upperHeight":30,"totalHeight":40,
+       "notchOpening":40,"notchRadius":15,"slotLength":30,"slotWidth":10,
+       "pocketDepth":10,"saddleDepth":50,"holeDepth":40,"holeThrough":true,
+       "bossDiameter":20,"bossCenterDistance":70},"formats":["step","glb"]}'
 ~~~
 
 The JSON response includes requestId, the validation report, and artifact
@@ -138,14 +142,18 @@ which lets a production caller enforce a B-Rep-only release gate.
 The canonical model uses millimetres and a centred XY origin:
 
 * Base plate: 100 x 50 x 10, from Z=0 to Z=10.
-* Upper body: 70 x 30 x 30, centred on the base, from Z=10 to Z=40.
-* U-slot: through the upper body's Y width; arc centre lies on Z=40,
-  radius 15, bottom Z=25, with a 40 mm top opening.
-* Two vertical diameter-20 bosses at (X,Y)=(-35,0) and (35,0), from Z=10
-  to Z=40.
+* Upper body: 70 x 50 x 30, centred on the base, from Z=10 to Z=40.
+* Two rectangular top pockets: each is 10 mm wide in X, 30 mm long in Y,
+  and 10 mm deep (floor Z=30).
+* U-slot: a Y-axis cut through the complete 50-mm upper width; arc centre lies
+  on Z=40, radius 15, bottom Z=25, with a 40 mm top opening.
+* Two vertical diameter-20 through cuts at (X,Y)=(-35,0) and (35,0), from
+  Z=0 to Z=40.  Their portions tangent to the upper side walls appear as
+  semicircular side notches; `bossDiameter`/`bossCenterDistance` are legacy
+  parameter aliases.
 
-CadQuery builds a fused solid and cuts the slot with an OCCT horizontal
-cylinder. The fallback GLB uses a segmented analytic arc and the fallback
+CadQuery builds a fused solid, cuts the two pockets and vertical holes, then
+cuts the saddle with an OCCT horizontal cylinder. The fallback GLB uses a segmented analytic arc and the fallback
 STEP uses an AP242 triangulated face set, so the same dimensions remain
 inspectable in either environment.
 

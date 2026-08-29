@@ -1,7 +1,7 @@
 {
   "fixture_id": "bracket_support_v1",
   "aliases": ["acceptance_bracket", "codex_bracket_2026_08"],
-  "description": "Acceptance drawing supplied in the CurrentCAD clone brief (four-view bracket).",
+  "description": "Acceptance drawing supplied in the CurrentCAD clone brief (four-view bracket, C-semantics recipe with subtractive pockets and side-notch cuts).",
   "source_sha256": "ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366",
   "image_width": 1753,
   "image_height": 1275,
@@ -9,7 +9,7 @@
   "verified": true,
   "confidence": 0.99,
   "created_at": "2026-08-29T00:00:00Z",
-  "ocr_text": "100 50 10 40 70 40 R15 30 Ø20",
+  "ocr_text": "100 50 10 40 70 50 40 R15 30 (slotLength along Y) 10 (slotWidth/pocketDepth) 50 (saddle through Y) Ø20 THRU holeDepth40",
   "dimensions": [
     {
       "id": "dim-base-length",
@@ -98,18 +98,19 @@
     {
       "id": "dim-upper-width",
       "field": "upper_width",
-      "value": 30,
+      "value": 50,
       "unit": "mm",
       "kind": "linear",
-      "source_text": "30",
+      "source_text": "50 (upper full Y width)",
       "view": "right",
       "confidence": 0.99,
       "verified": true,
-      "bbox": {"x": 1183, "y": 179, "width": 151, "height": 42}
+      "bbox": {"x": 1137, "y": 269, "width": 244, "height": 204}
     },
     {
       "id": "dim-wall-thickness",
       "field": "wall_thickness",
+      "semantic_field": "pocket_depth",
       "value": 10,
       "unit": "mm",
       "kind": "linear",
@@ -120,12 +121,72 @@
       "bbox": {"x": 1036, "y": 271, "width": 46, "height": 82}
     },
     {
+      "id": "dim-slot-length",
+      "field": "slot_length",
+      "value": 30,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "30 (rectangular pocket length along Y)",
+      "view": "right",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 1183, "y": 179, "width": 151, "height": 42}
+    },
+    {
+      "id": "dim-slot-width",
+      "field": "slot_width",
+      "value": 10,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "10 (rectangular pocket width along X)",
+      "view": "top",
+      "confidence": 0.94,
+      "verified": true,
+      "bbox": {"x": 533, "y": 744, "width": 43, "height": 148}
+    },
+    {
+      "id": "dim-pocket-depth",
+      "field": "pocket_depth",
+      "value": 10,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "10 (top pocket depth)",
+      "view": "right",
+      "confidence": 0.99,
+      "verified": true,
+      "bbox": {"x": 1036, "y": 271, "width": 46, "height": 82}
+    },
+    {
+      "id": "dim-saddle-depth",
+      "field": "saddle_depth",
+      "value": 50,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "50 (R15 saddle through full Y width)",
+      "view": "right",
+      "confidence": 0.97,
+      "verified": true,
+      "bbox": {"x": 1137, "y": 269, "width": 244, "height": 204}
+    },
+    {
+      "id": "dim-hole-depth",
+      "field": "hole_depth",
+      "value": 40,
+      "unit": "mm",
+      "kind": "linear",
+      "source_text": "40 (Ø20 vertical holes through Z)",
+      "view": "front",
+      "confidence": 0.97,
+      "verified": true,
+      "bbox": {"x": 296, "y": 264, "width": 45, "height": 210}
+    },
+    {
       "id": "dim-boss-diameter",
       "field": "boss_diameter",
       "value": 20,
       "unit": "mm",
       "kind": "diameter",
-      "source_text": "Ø20",
+      "source_text": "Ø20 THRU (vertical cut / side notch)",
       "view": "top",
       "confidence": 0.99,
       "verified": true,
@@ -137,7 +198,7 @@
       "value": 70,
       "unit": "mm",
       "kind": "linear",
-      "source_text": "70 (centres)",
+      "source_text": "70 (hole centres / side-notch cuts)",
       "view": "top",
       "confidence": 0.95,
       "verified": true,
@@ -157,7 +218,7 @@
     {
       "id": "feat-upper-box",
       "feature_type": "upper_box",
-      "parameters": {"length": 70, "width": 30, "height": 30, "z_start": 10},
+      "parameters": {"length": 70, "width": 50, "height": 30, "z_start": 10, "full_width": true},
       "evidence_ids": ["dim-upper-length", "dim-upper-width", "dim-total-height"],
       "view": "front",
       "confidence": 0.98,
@@ -166,19 +227,48 @@
     {
       "id": "feat-saddle-notch",
       "feature_type": "through_saddle_notch",
-      "parameters": {"opening": 40, "radius": 15, "axis": "Y", "through": true},
+      "parameters": {"opening": 40, "radius": 15, "axis": "Y", "depth": 50, "through": true, "center": [0, 0, 40], "cut": true},
       "evidence_ids": ["dim-notch-opening", "dim-notch-radius"],
       "view": "front",
       "confidence": 0.98,
       "verified": true
     },
     {
-      "id": "feat-boss-pair",
-      "feature_type": "vertical_boss_pair",
-      "parameters": {"diameter": 20, "height": 30, "center_distance": 70, "centers": [[-35, 0], [35, 0]]},
-      "evidence_ids": ["dim-boss-diameter", "dim-boss-center-distance"],
+      "id": "feat-pocket-pair",
+      "feature_type": "rectangular_pocket_pair",
+      "parameters": {
+        "count": 2,
+        "slot_length": 30,
+        "slot_width": 10,
+        "depth": 10,
+        "axis": "Y",
+        "x_centers": [-15, 15],
+        "y_range": [-15, 15],
+        "z_floor": 30,
+        "cut": true
+      },
+      "evidence_ids": ["dim-slot-length", "dim-slot-width", "dim-pocket-depth"],
       "view": "top",
-      "confidence": 0.96,
+      "confidence": 0.97,
+      "verified": true
+    },
+    {
+      "id": "feat-side-notch-pair",
+      "feature_type": "side_notch_cut_pair",
+      "feature_type_aliases": ["vertical_through_hole_pair"],
+      "parameters": {
+        "diameter": 20,
+        "axis": "Z",
+        "depth": 40,
+        "through": true,
+        "center_distance": 70,
+        "centers": [[-35, 0], [35, 0]],
+        "cut": true,
+        "description": "two vertical through holes; tangent portions form side semicircular notches"
+      },
+      "evidence_ids": ["dim-boss-diameter", "dim-boss-center-distance", "dim-hole-depth"],
+      "view": "top",
+      "confidence": 0.98,
       "verified": true
     }
   ],
@@ -190,11 +280,17 @@
       "baseWidth": 50,
       "baseThickness": 10,
       "upperLength": 70,
-      "upperWidth": 30,
+      "upperWidth": 50,
       "upperHeight": 30,
       "totalHeight": 40,
       "notchOpening": 40,
       "notchRadius": 15,
+      "slotLength": 30,
+      "slotWidth": 10,
+      "pocketDepth": 10,
+      "saddleDepth": 50,
+      "holeDepth": 40,
+      "holeThrough": true,
       "bossDiameter": 20,
       "bossCenterDistance": 70,
       "bossHeight": 30,
@@ -203,17 +299,19 @@
     },
     "operations": [
       {"id": "op-base", "type": "box", "size": [100, 50, 10], "origin": [-50, -25, 0]},
-      {"id": "op-upper", "type": "box", "size": [70, 30, 30], "origin": [-35, -15, 10], "fuse": true},
-      {"id": "op-notch", "type": "saddle_cut", "opening": 40, "radius": 15, "axis": "Y", "through": true, "z_center": 40},
-      {"id": "op-boss-left", "type": "cylinder", "diameter": 20, "height": 30, "center": [-35, 0, 10], "fuse": true},
-      {"id": "op-boss-right", "type": "cylinder", "diameter": 20, "height": 30, "center": [35, 0, 10], "fuse": true}
+      {"id": "op-upper", "type": "box", "size": [70, 50, 30], "origin": [-35, -25, 10], "fuse": true},
+      {"id": "op-notch", "type": "saddle_cut", "opening": 40, "radius": 15, "axis": "Y", "depth": 50, "through": true, "z_center": 40, "cut": true},
+      {"id": "op-pocket-pair", "type": "rectangular_pocket_pair", "slot_length": 30, "slot_width": 10, "depth": 10, "x_centers": [-15, 15], "y_range": [-15, 15], "z_floor": 30, "cut": true},
+      {"id": "op-side-notch-pair", "type": "vertical_through_hole_pair", "feature_type": "side_notch_cut_pair", "diameter": 20, "depth": 40, "axis": "Z", "centers": [[-35, 0, 0], [35, 0, 0]], "through": true, "cut": true}
     ]
   },
   "assumptions": [
     "All dimensions are millimetres; the drawing has no title-block unit override.",
     "The base origin is the centre of the 100 x 50 footprint; Z=0 is the bottom face.",
-    "The R15 saddle is a through cut along Y in the 70 x 30 upper box.",
-    "The two Ø20 circles are vertical bosses fused to the base/upper body at X ±35, Y=0."
+    "The upper body is 70 mm long and spans the full 50 mm base width; the 30 mm right-view callout is the rectangular pocket length along Y.",
+    "Each rectangular top pocket is 10 mm wide in X, 30 mm long in Y and 10 mm deep (floor Z=30).",
+    "The R15 saddle is a cut on a Y-axis cylinder through the full 50 mm width, with its centre on Z=40.",
+    "The two Ø20 circles are vertical through holes from Z=0 to Z=40 at X ±35, Y=0; their tangent portions form side semicircular notches. boss* parameter names are retained only as API aliases."
   ],
   "warnings": [
     "Fixture is deterministic and reviewable; production release still requires a solid-kernel validation report."

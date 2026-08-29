@@ -8,18 +8,36 @@
     "base_width": 50,
     "base_thickness": 10,
     "upper_length": 70,
-    "upper_width": 30,
+    "upper_width": 50,
     "upper_height": 30,
     "total_height": 40,
     "notch_opening": 40,
     "notch_radius": 15,
+    "slot_length": 30,
+    "slot_width": 10,
+    "pocket_depth": 10,
+    "saddle_depth": 50,
+    "hole_depth": 40,
+    "hole_through": true,
     "boss_diameter": 20,
     "boss_center_distance": 70,
-    "boss_centers": [[-35, 0, 10], [35, 0, 10]]
+    "boss_centers": [[-35, 0, 0], [35, 0, 0]],
+    "hole_centers": [[-35, 0, 0], [35, 0, 0]],
+    "feature_semantics": {
+      "30": "slotLength along Y",
+      "10": "pocket depth and slot width",
+      "boss_alias": "Ø20 vertical through-hole / side-notch cuts"
+    }
   },
   "expected": {
     "bounding_box": [100, 50, 40],
     "solid_count": 1,
-    "production_usable": true
+    "production_usable": true,
+    "features": [
+      "rectangular_pocket_pair",
+      "side_notch_cut_pair",
+      "vertical_through_hole_pair",
+      "through_saddle_notch"
+    ]
   }
 }

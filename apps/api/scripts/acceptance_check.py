@@ -29,7 +29,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -47,11 +47,17 @@ EXPECTED = {
     "baseWidth": 50.0,
     "baseThickness": 10.0,
     "upperLength": 70.0,
-    "upperWidth": 30.0,
+    "upperWidth": 50.0,
     "upperHeight": 30.0,
     "totalHeight": 40.0,
     "notchOpening": 40.0,
     "notchRadius": 15.0,
+    "slotLength": 30.0,
+    "slotWidth": 10.0,
+    "pocketDepth": 10.0,
+    "saddleDepth": 50.0,
+    "holeDepth": 40.0,
+    "holeThrough": True,
     "bossDiameter": 20.0,
     "bossCenterDistance": 70.0,
 }
@@ -129,7 +135,18 @@ def run_check(
     ocr = OCRService(allow_unverified_fixture=drawing is None)
     recognition = ocr.analyze(payload, filename=source_name, fixture_id=fixture_id)
     parameters = recognition.model_recipe.get("parameters", {})
-    missing = [key for key, expected in EXPECTED.items() if float(parameters.get(key, -1)) != expected]
+    missing: list[str] = []
+    for key, expected in EXPECTED.items():
+        actual = parameters.get(key)
+        if isinstance(expected, bool):
+            matches = actual is expected
+        else:
+            try:
+                matches = float(actual) == float(expected)
+            except (TypeError, ValueError):
+                matches = False
+        if not matches:
+            missing.append(key)
     checks.append(
         _check(
             "OCR evidence and dimensions",
@@ -152,8 +169,39 @@ def run_check(
         _check(
             "OCR → geometry recipe",
             geometry_request["parameters"].get("notchRadius") == 15
-            and geometry_request["parameters"].get("bossDiameter") == 20,
-            "recipe contains the R15 saddle and Ø20 boss constraints",
+            and geometry_request["parameters"].get("bossDiameter") == 20
+            and geometry_request["parameters"].get("upperWidth") == 50
+            and geometry_request["parameters"].get("slotLength") == 30
+            and geometry_request["parameters"].get("slotWidth") == 10
+            and geometry_request["parameters"].get("pocketDepth") == 10
+            and geometry_request["parameters"].get("saddleDepth") == 50
+            and geometry_request["parameters"].get("holeDepth") == 40
+            and geometry_request["parameters"].get("holeThrough") is True,
+            "recipe contains full-width upper body, Y-pocket, R15-through-Y cut and Ø20 vertical through-hole aliases",
+        )
+    )
+    def _feature_value(feature: Any, snake_name: str, camel_name: str, default: Any = None) -> Any:
+        if isinstance(feature, Mapping):
+            return feature.get(snake_name, feature.get(camel_name, default))
+        return getattr(feature, snake_name, default)
+
+    feature_types = {
+        str(_feature_value(feature, "feature_type", "featureType", ""))
+        for feature in recognition.features
+    }
+    feature_aliases = {
+        str(alias)
+        for feature in recognition.features
+        for alias in (_feature_value(feature, "feature_type_aliases", "featureTypeAliases", []) or [])
+    }
+    checks.append(
+        _check(
+            "OCR subtractive feature semantics",
+            "rectangular_pocket_pair" in feature_types
+            and "side_notch_cut_pair" in feature_types
+            and "vertical_through_hole_pair" in feature_aliases
+            and "vertical_boss_pair" not in feature_types,
+            f"features={sorted(feature_types)}, aliases={sorted(feature_aliases)}",
         )
     )
 
