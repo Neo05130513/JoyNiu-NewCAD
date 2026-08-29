@@ -861,7 +861,12 @@ class CAMService:
         parsed_tools = {
             tool.id: tool for tool in (self._tool_from_snapshot(item) for item in tools_raw)
         }
-        if not parsed_tools and replace:
+        # Older/hand-authored snapshots may omit the tool catalogue entirely.
+        # Treat an empty catalogue as "use the built-in catalogue" when
+        # replacing state; otherwise a perfectly valid plan would fail
+        # reference validation against an empty set.  A non-empty catalogue
+        # still goes through the duplicate-id check below.
+        if not tools_raw and replace:
             parsed_tools = {tool.id: tool for tool in self.DEFAULT_TOOLS}
         parsed_plans = {
             plan.id: plan for plan in (self._plan_from_snapshot(item) for item in plans_raw)
@@ -1010,7 +1015,7 @@ class CAMService:
 
     @staticmethod
     def _validate_hash(value: str) -> str:
-        clean = value.strip()
+        clean = str(value or "").strip()
         if not clean or len(clean) > 128:
             raise ValidationError("geometry_hash is required and must be at most 128 characters")
         return clean
@@ -1054,7 +1059,9 @@ class CAMService:
         else:
             raise ValidationError("stock must be a StockDefinition or object")
         stock.validate()
-        if not machine.strip():
+        machine = str(machine or "").strip()
+        units = str(units or "").strip().casefold()
+        if not machine:
             raise ValidationError("machine is required")
         if units not in {"mm", "in"}:
             raise ValidationError("units must be mm or in")
@@ -1066,7 +1073,7 @@ class CAMService:
             source_version_id=source_version_id,
             geometry_hash=self._validate_hash(geometry_hash),
             units=units,
-            machine=machine.strip(),
+            machine=machine,
             stock=stock,
             operations=(),
             status=CAMPlanStatus.DRAFT.value,
@@ -1131,6 +1138,10 @@ class CAMService:
         values = (depth, feed_rate, retract_height, path_length)
         if any(not math.isfinite(float(value)) for value in values):
             raise ValidationError("operation dimensions must be finite")
+        try:
+            _json(parameters or {})
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("operation parameters must be JSON serializable") from exc
         operation = CAMOperation(
             id=operation_id or _id("op"),
             operation_type=clean_type,
@@ -1332,13 +1343,14 @@ class CAMService:
                 self._plans[plan_id] = replace(plan, status=CAMPlanStatus.BLOCKED.value, updated_at=_now())
             raise CAMGateRejected(decision)
         simulation = self._simulations[plan.latest_simulation_id or ""]
-        text = self._render_nc(plan, simulation, postprocessor.strip() or "generic-3axis")
+        clean_postprocessor = str(postprocessor or "").strip() or "generic-3axis"
+        text = self._render_nc(plan, simulation, clean_postprocessor)
         program_id = _id("nc")
         program = NCProgram(
             id=program_id,
             plan_id=plan.id,
             simulation_id=simulation.id,
-            postprocessor=postprocessor.strip() or "generic-3axis",
+            postprocessor=clean_postprocessor,
             status="released",
             text=text,
             sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),

@@ -1116,6 +1116,51 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 formats,
                 require_cadquery=bool(data.get("requireCadQuery", data.get("require_cadquery", True))),
             )
+            # Validation audits the requested shape before the exporters run.
+            # Reconcile the workflow-level report with the actual STEP
+            # artifact as well, otherwise an exporter fallback could leave a
+            # durable PDM manifest claiming that a preview is production CAD.
+            step_artifact = next(
+                (item for item in generated if item.format == "step"), None
+            )
+            primary_artifact = step_artifact or (generated[0] if generated else None)
+            step_production = bool(
+                step_artifact
+                and step_artifact.production_ready
+                and step_artifact.engine == "cadquery-occt"
+            )
+            workflow_production = bool(report.production_ready and step_production)
+            workflow_engine = (
+                "cadquery-occt"
+                if workflow_production
+                else primary_artifact.engine
+                if primary_artifact is not None
+                else report.engine
+            )
+            workflow_reason = (
+                "OCCT STEP artifact passed the production delivery gate"
+                if workflow_production
+                else "STEP artifact is preview-only; production B-Rep is unavailable"
+                if step_artifact is not None
+                else "no STEP artifact was requested; emitted artifacts are preview-only"
+            )
+            report_metrics = dict(report.metrics)
+            report_metrics.update(
+                {
+                    "artifactProductionReady": workflow_production,
+                    "stepArtifactProductionReady": step_production,
+                    "artifactEngine": workflow_engine,
+                    "productionReadyReason": workflow_reason,
+                    "previewOnly": not workflow_production,
+                }
+            )
+            report = report.model_copy(
+                update={
+                    "production_ready": workflow_production,
+                    "engine": workflow_engine,
+                    "metrics": report_metrics,
+                }
+            )
             run_id = uuid.uuid4().hex[:10]
             parameter_document = services.pdm.create_document(
                 project.id,
