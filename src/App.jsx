@@ -799,6 +799,14 @@ function App() {
     setIsGenerating(false)
     showToast(generated.validation?.productionReady ? '安装支架实体与 STEP 已生成并通过校验' : '已生成支架预览；启动后端后可生成生产 STEP')
   }
+  const attachDrawingToConversation = (file) => {
+    if (!file) return
+    // Keep chat as an entry point while reusing the same validated upload
+    // pipeline as the dedicated drawing-import workspace.
+    setMessages((prev) => [...prev, { role: 'user', text: `请解析这份图纸并准备参数化模型：${file.name}` }])
+    setActiveMode('图纸转 3D')
+    analyzeDrawing(file)
+  }
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -827,7 +835,7 @@ function App() {
 
         <main className="main-area">
           <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 已自动保存</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation }} />}
+          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation }} />}
           {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} showToast={showToast} backend={backend} />}
           {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
           {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
@@ -843,7 +851,8 @@ function App() {
 }
 
 function ModelWorkspace(props) {
-  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation } = props
+  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation } = props
+  const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
   const productionReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
   const topology = generation?.validation?.metrics || {}
@@ -852,7 +861,7 @@ function ModelWorkspace(props) {
       <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>描述你的设计</h2></div><button className="more-button" onClick={() => showToast('已打开 AI 历史记录')}>•••</button></div>
       <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
       <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble">{message.text}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
-      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么…" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><div className="prompt-actions"><button className="attach" onClick={() => showToast('支持上传图片、PDF、DXF')}><Icon>⌕</Icon></button><span>⌘ ↵ 运行</span><button className="run-button" disabled={isGenerating} onClick={runGenerate}>{isGenerating ? '生成中…' : '运行'}<Icon>↑</Icon></button></div></div>
+      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么…" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const file = e.target.files?.[0]; e.currentTarget.value = ''; attachDrawingToConversation?.(file) }} /><div className="prompt-actions"><button type="button" className="attach" aria-label="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>⌕</Icon></button><span>图片 / PDF / DWG / DXF · ⌘ ↵ 运行</span><button type="button" className="run-button" disabled={isGenerating} onClick={runGenerate}>{isGenerating ? '生成中…' : '运行'}<Icon>↑</Icon></button></div></div>
       <div className="suggestions"><span>试试：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button><button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button></div>
     </section>
 
@@ -919,13 +928,13 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
       ? '尺寸证据已锁定；Ø20 为两处贯穿竖孔/侧边半圆凹槽，30 mm 为中段浅槽长度，生成结果仍会经过 OCCT 拓扑检查。'
       : '请确认 Ø20 是贯穿竖孔/侧边半圆凹槽，30 mm 是两条浅槽沿 Y 的长度；确认后将按上述参数生成实体。'
   return <div className="secondary-workspace import-workspace">
-    <div className="secondary-heading"><div><span className="eyebrow">DRAWING → 3D</span><h1>图纸转三维</h1><p>上传一张工程图，识别关键尺寸后生成可编辑实体</p></div><div className="heading-actions"><span className={`backend-status compact ${backend?.status || 'checking'}`}><i />{backend?.productionReady ? 'CadQuery / OCCT 在线' : backend?.status === 'offline' ? 'API 离线' : '连接中'}</span><button className="secondary-button" onClick={() => showToast('支持 JPG、PNG、WEBP、PDF、DXF')}>支持格式</button><button className="primary-button" data-testid="confirm-generate" disabled={!evidence || drawingJob.status === 'analyzing' || drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={generateFromDrawing}>{drawingJob.status === 'generated' ? '已生成 3D' : '确认并生成 3D'} <Icon>↗</Icon></button></div></div>
+    <div className="secondary-heading"><div><span className="eyebrow">DRAWING → 3D</span><h1>图纸转三维</h1><p>上传一张工程图，识别关键尺寸后生成可编辑实体</p></div><div className="heading-actions"><span className={`backend-status compact ${backend?.status || 'checking'}`}><i />{backend?.productionReady ? 'CadQuery / OCCT 在线' : backend?.status === 'offline' ? 'API 离线' : '连接中'}</span><button className="secondary-button" onClick={() => showToast('支持 JPG、PNG、WEBP、PDF、DWG、DXF')}>支持格式</button><button className="primary-button" data-testid="confirm-generate" disabled={!evidence || drawingJob.status === 'analyzing' || drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={generateFromDrawing}>{drawingJob.status === 'generated' ? '已生成 3D' : '确认并生成 3D'} <Icon>↗</Icon></button></div></div>
     <div className="import-steps" aria-label="图纸转三维流程"><span className="done"><i>1</i>上传图纸</span><span className={evidence ? 'done' : drawingJob.status === 'analyzing' ? 'active' : ''}><i>2</i>识别尺寸</span><span className={evidence ? 'active' : ''}><i>3</i>复核证据</span><span className={drawingJob.status === 'generated' ? 'ready' : ''}><i>4</i>生成实体</span></div>
     <div className="import-grid">
       <div className="upload-card panel-card">
-        <input ref={inputRef} className="file-input" data-testid="drawing-file-input" type="file" accept="image/*,.pdf,.dxf" onChange={(event) => chooseFile(event.target.files?.[0])} />
+        <input ref={inputRef} className="file-input" data-testid="drawing-file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" onChange={(event) => chooseFile(event.target.files?.[0])} />
         <div className={`drop-zone ${file ? 'has-file' : ''} ${dragging ? 'dragging' : ''}`} data-testid="drawing-drop-zone" onClick={() => inputRef.current?.click()} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
-          {file && isImage && drawingJob.previewUrl ? <img src={drawingJob.previewUrl} alt="已上传工程图预览" /> : file ? <div className="file-preview-placeholder"><div className="upload-symbol">▱</div><b>{file.name.split('.').pop()?.toUpperCase()} 图纸</b><span>该格式将直接提交给识别服务</span></div> : <div className="upload-placeholder"><div className="upload-symbol">↥</div><b>拖拽图纸到这里，或点击上传</b><span>支持图片 / PDF / DXF · 单个文件不超过 20 MB</span></div>}
+          {file && isImage && drawingJob.previewUrl ? <img src={drawingJob.previewUrl} alt="已上传工程图预览" /> : file ? <div className="file-preview-placeholder"><div className="upload-symbol">▱</div><b>{file.name.split('.').pop()?.toUpperCase()} 图纸</b><span>该格式将直接提交给识别服务</span></div> : <div className="upload-placeholder"><div className="upload-symbol">↥</div><b>拖拽图纸到这里，或点击上传</b><span>支持图片 / PDF / DWG / DXF · 单个文件不超过 20 MB</span></div>}
           <div className="drop-overlay"><span>{drawingJob.status === 'analyzing' ? '识别中…' : file ? '重新选择图纸' : '选择文件'}</span></div>
         </div>
         {file && <div className="upload-file-meta"><span className="file-type-icon blue">▱</span><div><b>{file.name}</b><small>{(file.size / 1024).toFixed(0)} KB · {backend?.status === 'connected' ? '已提交 FastAPI' : '本地预览'}</small></div><span className={`parse-status ${drawingJob.status}`}>{statusText}</span></div>}
