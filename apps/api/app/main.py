@@ -530,7 +530,8 @@ async def generate_bracket(body: dict[str, Any] = Body(default_factory=dict)) ->
         # same-account recognition hand-off here, but only when the platform
         # service marked it confirmed by its reviewer workflow.
         if drawing is None and platform_services is not None:
-            platform_drawing = platform_services.recognitions.get(request.source_drawing_id)
+            platform_registry = getattr(platform_services, "recognitions", {})
+            platform_drawing = platform_registry.get(request.source_drawing_id)
             if platform_drawing is not None:
                 drawing = platform_drawing
         if drawing is None:

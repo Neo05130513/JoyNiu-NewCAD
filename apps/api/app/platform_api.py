@@ -509,9 +509,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         """Proxy a parameter-editing conversation without exposing the key.
 
         Attachments are passed to the provider as data URLs only after the
-        caller has authenticated and been granted ``ai:chat``.  The result is
-        reduced to a validated parameter patch; provider response fields and
-        diagnostics never cross this boundary.
+        caller has authenticated and been granted ``ai:chat`` (or when the
+        explicit local anonymous flag is enabled). The result is reduced to a
+        validated parameter patch plus non-secret provider/attachment status;
+        raw provider payloads and credentials never cross this boundary.
         """
 
         try:
@@ -567,7 +568,16 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             # one per uploaded file in the same service graph and return that
             # canonical id so ``sourceDrawingId`` can be resumed safely.
             registered_drawing = None
+            canonical_attachments: list[dict[str, Any]] = []
             for attachment in attachments:
+                canonical_attachments.append(
+                    {
+                        "filename": attachment.filename,
+                        "contentType": attachment.content_type,
+                        "sizeBytes": len(attachment.data),
+                        "sha256": hashlib.sha256(attachment.data).hexdigest(),
+                    }
+                )
                 try:
                     candidate = await asyncio.to_thread(
                         services.ocr.analyze,
@@ -581,6 +591,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     registered_drawing = candidate
             if registered_drawing is not None:
                 result = replace(result, drawing=registered_drawing.to_dict())
+            # Keep the response metadata authoritative even when an injected
+            # provider/test double does not populate its own attachment list.
+            if canonical_attachments:
+                result = replace(result, attachments=tuple(canonical_attachments))
             return result.to_dict()
         except (PlatformError, AIProxyError) as exc:
             raise _domain_http_exception(exc)

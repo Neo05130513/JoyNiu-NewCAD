@@ -10,7 +10,7 @@ httpx = pytest.importorskip("httpx")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.ai_proxy import AIConversationResult, AIProxy, AIProxyError  # noqa: E402
+from app.ai_proxy import AIConversationResult, AIFile, AIProviderNotConfigured, AIProxy, AIProxyError  # noqa: E402
 from app.platform_api import build_platform_services, create_platform_router  # noqa: E402
 
 
@@ -114,6 +114,37 @@ def test_proxy_parses_markdown_key_file(monkeypatch, tmp_path):
     assert captured["authorization"] == "Bearer sk-" + "A" * 24
 
 
+def test_proxy_parses_non_openai_markdown_token_and_respects_config_priority(monkeypatch, tmp_path):
+    """GPTX deployments may use a non-sk token in a fenced key note."""
+    from app.ai_proxy import _provider_key
+
+    key_file = tmp_path / "provider.md"
+    key_file.write_text("# relay\n\n```text\nrelay-token-" + "B" * 20 + "\n```\n", encoding="utf-8")
+    monkeypatch.delenv("JOYNIU_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("JOYNIU_AI_API_KEY", raising=False)
+    monkeypatch.setenv("JOYNIU_AI_API_KEY_FILE", str(key_file))
+    assert _provider_key() == "relay-token-" + "B" * 20
+
+    # The explicit LLM compatibility name is canonical when both are set.
+    monkeypatch.setenv("JOYNIU_LLM_API_KEY", "llm-priority-token")
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "ai-priority-token")
+    assert _provider_key() == "llm-priority-token"
+
+
+def test_proxy_does_not_consume_generic_openai_environment_key(monkeypatch):
+    """A generic key must not be forwarded to the GPTX relay by accident."""
+    from app.ai_proxy import _provider_key
+
+    monkeypatch.delenv("JOYNIU_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("JOYNIU_AI_API_KEY", raising=False)
+    monkeypatch.delenv("JOYNIU_LLM_API_KEY_FILE", raising=False)
+    monkeypatch.delenv("JOYNIU_AI_API_KEY_FILE", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "generic-key-must-not-forward")
+    with pytest.raises(AIProviderNotConfigured) as error:
+        _provider_key()
+    assert "generic-key-must-not-forward" not in str(error.value)
+
+
 def test_proxy_rejects_unsupported_provider_patch(monkeypatch):
     monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
     monkeypatch.setattr(
@@ -127,6 +158,54 @@ def test_proxy_rejects_unsupported_provider_patch(monkeypatch):
     )
     with pytest.raises(AIProxyError, match="unsupported parameter"):
         AIProxy().converse("修改模型")
+
+
+def test_verified_drawing_uses_deterministic_patch_without_remote_call(monkeypatch):
+    """A reviewed drawing must not be reinterpreted by a flaky relay."""
+    from app import ai_proxy
+    from app.recognition import canonical_bracket_parameters
+
+    drawing = {
+        "status": "confirmed",
+        "parameters": canonical_bracket_parameters().model_dump(by_alias=True),
+        "id": "drw_verified",
+    }
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _item: drawing)
+    monkeypatch.delenv("JOYNIU_AI_API_KEY", raising=False)
+    monkeypatch.delenv("JOYNIU_AI_API_KEY_FILE", raising=False)
+
+    def fail_remote(*_args, **_kwargs):
+        raise AssertionError("verified fixture should not call the relay")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail_remote)
+    result = AIProxy().converse(
+        "请生成三维模型",
+        files=(AIFile("drawing.jpg", "image/jpeg", b"fixture"),),
+    )
+    assert result.provider["mode"] == "verified-local"
+    assert result.needs_review is False
+    assert result.parameter_patch["upperWidth"] == 50
+    assert result.parameter_patch["slotLength"] == 30
+
+
+def test_unreviewed_attachment_keeps_review_gate_for_local_edit(monkeypatch):
+    """An explicit local edit must not silently confirm an unknown drawing."""
+    from app import ai_proxy
+
+    monkeypatch.setattr(
+        ai_proxy,
+        "_recognize_attachment",
+        lambda _item: {"status": "needs_review", "parameters": {}},
+    )
+    monkeypatch.delenv("JOYNIU_AI_API_KEY", raising=False)
+    monkeypatch.delenv("JOYNIU_AI_API_KEY_FILE", raising=False)
+    result = AIProxy().converse(
+        "把底板长度改为 110 mm",
+        model_state={"kind": "bracket"},
+        files=(AIFile("drawing.pdf", "application/pdf", b"pdf"),),
+    )
+    assert result.parameter_patch == {"baseLength": 110}
+    assert result.needs_review is True
 
 
 def _client_for(services):
@@ -195,6 +274,33 @@ def test_ai_route_passes_file_and_turn_state_to_injected_proxy():
     assert fake.calls[0][2]["baseLength"] == 100
     assert fake.calls[0][3][0].filename == "drawing.pdf"
     assert fake.calls[0][3][0].data == b"%PDF-test"
+
+
+def test_ai_route_explicit_anonymous_demo_accepts_file_alias(monkeypatch):
+    """Guest mode is opt-in and accepts the common singular ``file`` field."""
+    services = build_platform_services(":memory:", auth_secret="d" * 32)
+    monkeypatch.setenv("JOYNIU_AI_ALLOW_ANONYMOUS", "1")
+
+    class FakeAI:
+        allow_anonymous = True
+
+        def converse(self, message, *, previous_response_id, model_state, files):
+            assert message == "解析图纸"
+            assert len(files) == 1 and files[0].filename == "drawing.dwg"
+            return AIConversationResult("local_guest", "已收到", {}, True, ("请确认",))
+
+    services.ai = FakeAI()
+    client = _client_for(services)
+    response = client.post(
+        "/api/v1/ai/chat",
+        data={"message": "解析图纸"},
+        files={"file": ("drawing.dwg", b"AC10", "application/octet-stream")},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["responseId"] == "local_guest"
+    assert payload["attachments"][0]["filename"] == "drawing.dwg"
+    assert payload["drawingRecognition"]["status"] == "needs_review"
 
 
 def test_platform_recognition_id_is_accepted_by_geometry_generate(monkeypatch):
