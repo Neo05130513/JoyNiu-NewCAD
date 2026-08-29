@@ -181,6 +181,9 @@ def test_cam_routes_enforce_role_separation_and_release_gate() -> None:
     )
     assert created_plan.status_code == 201, created_plan.text
     plan_id = created_plan.json()["id"]
+    reviewer_list = client.get("/api/v1/cam/plans", headers=reviewer_auth)
+    assert reviewer_list.status_code == 200, reviewer_list.text
+    assert any(item["id"] == plan_id for item in reviewer_list.json()["items"])
 
     denied_operation = client.post(
         f"/api/v1/cam/plans/{plan_id}/operations",
@@ -203,6 +206,8 @@ def test_cam_routes_enforce_role_separation_and_release_gate() -> None:
         f"/api/v1/cam/plans/{plan_id}/simulate", headers=designer_auth, json={}
     )
     assert simulation.status_code == 200, simulation.text
+    assert client.get(f"/api/v1/cam/plans/{plan_id}/gate", headers=designer_auth).status_code == 200
+    assert client.get(f"/api/v1/cam/plans/{plan_id}/gate", headers=viewer_auth).status_code == 403
     simulation_id = simulation.json()["id"]
 
     # Only a reviewer/admin can approve.  A designer and manufacturing account
@@ -225,6 +230,7 @@ def test_cam_routes_enforce_role_separation_and_release_gate() -> None:
         json={"simulationId": simulation_id, "role": "reviewer"},
     )
     assert approval.status_code == 201, approval.text
+    assert client.get(f"/api/v1/cam/plans/{plan_id}/gate", headers=reviewer_auth).status_code == 200
 
     # Reviewer cannot release, and the manufacturing release succeeds only
     # after the independent reviewer approval above.

@@ -141,6 +141,19 @@ def _token_user(services: PlatformServices, authorization: str | None):
         raise _domain_http_exception(exc)
 
 
+def _require_any_permission(
+    services: PlatformServices,
+    actor: Any,
+    *permissions: Permission,
+) -> Any:
+    """Authorize read-only views that are shared by several CAM roles."""
+
+    if not any(services.auth.has_permission(actor, permission) for permission in permissions):
+        values = ", ".join(permission.value for permission in permissions)
+        raise AuthorizationError(f"one of these permissions is required: {values}")
+    return actor
+
+
 def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     """Return an ``APIRouter`` with auth, PDM, OCR and CAM endpoints.
 
@@ -749,7 +762,15 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     ) -> dict[str, Any]:
         actor = _token_user(services, authorization)
         try:
-            services.auth.require(actor, Permission.CAM_PLAN)
+            # Designers/manufacturing can manage plans; reviewers/admins need
+            # read access to inspect a plan before approving it.
+            _require_any_permission(
+                services,
+                actor,
+                Permission.CAM_PLAN,
+                Permission.CAM_APPROVE,
+                Permission.CAM_RELEASE,
+            )
             return {"items": [plan.to_dict() for plan in services.cam.list_plans(project_id=project_id)]}
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -814,7 +835,16 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     ) -> dict[str, Any]:
         actor = _token_user(services, authorization)
         try:
-            services.auth.require(actor, Permission.CAM_RELEASE)
+            # Gate status is a review/read operation, not the release itself.
+            # Expose it to designers and reviewers so they can diagnose a
+            # blocked plan, while keeping viewers unauthorised.
+            _require_any_permission(
+                services,
+                actor,
+                Permission.CAM_PLAN,
+                Permission.CAM_APPROVE,
+                Permission.CAM_RELEASE,
+            )
             permissions = actor.permissions
             return services.cam.gate_status(plan_id, actor_id=actor.id, actor_permissions=permissions).to_dict()
         except PlatformError as exc:
