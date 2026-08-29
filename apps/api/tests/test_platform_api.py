@@ -542,6 +542,34 @@ def test_project_read_members_can_review_and_release_cam_without_project_write()
     )
     assert release.status_code == 200, release.text
 
+    # Document review/release follows the same project-read ACL.  The
+    # reviewer need not be granted the designer's PROJECT_WRITE permission.
+    document = client.post(
+        f"/api/v1/pdm/projects/{project.json()['id']}/documents",
+        headers=designer_auth,
+        json={"name": "scoped-model.step", "kind": "part"},
+    )
+    assert document.status_code == 201, document.text
+    document_id = document.json()["id"]
+    version = client.post(
+        f"/api/v1/pdm/documents/{document_id}/versions",
+        headers=designer_auth,
+        json={"contentText": "MODEL"},
+    )
+    assert version.status_code == 201, version.text
+    reviewed = client.patch(
+        f"/api/v1/pdm/documents/{document_id}/status",
+        headers=reviewer_auth,
+        json={"status": "in_review"},
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    released = client.patch(
+        f"/api/v1/pdm/documents/{document_id}/status",
+        headers=reviewer_auth,
+        json={"status": "released"},
+    )
+    assert released.status_code == 200, released.text
+
 
 def test_cam_routes_enforce_role_separation_and_release_gate() -> None:
     """CAM mutations, approval and NC release must honor RBAC boundaries."""
