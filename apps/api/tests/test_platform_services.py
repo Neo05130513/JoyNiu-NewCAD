@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -15,11 +16,15 @@ from app.platform import (
     ConflictError,
     PDMRepository,
     Permission,
+    ValidationError,
 )
 
 
 def test_pdm_versions_are_immutable_and_optimistic() -> None:
     pdm = PDMRepository()
+    with pytest.raises(ValidationError):
+        # Metadata is an object contract, not an arbitrary JSON array.
+        pdm.create_project("Invalid metadata", "usr-owner", metadata=["bad"])  # type: ignore[arg-type]
     project = pdm.create_project("Fixture", "usr-owner")
     document = pdm.create_document(project.id, "bracket.step", "part", "usr-owner")
     first = pdm.create_version(document.id, b"STEP-V1", "usr-owner", file_name="bracket.step")
@@ -92,6 +97,29 @@ def test_unknown_ocr_never_claims_confirmation() -> None:
     assert result.unresolved
 
 
+def test_fixture_id_cannot_spoof_another_drawing_sha() -> None:
+    """Known fixture ids are ignored unless the uploaded SHA matches."""
+
+    result = OCRService().analyze(
+        b"synthetic bytes that are not the acceptance drawing",
+        filename="spoof.jpg",
+        fixture_id="bracket_support_v1",
+    )
+    assert result.status == "needs_review"
+    assert result.fixture_id is None
+    assert result.engine != "deterministic-fixture"
+
+    # Fixture-only test harnesses can make the override explicit, and the
+    # response remains visibly labelled as unverified.
+    smoke = OCRService(allow_unverified_fixture=True).analyze(
+        b"synthetic bytes that are not the acceptance drawing",
+        filename="spoof.jpg",
+        fixture_id="bracket_support_v1",
+    )
+    assert smoke.engine == "deterministic-fixture-unverified"
+    assert any("smoke testing" in warning for warning in smoke.warnings)
+
+
 def _cam_happy_path() -> tuple[CAMService, str, str]:
     cam = CAMService()
     plan = cam.create_plan(
@@ -150,6 +178,99 @@ def test_cam_collision_blocks_release() -> None:
     decision = cam.gate_status(plan.id)
     assert not decision.passed
     assert any("simulation" in reason for reason in decision.reasons)
+
+
+def test_cam_snapshot_round_trip_persists_full_state_across_restart() -> None:
+    """Plans, operations, simulations, approvals and NC survive a restart."""
+
+    with tempfile.TemporaryDirectory(prefix="joyniu-cam-") as directory:
+        database = str(Path(directory) / "platform.sqlite3")
+        first = CAMService(database=database)
+        plan = first.create_plan(
+            actor_id="designer",
+            geometry_hash="persist" * 10 + "aa",
+            stock=StockDefinition(110, 60, 45),
+            project_id="prj_persist",
+        )
+        first.add_operation(
+            plan.id,
+            actor_id="designer",
+            operation_type="facing",
+            tool_id="T10",
+            depth=1,
+            path_length=100,
+        )
+        simulation = first.simulate(plan.id, actor_id="designer")
+        approval = first.approve(plan.id, actor_id="reviewer", simulation_id=simulation.id)
+        program = first.release_nc(
+            plan.id,
+            actor_id="manufacturer",
+            actor_permissions=[Permission.CAM_RELEASE.value],
+        )
+        exported = first.snapshot()
+        assert exported["plans"][0]["id"] == plan.id
+        assert exported["simulations"][0]["id"] == simulation.id
+        assert exported["ncPrograms"][0]["id"] == program.id
+        first.close()
+
+        restarted = CAMService(database=database)
+        restored_plan = restarted.get_plan(plan.id)
+        assert restored_plan.status == "released"
+        assert len(restored_plan.operations) == 1
+        assert restored_plan.approvals[0].id == approval.id
+        assert restarted.get_simulation(simulation.id).passed is True
+        assert restarted.get_nc(program.id).sha256 == program.sha256
+
+        # A portable snapshot can restore into an ephemeral worker too.
+        worker = CAMService()
+        worker.restore(exported)
+        assert worker.get_plan(plan.id).released_nc_id == program.id
+        assert worker.get_nc(program.id).text == program.text
+
+        # Invalid imports are rejected before replacing the live state.
+        corrupted = dict(exported)
+        corrupted["ncPrograms"] = [dict(exported["ncPrograms"][0], sha256="0" * 64)]
+        with pytest.raises(ValidationError):
+            worker.restore(corrupted)
+        assert worker.get_plan(plan.id).released_nc_id == program.id
+
+
+def test_build_platform_services_restores_cam_with_shared_database() -> None:
+    """The normal service graph wires CAM persistence to the PDM DB path."""
+
+    with tempfile.TemporaryDirectory(prefix="joyniu-platform-") as directory:
+        database = str(Path(directory) / "platform.sqlite3")
+        first = build_platform_services(database, auth_secret="b" * 32)
+        designer = first.auth.create_user(
+            "persist-designer@example.com",
+            "a-very-long-password",
+            "Persist designer",
+            roles=["designer"],
+        )
+        plan = first.cam.create_plan(
+            actor_id=designer.id,
+            geometry_hash="z" * 64,
+            stock=StockDefinition(100, 50, 10),
+        )
+        first.cam.add_operation(
+            plan.id,
+            actor_id=designer.id,
+            operation_type="facing",
+            tool_id="T10",
+            depth=1,
+        )
+        first.cam.close()
+        first.pdm.close()
+        first.auth.close()
+
+        second = build_platform_services(database, auth_secret="b" * 32)
+        assert second.auth.get_user(designer.id).email == designer.email
+        restored = second.cam.get_plan(plan.id)
+        assert restored.created_by == designer.id
+        assert restored.operations[0].tool_id == "T10"
+        second.cam.close()
+        second.pdm.close()
+        second.auth.close()
 
 
 def test_platform_cam_service_reuses_auth_permissions() -> None:

@@ -822,6 +822,8 @@ class PDMRepository(_SQLiteComponent):
     ) -> Project:
         clean_name = self._clean_name(name)
         clean_owner = self._clean_name(owner_id, "owner_id")
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise ValidationError("project metadata must be an object")
         resolved_id = project_id or _new_id("prj")
         created_at = _utc_timestamp()
         try:
@@ -896,21 +898,38 @@ class PDMRepository(_SQLiteComponent):
         *,
         actor_id: str,
         description: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> Project:
         """Update project display metadata without touching document versions."""
 
         self.get_project(project_id)
         clean_name = self._clean_name(name)
+        metadata_json: str | None = None
+        if metadata is not None:
+            try:
+                metadata_json = _canonical_json(metadata)
+            except TypeError as exc:
+                raise ValidationError("project metadata must be JSON serializable") from exc
         with self._lock, self._connection:
-            if description is None:
+            if description is None and metadata_json is None:
                 cursor = self._connection.execute(
                     "UPDATE pdm_projects SET name = ?, updated_at = ? WHERE id = ?",
                     (clean_name, _utc_timestamp(), project_id),
                 )
-            else:
+            elif metadata_json is None:
                 cursor = self._connection.execute(
                     "UPDATE pdm_projects SET name = ?, description = ?, updated_at = ? WHERE id = ?",
                     (clean_name, str(description or "").strip(), _utc_timestamp(), project_id),
+                )
+            elif description is None:
+                cursor = self._connection.execute(
+                    "UPDATE pdm_projects SET name = ?, metadata_json = ?, updated_at = ? WHERE id = ?",
+                    (clean_name, metadata_json, _utc_timestamp(), project_id),
+                )
+            else:
+                cursor = self._connection.execute(
+                    "UPDATE pdm_projects SET name = ?, description = ?, metadata_json = ?, updated_at = ? WHERE id = ?",
+                    (clean_name, str(description or "").strip(), metadata_json, _utc_timestamp(), project_id),
                 )
             if cursor.rowcount != 1:
                 raise NotFoundError(f"project not found: {project_id}")
@@ -919,7 +938,52 @@ class PDMRepository(_SQLiteComponent):
                 "project.updated",
                 "project",
                 project_id,
-                {"name": clean_name},
+                {
+                    "name": clean_name,
+                    **({"metadata_updated": True} if metadata_json is not None else {}),
+                },
+            )
+        return self.get_project(project_id)
+
+    def update_project_metadata(
+        self,
+        project_id: str,
+        metadata: Mapping[str, Any],
+        *,
+        actor_id: str,
+    ) -> Project:
+        """Replace project metadata atomically and append an audit event.
+
+        Project membership is intentionally represented in the metadata JSON so
+        existing databases remain backwards compatible.  The HTTP adapter
+        validates the ``members`` shape and enforces owner/admin authorization;
+        this repository method remains useful to workers that already perform
+        their own authorization.
+        """
+
+        if not isinstance(metadata, Mapping):
+            raise ValidationError("project metadata must be an object")
+        project = self.get_project(project_id)
+        try:
+            metadata_json = _canonical_json(metadata)
+        except TypeError as exc:
+            raise ValidationError("project metadata must be JSON serializable") from exc
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "UPDATE pdm_projects SET metadata_json = ?, updated_at = ? WHERE id = ?",
+                (metadata_json, _utc_timestamp(), project_id),
+            )
+            if cursor.rowcount != 1:
+                raise NotFoundError(f"project not found: {project_id}")
+            self._record_audit(
+                actor_id,
+                "project.metadata_updated",
+                "project",
+                project_id,
+                {
+                    "previous_keys": sorted((str(key) for key in project.metadata), key=str),
+                    "keys": sorted((str(key) for key in metadata), key=str),
+                },
             )
         return self.get_project(project_id)
 
@@ -943,6 +1007,8 @@ class PDMRepository(_SQLiteComponent):
                 f"kind must be one of: {', '.join(sorted(self.VALID_DOCUMENT_KINDS))}"
             )
         clean_actor = self._clean_name(created_by, "created_by")
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise ValidationError("document metadata must be an object")
         resolved_id = document_id or _new_id("doc")
         created_at = _utc_timestamp()
         try:
@@ -1118,6 +1184,8 @@ class PDMRepository(_SQLiteComponent):
         clean_label = str(label or f"v{next_revision}").strip()
         clean_file_name = self._clean_name(file_name or document.name, "file_name")
         clean_content_type = str(content_type or "").strip() or "application/octet-stream"
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise ValidationError("version metadata must be an object")
         version_id = _new_id("ver")
         created_at = _utc_timestamp()
         checksum = hashlib.sha256(payload).hexdigest()

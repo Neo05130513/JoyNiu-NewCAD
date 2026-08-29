@@ -13,10 +13,12 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import sqlite3
 import threading
 import uuid
 from dataclasses import asdict, dataclass, replace
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 
 from .platform import AuthorizationError, Permission, PlatformError, ValidationError
@@ -484,11 +486,14 @@ class CAMReleaseGate:
 
 
 class CAMService:
-    """Thread-safe in-memory CAM plan store.
+    """Thread-safe CAM plan store with optional SQLite snapshot persistence.
 
-    Persist plan manifests and NC blobs in PDM using the public ``to_dict`` and
-    ``sha256`` fields when durable storage is needed; keeping this service
-    memory-only avoids coupling it to a particular database schema.
+    The domain objects remain in memory for fast simulation, while a single
+    versioned JSON snapshot can be persisted transactionally in SQLite.  This
+    keeps the service independent from a particular PDM schema and, unlike a
+    best-effort event log, restores plans, operations, simulations, approvals
+    and released NC text as one consistent state after a process restart.
+    Pass ``database=None`` to retain the original ephemeral behaviour.
     """
 
     DEFAULT_TOOLS: tuple[ToolDefinition, ...] = (
@@ -505,7 +510,9 @@ class CAMService:
         simulator: SimulationEngine | None = None,
         gate: CAMReleaseGate | None = None,
         authorizer: Callable[[str, str], bool] | None = None,
+        database: str | Path | None = None,
     ) -> None:
+        self._lock = threading.RLock()
         self.tools: dict[str, ToolDefinition] = {
             tool.id: tool for tool in (tools or self.DEFAULT_TOOLS)
         }
@@ -517,7 +524,472 @@ class CAMService:
         self._plans: dict[str, CAMPlan] = {}
         self._simulations: dict[str, SimulationResult] = {}
         self._nc_programs: dict[str, NCProgram] = {}
-        self._lock = threading.RLock()
+        self._storage_database = str(database) if database is not None else None
+        self._storage_connection: sqlite3.Connection | None = None
+        if self._storage_database is not None:
+            self._open_storage(self._storage_database)
+
+    def _open_storage(self, database: str) -> None:
+        if database != ":memory:":
+            Path(database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(database, check_same_thread=False)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 5000")
+        if database != ":memory:":
+            connection.execute("PRAGMA journal_mode = WAL")
+        self._storage_connection = connection
+        with self._lock, connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cam_snapshots (
+                    snapshot_id TEXT PRIMARY KEY,
+                    schema_version INTEGER NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            row = connection.execute(
+                "SELECT payload_json FROM cam_snapshots WHERE snapshot_id = 'default'"
+            ).fetchone()
+        if row is not None:
+            try:
+                payload = json.loads(str(row["payload_json"]))
+                self._restore_locked(payload, replace=True, persist=False)
+            except (TypeError, ValueError, json.JSONDecodeError, PlatformError) as exc:
+                raise ValidationError("persisted CAM snapshot is invalid") from exc
+
+    def close(self) -> None:
+        """Close the optional SQLite connection (safe to call repeatedly)."""
+
+        with self._lock:
+            if self._storage_connection is not None:
+                self._storage_connection.close()
+                self._storage_connection = None
+
+    def _snapshot_locked(self) -> dict[str, Any]:
+        return {
+            "schemaVersion": 1,
+            "savedAt": _now(),
+            "tools": [
+                self.tools[key].to_dict() for key in sorted(self.tools)
+            ],
+            "plans": [
+                self._plans[key].to_dict() for key in sorted(self._plans)
+            ],
+            "simulations": [
+                self._simulations[key].to_dict() for key in sorted(self._simulations)
+            ],
+            "ncPrograms": [
+                self._nc_programs[key].to_dict() for key in sorted(self._nc_programs)
+            ],
+        }
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a JSON-serializable, immutable-state snapshot."""
+
+        with self._lock:
+            return self._snapshot_locked()
+
+    # Explicit aliases make the persistence contract discoverable to workers
+    # and API adapters without coupling callers to the private helper above.
+    export_snapshot = snapshot
+
+    def snapshot_json(self) -> str:
+        with self._lock:
+            return _json(self._snapshot_locked())
+
+    def _persist_locked(self) -> None:
+        connection = self._storage_connection
+        if connection is None:
+            return
+        payload = _json(self._snapshot_locked())
+        with connection:
+            connection.execute(
+                """
+                INSERT INTO cam_snapshots (snapshot_id, schema_version, payload_json, updated_at)
+                VALUES ('default', 1, ?, ?)
+                ON CONFLICT(snapshot_id) DO UPDATE SET
+                    schema_version = excluded.schema_version,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                (payload, _now()),
+            )
+
+    @staticmethod
+    def _optional_text(raw: Mapping[str, Any], *keys: str) -> str | None:
+        for key in keys:
+            value = raw.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return None
+
+    @staticmethod
+    def _stock_from_snapshot(raw: Any) -> StockDefinition:
+        if not isinstance(raw, Mapping):
+            raise ValidationError("CAM snapshot stock must be an object")
+        try:
+            stock = StockDefinition(
+                length=float(raw["length"]),
+                width=float(raw["width"]),
+                height=float(raw["height"]),
+                material=str(raw.get("material", "steel")),
+                origin=str(raw.get("origin", "center_xy_bottom")),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError("CAM snapshot stock is invalid") from exc
+        stock.validate()
+        return stock
+
+    @classmethod
+    def _tool_from_snapshot(cls, raw: Any) -> ToolDefinition:
+        if not isinstance(raw, Mapping):
+            raise ValidationError("CAM snapshot tool must be an object")
+        try:
+            tool = ToolDefinition(
+                id=str(raw.get("id", "")).strip(),
+                name=str(raw.get("name", "")).strip(),
+                kind=str(raw.get("kind", "endmill")).strip(),
+                diameter=float(raw["diameter"]),
+                flute_length=float(raw.get("fluteLength", raw.get("flute_length"))),
+                max_rpm=int(raw.get("maxRpm", raw.get("max_rpm", 12000))),
+                max_feed=float(raw.get("maxFeed", raw.get("max_feed", 1200.0))),
+                material=str(raw.get("material", "carbide")),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError("CAM snapshot tool is invalid") from exc
+        tool.validate()
+        return tool
+
+    @classmethod
+    def _operation_from_snapshot(cls, raw: Any) -> CAMOperation:
+        if not isinstance(raw, Mapping):
+            raise ValidationError("CAM snapshot operation must be an object")
+        try:
+            parameters = raw.get("parameters", {})
+            if not isinstance(parameters, Mapping):
+                raise ValidationError("CAM snapshot operation parameters must be an object")
+            operation = CAMOperation(
+                id=str(raw.get("id", "")).strip(),
+                operation_type=str(raw.get("operationType", raw.get("operation_type", "profile"))).strip().casefold(),
+                tool_id=str(raw.get("toolId", raw.get("tool_id", ""))).strip(),
+                depth=float(raw.get("depth", 0)),
+                feed_rate=float(raw.get("feedRate", raw.get("feed_rate", 600))),
+                spindle_rpm=int(raw.get("spindleRpm", raw.get("spindle_rpm", 6000))),
+                retract_height=float(raw.get("retractHeight", raw.get("retract_height", 5))),
+                path_length=float(raw.get("pathLength", raw.get("path_length", 0))),
+                parameters=dict(parameters),
+                enabled=bool(raw.get("enabled", True)),
+                sequence=int(raw.get("sequence", 0)),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ValidationError):
+                raise
+            raise ValidationError("CAM snapshot operation is invalid") from exc
+        if not operation.id or not operation.tool_id:
+            raise ValidationError("CAM snapshot operation id and tool_id are required")
+        if operation.operation_type not in {item.value for item in OperationType}:
+            raise ValidationError(f"unsupported operation type in CAM snapshot: {operation.operation_type}")
+        values = (operation.depth, operation.feed_rate, operation.retract_height, operation.path_length)
+        if any(not math.isfinite(value) for value in values):
+            raise ValidationError("CAM snapshot operation dimensions must be finite")
+        return operation
+
+    @classmethod
+    def _approval_from_snapshot(cls, raw: Any) -> Approval:
+        if not isinstance(raw, Mapping):
+            raise ValidationError("CAM snapshot approval must be an object")
+        try:
+            approval = Approval(
+                id=str(raw.get("id", "")).strip(),
+                actor_id=str(raw.get("actorId", raw.get("actor_id", ""))).strip(),
+                role=str(raw.get("role", "reviewer")).strip().casefold(),
+                comment=str(raw.get("comment", "")),
+                plan_revision=int(raw.get("planRevision", raw.get("plan_revision", 0))),
+                simulation_id=str(raw.get("simulationId", raw.get("simulation_id", ""))).strip(),
+                created_at=str(raw.get("createdAt", raw.get("created_at", ""))),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError("CAM snapshot approval is invalid") from exc
+        if not approval.id or not approval.actor_id or not approval.simulation_id:
+            raise ValidationError("CAM snapshot approval identity is required")
+        if approval.role not in {"reviewer", "admin"}:
+            raise ValidationError("CAM snapshot approval role is invalid")
+        return approval
+
+    @classmethod
+    def _plan_from_snapshot(cls, raw: Any) -> CAMPlan:
+        if not isinstance(raw, Mapping):
+            raise ValidationError("CAM snapshot plan must be an object")
+        operations_raw = raw.get("operations", [])
+        approvals_raw = raw.get("approvals", [])
+        if not isinstance(operations_raw, (list, tuple)) or not isinstance(approvals_raw, (list, tuple)):
+            raise ValidationError("CAM snapshot plan operations/approvals must be arrays")
+        try:
+            operations = tuple(cls._operation_from_snapshot(item) for item in operations_raw)
+            approvals = tuple(cls._approval_from_snapshot(item) for item in approvals_raw)
+            status = str(raw.get("status", CAMPlanStatus.DRAFT.value)).strip().casefold()
+            stock = cls._stock_from_snapshot(raw.get("stock", {}))
+            plan = CAMPlan(
+                id=str(raw.get("id", "")).strip(),
+                project_id=cls._optional_text(raw, "projectId", "project_id"),
+                source_document_id=cls._optional_text(raw, "sourceDocumentId", "source_document_id"),
+                source_version_id=cls._optional_text(raw, "sourceVersionId", "source_version_id"),
+                geometry_hash=str(raw.get("geometryHash", raw.get("geometry_hash", ""))).strip(),
+                units=str(raw.get("units", "mm")).strip(),
+                machine=str(raw.get("machine", "3-axis-mill")).strip(),
+                stock=stock,
+                operations=operations,
+                status=status,
+                revision=int(raw.get("revision", 1)),
+                created_by=str(raw.get("createdBy", raw.get("created_by", ""))).strip(),
+                created_at=str(raw.get("createdAt", raw.get("created_at", ""))),
+                updated_at=str(raw.get("updatedAt", raw.get("updated_at", ""))),
+                approvals=approvals,
+                latest_simulation_id=cls._optional_text(raw, "latestSimulationId", "latest_simulation_id"),
+                released_nc_id=cls._optional_text(raw, "releasedNcId", "released_nc_id"),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ValidationError):
+                raise
+            raise ValidationError("CAM snapshot plan is invalid") from exc
+        if not plan.id or not plan.created_by or not plan.geometry_hash:
+            raise ValidationError("CAM snapshot plan identity and geometry_hash are required")
+        if plan.units not in {"mm", "in"}:
+            raise ValidationError("CAM snapshot plan units are invalid")
+        if plan.status not in {item.value for item in CAMPlanStatus}:
+            raise ValidationError("CAM snapshot plan status is invalid")
+        if plan.revision < 1:
+            raise ValidationError("CAM snapshot plan revision must be positive")
+        return plan
+
+    @classmethod
+    def _simulation_from_snapshot(cls, raw: Any) -> SimulationResult:
+        if not isinstance(raw, Mapping):
+            raise ValidationError("CAM snapshot simulation must be an object")
+        try:
+            warnings = raw.get("warnings", [])
+            errors = raw.get("errors", [])
+            checks = raw.get("checks", {})
+            if not isinstance(warnings, (list, tuple)) or not isinstance(errors, (list, tuple)):
+                raise ValidationError("CAM snapshot simulation warnings/errors must be arrays")
+            if not isinstance(checks, Mapping):
+                raise ValidationError("CAM snapshot simulation checks must be an object")
+            result = SimulationResult(
+                id=str(raw.get("id", "")).strip(),
+                plan_id=str(raw.get("planId", raw.get("plan_id", ""))).strip(),
+                plan_revision=int(raw.get("planRevision", raw.get("plan_revision", 0))),
+                geometry_hash=str(raw.get("geometryHash", raw.get("geometry_hash", ""))).strip(),
+                engine=str(raw.get("engine", "")).strip(),
+                passed=bool(raw.get("passed", False)),
+                collision_count=int(raw.get("collisionCount", raw.get("collision_count", 0))),
+                gouge_count=int(raw.get("gougeCount", raw.get("gouge_count", 0))),
+                envelope_violations=int(raw.get("envelopeViolations", raw.get("envelope_violations", 0))),
+                unresolved_operations=int(raw.get("unresolvedOperations", raw.get("unresolved_operations", 0))),
+                stock_remaining_volume=float(raw.get("stockRemainingVolume", raw.get("stock_remaining_volume", 0))),
+                max_tool_load=float(raw.get("maxToolLoad", raw.get("max_tool_load", 0))),
+                runtime_seconds=float(raw.get("runtimeSeconds", raw.get("runtime_seconds", 0))),
+                warnings=tuple(str(item) for item in warnings),
+                errors=tuple(str(item) for item in errors),
+                checks={str(key): bool(value) for key, value in checks.items()},
+                created_at=str(raw.get("createdAt", raw.get("created_at", ""))),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ValidationError):
+                raise
+            raise ValidationError("CAM snapshot simulation is invalid") from exc
+        if not result.id or not result.plan_id or not result.geometry_hash:
+            raise ValidationError("CAM snapshot simulation identity is required")
+        if result.plan_revision < 1:
+            raise ValidationError("CAM snapshot simulation revision must be positive")
+        return result
+
+    @classmethod
+    def _nc_from_snapshot(cls, raw: Any) -> NCProgram:
+        if not isinstance(raw, Mapping):
+            raise ValidationError("CAM snapshot NC program must be an object")
+        try:
+            program = NCProgram(
+                id=str(raw.get("id", "")).strip(),
+                plan_id=str(raw.get("planId", raw.get("plan_id", ""))).strip(),
+                simulation_id=str(raw.get("simulationId", raw.get("simulation_id", ""))).strip(),
+                postprocessor=str(raw.get("postprocessor", "generic-3axis")).strip(),
+                status=str(raw.get("status", "released")).strip(),
+                text=str(raw.get("text", "")),
+                sha256=str(raw.get("sha256", "")).strip(),
+                created_by=str(raw.get("createdBy", raw.get("created_by", ""))).strip(),
+                created_at=str(raw.get("createdAt", raw.get("created_at", ""))),
+                released_at=cls._optional_text(raw, "releasedAt", "released_at"),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError("CAM snapshot NC program is invalid") from exc
+        if not program.id or not program.plan_id or not program.simulation_id or not program.created_by:
+            raise ValidationError("CAM snapshot NC identity is required")
+        if hashlib.sha256(program.text.encode("utf-8")).hexdigest() != program.sha256:
+            raise ValidationError("CAM snapshot NC checksum mismatch")
+        return program
+
+    def _restore_locked(
+        self,
+        snapshot: Mapping[str, Any],
+        *,
+        replace: bool = True,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        if not isinstance(snapshot, Mapping):
+            raise ValidationError("CAM snapshot must be an object")
+        try:
+            schema_version = int(snapshot.get("schemaVersion", snapshot.get("schema_version", 1)))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("CAM snapshot schemaVersion is invalid") from exc
+        if schema_version != 1:
+            raise ValidationError(f"unsupported CAM snapshot schema version: {schema_version}")
+        tools_raw = snapshot.get("tools", [])
+        plans_raw = snapshot.get("plans", [])
+        simulations_raw = snapshot.get("simulations", [])
+        nc_raw = snapshot.get("ncPrograms", snapshot.get("nc_programs", []))
+        for value, label in (
+            (tools_raw, "tools"),
+            (plans_raw, "plans"),
+            (simulations_raw, "simulations"),
+            (nc_raw, "ncPrograms"),
+        ):
+            if not isinstance(value, (list, tuple)):
+                raise ValidationError(f"CAM snapshot {label} must be an array")
+        parsed_tools = {
+            tool.id: tool for tool in (self._tool_from_snapshot(item) for item in tools_raw)
+        }
+        if not parsed_tools and replace:
+            parsed_tools = {tool.id: tool for tool in self.DEFAULT_TOOLS}
+        parsed_plans = {
+            plan.id: plan for plan in (self._plan_from_snapshot(item) for item in plans_raw)
+        }
+        parsed_simulations = {
+            simulation.id: simulation
+            for simulation in (self._simulation_from_snapshot(item) for item in simulations_raw)
+        }
+        parsed_nc = {
+            program.id: program for program in (self._nc_from_snapshot(item) for item in nc_raw)
+        }
+        if tools_raw and len(parsed_tools) != len(tools_raw):
+            raise ValidationError("duplicate tool id in CAM snapshot")
+        if len(parsed_plans) != len(plans_raw):
+            raise ValidationError("duplicate plan id in CAM snapshot")
+        if len(parsed_simulations) != len(simulations_raw):
+            raise ValidationError("duplicate simulation id in CAM snapshot")
+        if len(parsed_nc) != len(nc_raw):
+            raise ValidationError("duplicate NC id in CAM snapshot")
+        known_tools = set(parsed_tools)
+        known_plans = set(parsed_plans)
+        known_simulations = set(parsed_simulations)
+        known_nc_ids = set(parsed_nc)
+        if not replace:
+            known_tools.update(self.tools)
+            known_plans.update(self._plans)
+            known_simulations.update(self._simulations)
+            known_nc_ids.update(self._nc_programs)
+
+        def known_simulation(identifier: str) -> SimulationResult | None:
+            return parsed_simulations.get(identifier) or self._simulations.get(identifier)
+
+        def lookup_nc(identifier: str) -> NCProgram | None:
+            return parsed_nc.get(identifier) or self._nc_programs.get(identifier)
+
+        for plan in parsed_plans.values():
+            for operation in plan.operations:
+                if operation.tool_id not in known_tools:
+                    raise ValidationError(f"CAM snapshot references unknown tool: {operation.tool_id}")
+            if plan.latest_simulation_id and plan.latest_simulation_id not in known_simulations:
+                raise ValidationError(f"CAM snapshot references unknown simulation: {plan.latest_simulation_id}")
+            if plan.latest_simulation_id:
+                simulation = known_simulation(plan.latest_simulation_id)
+                if simulation is None or simulation.plan_id != plan.id:
+                    raise ValidationError("CAM snapshot latest simulation does not belong to its plan")
+            if plan.released_nc_id and plan.released_nc_id not in known_nc_ids:
+                raise ValidationError(f"CAM snapshot references unknown NC: {plan.released_nc_id}")
+            if plan.released_nc_id:
+                program = lookup_nc(plan.released_nc_id)
+                if program is None or program.plan_id != plan.id:
+                    raise ValidationError("CAM snapshot released NC does not belong to its plan")
+            for approval in plan.approvals:
+                if approval.simulation_id not in known_simulations:
+                    raise ValidationError(f"CAM snapshot approval references unknown simulation: {approval.simulation_id}")
+                simulation = known_simulation(approval.simulation_id)
+                if simulation is None or simulation.plan_id != plan.id:
+                    raise ValidationError("CAM snapshot approval simulation does not belong to its plan")
+        for simulation in parsed_simulations.values():
+            if simulation.plan_id not in known_plans:
+                raise ValidationError(f"CAM snapshot simulation references unknown plan: {simulation.plan_id}")
+        for program in parsed_nc.values():
+            if program.plan_id not in known_plans or program.simulation_id not in known_simulations:
+                raise ValidationError("CAM snapshot NC references unknown plan or simulation")
+            simulation = known_simulation(program.simulation_id)
+            if simulation is None or simulation.plan_id != program.plan_id:
+                raise ValidationError("CAM snapshot NC simulation does not belong to its plan")
+        if replace:
+            self.tools = parsed_tools
+            self._plans = parsed_plans
+            self._simulations = parsed_simulations
+            self._nc_programs = parsed_nc
+        else:
+            collections = (
+                (self.tools, parsed_tools, "tool"),
+                (self._plans, parsed_plans, "plan"),
+                (self._simulations, parsed_simulations, "simulation"),
+                (self._nc_programs, parsed_nc, "NC program"),
+            )
+            # Check every collection before mutating any of them so a merge
+            # failure cannot leave a half-restored snapshot in memory.
+            for collection, incoming, label in collections:
+                collisions = set(collection).intersection(incoming)
+                if collisions:
+                    raise CAMConflictError(f"CAM snapshot {label} already exists: {sorted(collisions)[0]}")
+            for collection, incoming, _label in collections:
+                collection.update(incoming)
+        if persist:
+            self._persist_locked()
+        return self._snapshot_locked()
+
+    def restore(
+        self,
+        snapshot: Mapping[str, Any] | str | bytes,
+        *,
+        replace: bool = True,
+    ) -> dict[str, Any]:
+        """Atomically restore a snapshot and return the resulting state.
+
+        ``snapshot`` may be a mapping or UTF-8 JSON text/bytes.  Validation is
+        performed into temporary collections first, so a malformed import does
+        not partially overwrite live CAM state.
+        """
+
+        if isinstance(snapshot, (str, bytes, bytearray)):
+            try:
+                snapshot = json.loads(bytes(snapshot).decode("utf-8") if not isinstance(snapshot, str) else snapshot)
+            except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
+                raise ValidationError("CAM snapshot JSON is invalid") from exc
+        with self._lock:
+            return self._restore_locked(snapshot, replace=replace, persist=True)  # type: ignore[arg-type]
+
+    restore_snapshot = restore
+
+    def save_snapshot(self, path: str | Path) -> Path:
+        """Write a portable JSON snapshot for backup or migration tooling."""
+
+        destination = Path(path).expanduser()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(self.snapshot_json(), encoding="utf-8")
+        return destination
+
+    def load_snapshot(self, path: str | Path, *, replace: bool = True) -> dict[str, Any]:
+        source = Path(path).expanduser()
+        try:
+            payload = source.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValidationError(f"unable to read CAM snapshot: {source}") from exc
+        return self.restore(payload, replace=replace)
 
     def _require(self, actor_id: str, permission: Permission) -> None:
         if self.authorizer is not None and not self.authorizer(actor_id, permission.value):
@@ -529,6 +1001,7 @@ class CAMService:
             if tool.id in self.tools:
                 raise CAMConflictError(f"tool already exists: {tool.id}")
             self.tools[tool.id] = tool
+            self._persist_locked()
         return tool
 
     def list_tools(self) -> list[ToolDefinition]:
@@ -606,6 +1079,7 @@ class CAMService:
             if plan.id in self._plans:
                 raise CAMConflictError(f"CAM plan already exists: {plan.id}")
             self._plans[plan.id] = plan
+            self._persist_locked()
         return plan
 
     def get_plan(self, plan_id: str) -> CAMPlan:
@@ -681,6 +1155,7 @@ class CAMService:
         )
         with self._lock:
             self._plans[plan_id] = updated
+            self._persist_locked()
         return operation
 
     def simulate(
@@ -732,6 +1207,7 @@ class CAMService:
                 approvals=(),
             )
             self._plans[plan_id] = updated
+            self._persist_locked()
         return result
 
     def get_simulation(self, simulation_id: str) -> SimulationResult:
@@ -780,6 +1256,7 @@ class CAMService:
                 updated_at=_now(),
             )
             self._plans[plan_id] = updated
+            self._persist_locked()
         return approval
 
     def gate_status(
@@ -877,6 +1354,7 @@ class CAMService:
                 released_nc_id=program_id,
                 updated_at=_now(),
             )
+            self._persist_locked()
         return program
 
     def get_nc(self, program_id: str) -> NCProgram:

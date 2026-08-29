@@ -17,11 +17,23 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
+
+# FastAPI evaluates postponed annotations against the defining module's
+# globals.  ``Request`` used to be imported only inside ``create_platform_router``
+# which made ``app.openapi()`` fail with an unresolved ``ForwardRef('Request')``
+# on Pydantic v2.  Keep the dependency optional for domain-only consumers while
+# exposing a module-level symbol whenever FastAPI is installed.
+try:  # pragma: no cover - the fallback is exercised on dependency-free hosts
+    from fastapi import Request as _FastAPIRequest
+except ImportError:  # pragma: no cover
+    _FastAPIRequest = Any  # type: ignore[assignment]
+Request = _FastAPIRequest
 
 from .cam import (
     CAMConflictError,
@@ -63,13 +75,15 @@ def build_platform_services(
     auth_secret: str | bytes | None = None,
     token_ttl_seconds: int = 3600,
     enable_live_ocr: bool | None = None,
+    allow_unverified_fixture: bool | None = False,
 ) -> PlatformServices:
     """Build a local service graph.
 
     ``database`` is shared by PDM and accounts when it is a filesystem path.
     For tests, pass ``":memory:"`` (the default).  A CAM plan and OCR result
-    are kept in memory until a caller snapshots them to PDM, which is deliberate
-    so simulation artifacts cannot be silently edited in place.
+    CAM plans, simulations and NC programs use the same SQLite path through a
+    transactional CAM snapshot row, so they survive process restarts.  Passing
+    ``database=":memory:"`` keeps that snapshot ephemeral for tests.
     """
 
     db_value = str(database)
@@ -83,12 +97,22 @@ def build_platform_services(
         token_ttl_seconds=token_ttl_seconds,
     )
     cam = CAMService(
-        authorizer=lambda actor_id, permission: auth.has_permission(actor_id, permission)
+        authorizer=lambda actor_id, permission: auth.has_permission(actor_id, permission),
+        # CAM uses the same SQLite file as PDM/RBAC.  Its snapshot row is
+        # independent of the PDM schema and is restored automatically on a
+        # process restart, keeping plans/simulations/NC auditable.
+        database=db_value,
     )
     return PlatformServices(
         pdm=PDMRepository(db_value),
         auth=auth,
-        ocr=OCRService(enable_live_ocr=enable_live_ocr),
+        ocr=OCRService(
+            enable_live_ocr=enable_live_ocr,
+            # This is deliberately false for API/service-graph defaults.  A
+            # fixture id may only select a result when its source SHA matches;
+            # fixture-only smoke tests can opt in explicitly.
+            allow_unverified_fixture=allow_unverified_fixture,
+        ),
         cam=cam,
     )
 
@@ -126,6 +150,11 @@ def _domain_http_exception(exc: Exception):
         return HTTPException(status_code=409, detail=detail)
     if isinstance(exc, (ValidationError, KeyError, TypeError, ValueError)):
         return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, RuntimeError):
+        # Optional kernel/exporter failures are an unavailable capability, not
+        # an application crash.  Keep the detail concise so clients can offer
+        # the documented fallback/installation guidance.
+        return HTTPException(status_code=503, detail=str(exc))
     return HTTPException(status_code=500, detail="internal platform error")
 
 
@@ -154,6 +183,266 @@ def _require_any_permission(
     return actor
 
 
+def _actor_roles(actor: Any) -> set[str]:
+    """Return normalized role names for both domain enums and JSON values."""
+
+    values: set[str] = set()
+    for raw in getattr(actor, "roles", ()) or ():
+        value = getattr(raw, "value", raw)
+        values.add(str(value).strip().casefold())
+    return values
+
+
+def _is_admin_actor(services: PlatformServices, actor: Any) -> bool:
+    """Whether an actor has global administration rights."""
+
+    if Role.ADMIN.value in _actor_roles(actor):
+        return True
+    try:
+        return services.auth.has_permission(actor, Permission.USER_MANAGE)
+    except PlatformError:
+        return False
+
+
+def _member_identity(entry: Any) -> tuple[str | None, str]:
+    """Extract an id/email and access level from a metadata member entry.
+
+    Supported forms are intentionally permissive for migration compatibility:
+    ``"usr_123"``, ``{"userId": "usr_123", "access": "read"}``, and
+    ``{"email": "person@example.com", "role": "designer"}``.  A bare
+    string or mapping without an access hint grants read/write project access;
+    explicit ``read``/``viewer``/``readonly`` values are read-only.
+    """
+
+    if isinstance(entry, str):
+        return entry.strip() or None, "write"
+    if not isinstance(entry, Mapping):
+        return None, "read"
+    # A member mapping can use either camelCase or snake_case keys.  Keep the
+    # first non-empty identity so callers may include both id and email.
+    identity: str | None = None
+    for key in (
+        "userId",
+        "user_id",
+        "memberId",
+        "member_id",
+        "actorId",
+        "actor_id",
+        "id",
+        "email",
+        "user",
+        "member",
+        "principal",
+    ):
+        raw = entry.get(key)
+        if key in {"user", "member", "principal"} and isinstance(raw, Mapping):
+            raw = next(
+                (
+                    raw.get(candidate)
+                    for candidate in ("id", "userId", "user_id", "email")
+                    if raw.get(candidate) is not None
+                ),
+                None,
+            )
+        if raw is not None and str(raw).strip():
+            identity = str(raw).strip()
+            break
+    access_raw: Any = entry.get("access", entry.get("accessLevel", entry.get("access_level")))
+    if access_raw is None:
+        access_raw = entry.get(
+            "permission",
+            entry.get("permissions", entry.get("role", "write")),
+        )
+    if isinstance(access_raw, (list, tuple, set, frozenset)):
+        access_values = {str(item).strip().casefold() for item in access_raw}
+    else:
+        access_values = {str(access_raw).strip().casefold()}
+    read_only_values = {
+        "read",
+        "reader",
+        "view",
+        "viewer",
+        "readonly",
+        "read-only",
+        "ro",
+    }
+    level = "read" if access_values and access_values.issubset(read_only_values) else "write"
+    return identity, level
+
+
+def _iter_project_members(project: Any) -> Iterable[Any]:
+    metadata = getattr(project, "metadata", {})
+    if not isinstance(metadata, Mapping):
+        return ()
+    members = metadata.get("members", ())
+    if isinstance(members, Mapping):
+        # Also accept a compact ``{"usr_a": "read", "usr_b": "write"}``
+        # representation and normalize it to the canonical list shape for
+        # access checks.
+        return tuple(
+            {"userId": identity, "access": access}
+            for identity, access in members.items()
+        )
+    if isinstance(members, str):
+        return (members,)
+    if isinstance(members, (list, tuple, set, frozenset)):
+        return tuple(members)
+    return ()
+
+
+def _project_member_matches(project: Any, actor: Any, *, write: bool = False) -> bool:
+    actor_id = str(getattr(actor, "id", "")).strip()
+    actor_email = str(getattr(actor, "email", "")).strip().casefold()
+    for entry in _iter_project_members(project):
+        identity, level = _member_identity(entry)
+        if not identity:
+            continue
+        normalized = identity.casefold()
+        if normalized not in {actor_id.casefold(), actor_email}:
+            continue
+        if not write or level == "write":
+            return True
+    return False
+
+
+def _can_access_project(
+    services: PlatformServices,
+    actor: Any,
+    project: Any,
+    *,
+    write: bool = False,
+) -> bool:
+    """Evaluate project scope independently of global RBAC permissions."""
+
+    if _is_admin_actor(services, actor):
+        return True
+    if str(project.owner_id).casefold() == str(getattr(actor, "id", "")).casefold():
+        return True
+    return _project_member_matches(project, actor, write=write)
+
+
+def _require_project_access(
+    services: PlatformServices,
+    actor: Any,
+    project_id: str,
+    *,
+    write: bool = False,
+) -> Any:
+    """Require owner/admin/member access and return the project object."""
+
+    project = services.pdm.get_project(str(project_id))
+    if not _can_access_project(services, actor, project, write=write):
+        mode = "write" if write else "read"
+        raise AuthorizationError(f"actor is not authorized for {mode} access to project: {project.id}")
+    return project
+
+
+def _require_project_owner_or_admin(
+    services: PlatformServices,
+    actor: Any,
+    project: Any,
+) -> Any:
+    if _is_admin_actor(services, actor) or str(project.owner_id).casefold() == str(getattr(actor, "id", "")).casefold():
+        return project
+    raise AuthorizationError("only the project owner or an admin may manage members")
+
+
+def _resolve_document_project(
+    services: PlatformServices,
+    document_id: str,
+    *,
+    include_deleted: bool = False,
+) -> tuple[Any, Any]:
+    document = services.pdm.get_document(str(document_id), include_deleted=include_deleted)
+    project = services.pdm.get_project(document.project_id)
+    return document, project
+
+
+def _require_document_access(
+    services: PlatformServices,
+    actor: Any,
+    document_id: str,
+    *,
+    write: bool = False,
+    include_deleted: bool = False,
+) -> tuple[Any, Any]:
+    document, project = _resolve_document_project(
+        services, document_id, include_deleted=include_deleted
+    )
+    _require_project_access(services, actor, project.id, write=write)
+    return document, project
+
+
+def _require_version_access(
+    services: PlatformServices,
+    actor: Any,
+    version_id: str,
+    *,
+    write: bool = False,
+) -> tuple[Any, Any, Any]:
+    version = services.pdm.get_version(str(version_id))
+    document, project = _require_document_access(
+        services,
+        actor,
+        version.document_id,
+        write=write,
+        include_deleted=True,
+    )
+    return version, document, project
+
+
+def _require_cam_plan_access(
+    services: PlatformServices,
+    actor: Any,
+    plan_id: str,
+    *,
+    write: bool = False,
+) -> Any:
+    """Apply project scope to a CAM plan before invoking CAMService."""
+
+    plan = services.cam.get_plan(str(plan_id))
+    if plan.project_id:
+        _require_project_access(services, actor, plan.project_id, write=write)
+        return plan
+    # Legacy/unscoped plans remain inspectable by CAM participants so existing
+    # local workflows continue to work.  Mutations, however, stay with the
+    # creator (or an admin) because there is no project membership to consult.
+    if write and not (
+        _is_admin_actor(services, actor)
+        or str(plan.created_by) == str(getattr(actor, "id", ""))
+    ):
+        raise AuthorizationError("only the CAM plan creator or an admin may modify an unscoped plan")
+    return plan
+
+
+def _validate_members_payload(raw: Any) -> list[Any]:
+    """Validate and copy a project ``metadata.members`` value."""
+
+    if isinstance(raw, Mapping):
+        raw = [{"userId": key, "access": value} for key, value in raw.items()]
+    elif isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        raise ValidationError("members must be an array or identity-to-access object")
+    result: list[Any] = []
+    seen: set[str] = set()
+    for entry in raw:
+        identity, _level = _member_identity(entry)
+        if not identity:
+            raise ValidationError("each project member needs a userId or email")
+        key = identity.casefold()
+        if key in seen:
+            raise ValidationError(f"duplicate project member: {identity}")
+        seen.add(key)
+        if isinstance(entry, Mapping):
+            # JSON round-tripping through dict() strips custom Mapping classes
+            # while retaining any caller-defined metadata fields.
+            result.append(dict(entry))
+        else:
+            result.append(identity)
+    return result
+
+
 def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     """Return an ``APIRouter`` with auth, PDM, OCR and CAM endpoints.
 
@@ -164,7 +453,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     """
 
     try:
-        from fastapi import APIRouter, Body, Header, HTTPException, Request
+        from fastapi import APIRouter, Body, Header, HTTPException
         from fastapi.responses import JSONResponse, PlainTextResponse
     except ImportError as exc:  # pragma: no cover - exercised in dependency-free CI
         raise RuntimeError(
@@ -270,11 +559,19 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             owner_id = str(data.get("ownerId", data.get("owner_id", actor.id)))
             if owner_id != actor.id:
                 services.auth.require(actor, Permission.USER_MANAGE)
+            metadata = data.get("metadata")
+            if metadata is None:
+                metadata = {}
+            if not isinstance(metadata, Mapping):
+                raise ValidationError("metadata must be an object")
+            metadata = dict(metadata)
+            if "members" in metadata:
+                metadata["members"] = _validate_members_payload(metadata["members"])
             return services.pdm.create_project(
                 str(data.get("name", "")),
                 owner_id,
                 description=str(data.get("description", "")),
-                metadata=data.get("metadata") if isinstance(data.get("metadata"), Mapping) else {},
+                metadata=metadata,
             ).to_dict()
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -287,10 +584,16 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         actor = _token_user(services, authorization)
         try:
             services.auth.require(actor, Permission.PROJECT_READ)
-            projects = services.pdm.list_projects(
-                owner_id=None if services.auth.has_permission(actor, Permission.USER_MANAGE) else actor.id,
-                include_archived=include_archived,
-            )
+            # Query all projects once, then apply the same owner/member policy
+            # used by every project-scoped endpoint.  Filtering here prevents a
+            # non-member from learning another user's project ids via list.
+            projects = services.pdm.list_projects(owner_id=None, include_archived=include_archived)
+            if not _is_admin_actor(services, actor):
+                projects = [
+                    project
+                    for project in projects
+                    if _can_access_project(services, actor, project, write=False)
+                ]
             return {"items": [project.to_dict() for project in projects]}
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -305,12 +608,16 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.DOCUMENT_WRITE)
+            _require_project_access(services, actor, project_id, write=True)
+            metadata = data.get("metadata")
+            if metadata is not None and not isinstance(metadata, Mapping):
+                raise ValidationError("metadata must be an object")
             return services.pdm.create_document(
                 project_id,
                 str(data.get("name", "")),
                 str(data.get("kind", "model")),
                 actor.id,
-                metadata=data.get("metadata") if isinstance(data.get("metadata"), Mapping) else {},
+                metadata=metadata if isinstance(metadata, Mapping) else {},
             ).to_dict()
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -325,12 +632,91 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.PROJECT_WRITE)
+            project = _require_project_access(services, actor, project_id, write=True)
+            metadata: Mapping[str, Any] | None = None
+            if "metadata" in data:
+                raw_metadata = data.get("metadata")
+                if not isinstance(raw_metadata, Mapping):
+                    raise ValidationError("metadata must be an object")
+                metadata = dict(raw_metadata)
+                if "members" in metadata:
+                    # A regular project member may rename/describe a project,
+                    # but changing the ACL is reserved for owner/admin.
+                    _require_project_owner_or_admin(services, actor, project)
+                    metadata["members"] = _validate_members_payload(metadata["members"])
             return services.pdm.rename_project(
                 project_id,
                 str(data.get("name", "")),
                 description=(str(data["description"]) if "description" in data else None),
                 actor_id=actor.id,
+                metadata=metadata,
             ).to_dict()
+        except PlatformError as exc:
+            raise _domain_http_exception(exc)
+
+    @router.get("/pdm/projects/{project_id}/members")
+    async def list_project_members(
+        project_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """List the project ACL after applying the normal read-scope check."""
+
+        actor = _token_user(services, authorization)
+        try:
+            services.auth.require(actor, Permission.PROJECT_READ)
+            project = _require_project_access(services, actor, project_id, write=False)
+            metadata = project.metadata if isinstance(project.metadata, Mapping) else {}
+            members = metadata.get("members", [])
+            if isinstance(members, Mapping):
+                members = [
+                    {"userId": str(identity), "access": access}
+                    for identity, access in members.items()
+                ]
+            elif isinstance(members, str):
+                members = [members]
+            elif not isinstance(members, (list, tuple, set, frozenset)):
+                members = []
+            return {
+                "projectId": project.id,
+                "ownerId": project.owner_id,
+                "members": list(members),
+            }
+        except PlatformError as exc:
+            raise _domain_http_exception(exc)
+
+    @router.put("/pdm/projects/{project_id}/members")
+    @router.patch("/pdm/projects/{project_id}/members")
+    async def update_project_members(
+        project_id: str,
+        payload: dict[str, Any] = Body(...),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Replace ``metadata.members`` (owner/admin only).
+
+        Keeping members in project metadata makes this additive to existing
+        SQLite databases.  Other metadata keys are preserved by this endpoint.
+        """
+
+        actor = _token_user(services, authorization)
+        data = _require_dict(payload)
+        try:
+            project = services.pdm.get_project(project_id)
+            services.auth.require(actor, Permission.PROJECT_WRITE)
+            _require_project_owner_or_admin(services, actor, project)
+            members = _validate_members_payload(data.get("members", []))
+            metadata = dict(project.metadata) if isinstance(project.metadata, Mapping) else {}
+            metadata["members"] = members
+            updated = services.pdm.update_project_metadata(
+                project.id,
+                metadata,
+                actor_id=actor.id,
+            )
+            return {
+                "project": updated.to_dict(),
+                "projectId": updated.id,
+                "ownerId": updated.owner_id,
+                "members": members,
+            }
         except PlatformError as exc:
             raise _domain_http_exception(exc)
 
@@ -343,6 +729,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         actor = _token_user(services, authorization)
         try:
             services.auth.require(actor, Permission.DOCUMENT_READ)
+            _require_project_access(services, actor, project_id, write=False)
             return {"items": [item.to_dict() for item in services.pdm.list_documents(project_id, kind=kind)]}
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -357,7 +744,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.DOCUMENT_WRITE)
+            _require_document_access(services, actor, document_id, write=True)
             metadata = data.get("metadata")
+            if metadata is not None and not isinstance(metadata, Mapping):
+                raise ValidationError("metadata must be an object")
             return services.pdm.rename_document(
                 document_id,
                 str(data.get("name", "")),
@@ -375,6 +765,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         actor = _token_user(services, authorization)
         try:
             services.auth.require(actor, Permission.PROJECT_READ)
+            _require_project_access(services, actor, project_id, write=False)
             return services.pdm.get_project_manifest(project_id)
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -389,12 +780,16 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.VERSION_CREATE)
+            _require_document_access(services, actor, document_id, write=True)
             if "contentBase64" in data or "content_base64" in data:
                 content: Any = _decode_base64(data.get("contentBase64", data.get("content_base64")))
             elif "contentText" in data or "content_text" in data:
                 content = str(data.get("contentText", data.get("content_text")))
             else:
                 content = data.get("content", data.get("payload"))
+            raw_metadata = data.get("metadata")
+            if raw_metadata is not None and not isinstance(raw_metadata, Mapping):
+                raise ValidationError("metadata must be an object")
             version = services.pdm.create_version(
                 document_id,
                 content,
@@ -402,7 +797,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 file_name=data.get("fileName", data.get("file_name")),
                 content_type=str(data.get("contentType", data.get("content_type", "application/octet-stream"))),
                 note=str(data.get("note", "")),
-                metadata=data.get("metadata") if isinstance(data.get("metadata"), Mapping) else {},
+                metadata=raw_metadata if isinstance(raw_metadata, Mapping) else {},
                 expected_current_revision=(
                     int(data["expectedRevision"])
                     if data.get("expectedRevision") is not None
@@ -425,6 +820,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         actor = _token_user(services, authorization)
         try:
             services.auth.require(actor, Permission.DOCUMENT_READ)
+            _require_document_access(services, actor, document_id, write=False, include_deleted=True)
             return {"items": [item.to_dict() for item in services.pdm.list_versions(document_id)]}
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -434,7 +830,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         actor = _token_user(services, authorization)
         try:
             services.auth.require(actor, Permission.DOCUMENT_READ)
-            version = services.pdm.get_version(version_id)
+            version, _document, _project = _require_version_access(services, actor, version_id, write=False)
             from fastapi.responses import Response
 
             return Response(
@@ -455,8 +851,13 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             requested_status = str(data.get("status", ""))
-            permission = Permission.DOCUMENT_RELEASE if requested_status == "released" else Permission.DOCUMENT_REVIEW
+            normalized_status = requested_status.strip().casefold()
+            permission = Permission.DOCUMENT_RELEASE if normalized_status == "released" else Permission.DOCUMENT_REVIEW
             services.auth.require(actor, permission)
+            # Review/release is governed by the dedicated document
+            # permission; project read membership is sufficient so a reviewer
+            # role does not need the designer's PROJECT_WRITE permission.
+            _require_document_access(services, actor, document_id, write=False)
             return services.pdm.change_document_status(
                 document_id,
                 requested_status,
@@ -474,6 +875,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         actor = _token_user(services, authorization)
         try:
             services.auth.require(actor, Permission.DOCUMENT_WRITE)
+            _require_document_access(services, actor, document_id, write=True)
             return services.pdm.soft_delete_document(document_id, actor_id=actor.id).to_dict()
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -499,6 +901,13 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         actor = _token_user(services, authorization)
         try:
             services.auth.require(actor, Permission.DOCUMENT_WRITE)
+            _require_document_access(
+                services,
+                actor,
+                document_id,
+                write=True,
+                include_deleted=True,
+            )
             return services.pdm.restore_document(document_id, actor_id=actor.id).to_dict()
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -591,12 +1000,29 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             encoded = data.get("imageBase64", data.get("image_base64", data.get("contentBase64")))
             image_bytes = _decode_base64(encoded)
             filename = str(data.get("filename", data.get("sourceFilename", "drawing.png")))
-            recognition = services.ocr.analyze(
-                image_bytes,
-                filename=filename,
-                fixture_id=data.get("fixtureId", data.get("fixture_id")),
-            )
-            services.recognitions[recognition.id] = recognition
+            recognition_id_raw = data.get("recognitionId", data.get("recognition_id"))
+            recognition_id = str(recognition_id_raw).strip() if recognition_id_raw else ""
+            if recognition_id:
+                # A reviewer confirms the recognition in a separate request;
+                # the designer can then resume this workflow with the same
+                # source image.  Requiring the bytes again keeps the durable
+                # PDM source version anchored to the exact reviewed hash and
+                # prevents reusing a confirmed result for another drawing.
+                recognition = services.recognitions.get(recognition_id)
+                if recognition is None:
+                    raise NotFoundError(f"drawing recognition not found: {recognition_id}")
+                source_sha256 = hashlib.sha256(image_bytes).hexdigest()
+                if source_sha256 != recognition.source_sha256:
+                    raise ConflictError(
+                        "imageBase64 does not match the source image used for this recognition"
+                    )
+            else:
+                recognition = services.ocr.analyze(
+                    image_bytes,
+                    filename=filename,
+                    fixture_id=data.get("fixtureId", data.get("fixture_id")),
+                )
+                services.recognitions[recognition.id] = recognition
             if recognition.status != "confirmed":
                 if not bool(data.get("confirmed", False)):
                     return JSONResponse(
@@ -616,9 +1042,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
 
             project_id = data.get("projectId", data.get("project_id"))
             if project_id:
-                project = services.pdm.get_project(str(project_id))
-                if project.owner_id != actor.id:
-                    services.auth.require(actor, Permission.USER_MANAGE)
+                # Existing projects are shared through the same owner/member
+                # policy as every PDM endpoint; a member with write access may
+                # run the workflow without global user-management rights.
+                project = _require_project_access(services, actor, str(project_id), write=True)
             else:
                 project = services.pdm.create_project(
                     str(data.get("projectName", data.get("project_name", "图纸转三维验收项目"))),
@@ -729,6 +1156,45 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     "manifestPath": f"/api/v1/pdm/projects/{project.id}/manifest",
                 },
             }
+        except (PlatformError, RuntimeError) as exc:
+            raise _domain_http_exception(exc)
+
+    @router.get("/cam/snapshot")
+    async def export_cam_snapshot(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Export the complete CAM/NC state for backup or migration.
+
+        Snapshots contain NC text and are therefore restricted to global
+        administrators rather than ordinary CAM participants.
+        """
+
+        actor = _token_user(services, authorization)
+        try:
+            services.auth.require(actor, Permission.USER_MANAGE)
+            return services.cam.snapshot()
+        except PlatformError as exc:
+            raise _domain_http_exception(exc)
+
+    @router.post("/cam/snapshot/restore")
+    async def restore_cam_snapshot(
+        payload: dict[str, Any] = Body(...),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Atomically restore a previously exported CAM snapshot (admin only)."""
+
+        actor = _token_user(services, authorization)
+        data = _require_dict(payload)
+        try:
+            services.auth.require(actor, Permission.USER_MANAGE)
+            # Accept both a raw snapshot body and ``{"snapshot": {...}}`` so
+            # clients can add migration metadata without changing the core
+            # service contract.
+            snapshot = data.get("snapshot", data)
+            if not isinstance(snapshot, Mapping):
+                raise ValidationError("snapshot must be an object")
+            replace = bool(data.get("replace", True)) if "snapshot" in data else True
+            return services.cam.restore(snapshot, replace=replace)
         except PlatformError as exc:
             raise _domain_http_exception(exc)
 
@@ -741,18 +1207,129 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.CAM_PLAN)
+            project_id_raw = data.get("projectId", data.get("project_id"))
+            project_id = str(project_id_raw).strip() if project_id_raw else None
+            source_document_id_raw = data.get("sourceDocumentId", data.get("source_document_id"))
+            source_document_id = str(source_document_id_raw).strip() if source_document_id_raw else None
+            source_version_id_raw = data.get("sourceVersionId", data.get("source_version_id"))
+            source_version_id = str(source_version_id_raw).strip() if source_version_id_raw else None
+            if project_id:
+                # A project-linked plan is a project write.  Validate source
+                # references as well so a plan cannot smuggle another
+                # project's document/version into this project's audit trail.
+                _require_project_access(services, actor, project_id, write=True)
+                if source_document_id:
+                    _document, source_project = _resolve_document_project(
+                        services, source_document_id, include_deleted=True
+                    )
+                    if source_project.id != project_id:
+                        raise ValidationError("sourceDocumentId does not belong to projectId")
+                if source_version_id:
+                    version = services.pdm.get_version(source_version_id)
+                    _document, source_project = _resolve_document_project(
+                        services, version.document_id, include_deleted=True
+                    )
+                    if source_project.id != project_id:
+                        raise ValidationError("sourceVersionId does not belong to projectId")
+                    if source_document_id and version.document_id != source_document_id:
+                        raise ValidationError("sourceVersionId does not belong to sourceDocumentId")
+            else:
+                # Unscoped plans are retained for legacy local CAM jobs, but a
+                # source reference still needs read access to its PDM project.
+                if source_document_id:
+                    _require_document_access(
+                        services, actor, source_document_id, write=False, include_deleted=True
+                    )
+                if source_version_id:
+                    version = services.pdm.get_version(source_version_id)
+                    _require_document_access(
+                        services, actor, version.document_id, write=False, include_deleted=True
+                    )
+                    if source_document_id and version.document_id != source_document_id:
+                        raise ValidationError("sourceVersionId does not belong to sourceDocumentId")
             plan = services.cam.create_plan(
                 actor_id=actor.id,
                 geometry_hash=str(data.get("geometryHash", data.get("geometry_hash", ""))),
                 stock=data.get("stock", {}),
                 machine=str(data.get("machine", "3-axis-mill")),
                 units=str(data.get("units", "mm")),
-                project_id=data.get("projectId", data.get("project_id")),
-                source_document_id=data.get("sourceDocumentId", data.get("source_document_id")),
-                source_version_id=data.get("sourceVersionId", data.get("source_version_id")),
+                project_id=project_id,
+                source_document_id=source_document_id,
+                source_version_id=source_version_id,
             )
             return plan.to_dict()
         except (PlatformError, KeyError, TypeError, ValueError) as exc:
+            raise _domain_http_exception(exc)
+
+    @router.get("/cam/plans/{plan_id}")
+    async def get_cam_plan(
+        plan_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Return one plan after applying its project ACL."""
+
+        actor = _token_user(services, authorization)
+        try:
+            _require_any_permission(
+                services,
+                actor,
+                Permission.CAM_PLAN,
+                Permission.CAM_APPROVE,
+                Permission.CAM_RELEASE,
+                Permission.NC_DOWNLOAD,
+            )
+            plan = _require_cam_plan_access(services, actor, plan_id, write=False)
+            return plan.to_dict()
+        except PlatformError as exc:
+            raise _domain_http_exception(exc)
+
+    @router.get("/cam/simulations/{simulation_id}")
+    async def get_cam_simulation(
+        simulation_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Return a simulation only when its parent plan is visible."""
+
+        actor = _token_user(services, authorization)
+        try:
+            _require_any_permission(
+                services,
+                actor,
+                Permission.CAM_PLAN,
+                Permission.CAM_APPROVE,
+                Permission.CAM_RELEASE,
+                Permission.NC_DOWNLOAD,
+            )
+            simulation = services.cam.get_simulation(simulation_id)
+            _require_cam_plan_access(services, actor, simulation.plan_id, write=False)
+            return simulation.to_dict()
+        except PlatformError as exc:
+            raise _domain_http_exception(exc)
+
+    @router.get("/cam/nc/{program_id}/info")
+    async def get_nc_info(
+        program_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Return NC metadata (without program text) under project ACL."""
+
+        actor = _token_user(services, authorization)
+        try:
+            _require_any_permission(
+                services,
+                actor,
+                Permission.CAM_PLAN,
+                Permission.CAM_APPROVE,
+                Permission.CAM_RELEASE,
+                Permission.NC_DOWNLOAD,
+            )
+            program = services.cam.get_nc(program_id)
+            _require_cam_plan_access(services, actor, program.plan_id, write=False)
+            info = program.to_dict()
+            info.pop("text", None)
+            info["downloadPath"] = f"/api/v1/cam/nc/{program.id}"
+            return info
+        except PlatformError as exc:
             raise _domain_http_exception(exc)
 
     @router.get("/cam/plans")
@@ -771,7 +1348,18 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 Permission.CAM_APPROVE,
                 Permission.CAM_RELEASE,
             )
-            return {"items": [plan.to_dict() for plan in services.cam.list_plans(project_id=project_id)]}
+            if project_id:
+                _require_project_access(services, actor, project_id, write=False)
+                plans = services.cam.list_plans(project_id=project_id)
+            else:
+                plans = []
+                for candidate in services.cam.list_plans():
+                    try:
+                        _require_cam_plan_access(services, actor, candidate.id, write=False)
+                    except AuthorizationError:
+                        continue
+                    plans.append(candidate)
+            return {"items": [plan.to_dict() for plan in plans]}
         except PlatformError as exc:
             raise _domain_http_exception(exc)
 
@@ -788,6 +1376,12 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             # boundary as well as in CAMService so a viewer cannot mutate a
             # plan by calling the router with a valid bearer token.
             services.auth.require(actor, Permission.CAM_PLAN)
+            _require_cam_plan_access(
+                services,
+                actor,
+                plan_id,
+                write=True,
+            )
             operation = services.cam.add_operation(
                 plan_id,
                 actor_id=actor.id,
@@ -820,6 +1414,12 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             # future role from accidentally gaining simulation through a
             # partial permission grant.
             services.auth.require(actor, Permission.CAM_PLAN, Permission.CAM_SIMULATE)
+            _require_cam_plan_access(
+                services,
+                actor,
+                plan_id,
+                write=True,
+            )
             return services.cam.simulate(
                 plan_id,
                 actor_id=actor.id,
@@ -845,6 +1445,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 Permission.CAM_APPROVE,
                 Permission.CAM_RELEASE,
             )
+            _require_cam_plan_access(services, actor, plan_id, write=False)
             permissions = actor.permissions
             return services.cam.gate_status(plan_id, actor_id=actor.id, actor_permissions=permissions).to_dict()
         except PlatformError as exc:
@@ -860,6 +1461,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.CAM_APPROVE)
+            # Approval is a review action.  Project read membership plus the
+            # dedicated CAM_APPROVE permission is sufficient; reviewers do not
+            # receive PROJECT_WRITE by design.
+            _require_cam_plan_access(services, actor, plan_id, write=False)
             # A manufacturing account may release an already approved plan,
             # but may not supply the approval itself.  Admins are the explicit
             # emergency/administrative exception and are still subject to the
@@ -895,6 +1500,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         data = _require_dict(payload)
         try:
             services.auth.require(actor, Permission.CAM_RELEASE)
+            # Release follows the same scope rule: manufacturing needs project
+            # read membership and CAM_RELEASE, while plan editing remains a
+            # project-write action.
+            _require_cam_plan_access(services, actor, plan_id, write=False)
             actor_roles = {
                 (item.value if isinstance(item, Role) else str(item)).casefold()
                 for item in actor.roles
@@ -925,6 +1534,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         try:
             services.auth.require(actor, Permission.NC_DOWNLOAD)
             program = services.cam.get_nc(program_id)
+            _require_cam_plan_access(services, actor, program.plan_id, write=False)
             return PlainTextResponse(
                 program.text,
                 media_type="text/plain",
