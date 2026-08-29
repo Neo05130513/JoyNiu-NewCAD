@@ -68,6 +68,13 @@ class PlatformServices:
     cam: CAMService
     recognitions: dict[str, DrawingRecognition] = field(default_factory=dict)
 
+    def close(self) -> None:
+        """Close all persistent components owned by this service graph."""
+
+        self.cam.close()
+        self.pdm.close()
+        self.auth.close()
+
 
 def build_platform_services(
     database: str | Path = ":memory:",
@@ -223,6 +230,7 @@ def _member_identity(entry: Any) -> tuple[str | None, str]:
     identity: str | None = None
     for key in (
         "userId",
+        "userID",
         "user_id",
         "memberId",
         "member_id",
@@ -264,6 +272,7 @@ def _member_identity(entry: Any) -> tuple[str | None, str]:
         "viewer",
         "readonly",
         "read-only",
+        "read_only",
         "ro",
     }
     level = "read" if access_values and access_values.issubset(read_only_values) else "write"
@@ -316,7 +325,11 @@ def _can_access_project(
 
     if _is_admin_actor(services, actor):
         return True
-    if str(project.owner_id).casefold() == str(getattr(actor, "id", "")).casefold():
+    owner_identity = str(project.owner_id).strip().casefold()
+    if owner_identity in {
+        str(getattr(actor, "id", "")).strip().casefold(),
+        str(getattr(actor, "email", "")).strip().casefold(),
+    }:
         return True
     return _project_member_matches(project, actor, write=write)
 
@@ -342,7 +355,10 @@ def _require_project_owner_or_admin(
     actor: Any,
     project: Any,
 ) -> Any:
-    if _is_admin_actor(services, actor) or str(project.owner_id).casefold() == str(getattr(actor, "id", "")).casefold():
+    owner_identity = str(project.owner_id).strip().casefold()
+    actor_id = str(getattr(actor, "id", "")).strip().casefold()
+    actor_email = str(getattr(actor, "email", "")).strip().casefold()
+    if _is_admin_actor(services, actor) or owner_identity in {actor_id, actor_email}:
         return project
     raise AuthorizationError("only the project owner or an admin may manage members")
 
@@ -557,7 +573,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         try:
             services.auth.require(actor, Permission.PROJECT_WRITE)
             owner_id = str(data.get("ownerId", data.get("owner_id", actor.id)))
-            if owner_id.casefold() != str(actor.id).casefold():
+            if owner_id.casefold() not in {
+                str(actor.id).casefold(),
+                str(getattr(actor, "email", "")).casefold(),
+            }:
                 services.auth.require(actor, Permission.USER_MANAGE)
             metadata = data.get("metadata")
             if metadata is None:
@@ -707,7 +726,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             project = services.pdm.get_project(project_id)
             services.auth.require(actor, Permission.PROJECT_WRITE)
             _require_project_owner_or_admin(services, actor, project)
-            members = _validate_members_payload(data.get("members", []))
+            raw_members = data.get("members")
+            if raw_members is None and isinstance(data.get("metadata"), Mapping):
+                raw_members = data["metadata"].get("members", [])
+            members = _validate_members_payload(raw_members if raw_members is not None else [])
             metadata = dict(project.metadata) if isinstance(project.metadata, Mapping) else {}
             metadata["members"] = members
             updated = services.pdm.update_project_metadata(
