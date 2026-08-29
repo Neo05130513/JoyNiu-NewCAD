@@ -544,9 +544,11 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     runtime.sectionPlane.visible = Boolean(section)
   }, [section])
 
-  return <div ref={hostRef} className="three-viewer" data-testid="three-viewer-host">
+  const fallbackStatus = status.source?.toLowerCase().includes('fallback')
+  const sourceKey = fallbackStatus ? 'fallback' : status.source?.toLowerCase().includes('glb') ? 'glb' : status.phase
+  return <div ref={hostRef} className="three-viewer" data-testid="three-viewer-host" data-viewer-source={sourceKey} data-viewer-phase={status.phase}>
     <div className="three-viewer-status" aria-live="polite">
-      <span className={`three-status-dot ${status.phase === 'ready' ? 'ready' : status.phase === 'error' ? 'error' : 'loading'}`} />
+      <span className={`three-status-dot ${status.phase === 'ready' && !fallbackStatus ? 'ready' : fallbackStatus ? 'fallback' : status.phase === 'error' ? 'error' : 'loading'}`} />
       <span>{status.phase === 'loading' ? '载入 3D 网格…' : status.phase === 'initializing' ? '初始化 WebGL…' : status.phase === 'error' ? 'WebGL 不可用' : 'WebGL 3D 实体'}</span>
       {status.source && <b>{status.source}</b>}
     </div>

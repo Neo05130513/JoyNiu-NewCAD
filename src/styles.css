@@ -359,6 +359,7 @@
 .three-viewer-status b { color: #79b8e9; font: 8px 'DM Mono', monospace; font-weight: 500; }
 .three-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #e1a15f; box-shadow: 0 0 9px rgba(225, 161, 95, .7); }
 .three-status-dot.ready { background: #68d29d; box-shadow: 0 0 9px rgba(104, 210, 157, .75); }
+.three-status-dot.fallback { background: #e1a15f; box-shadow: 0 0 9px rgba(225, 161, 95, .7); }
 .three-status-dot.error { background: #dc8b73; box-shadow: 0 0 9px rgba(220, 139, 115, .65); }
 .three-viewer-message { position: absolute; left: 18px; bottom: 18px; z-index: 3; max-width: min(470px, calc(100% - 36px)); padding: 6px 9px; border: 1px solid rgba(72, 113, 150, .4); border-radius: 5px; background: rgba(10, 24, 39, .72); color: #7894b0; font-size: 8px; line-height: 1.45; pointer-events: none; backdrop-filter: blur(5px); }
 .three-viewer-message.warning { color: #dda66b; border-color: rgba(200, 137, 74, .48); }
