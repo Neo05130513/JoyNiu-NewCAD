@@ -14,7 +14,7 @@ from enum import Enum
 import math
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def utc_now() -> datetime:
@@ -59,6 +59,44 @@ class BracketParameters(ApiModel):
     hole_through: bool = Field(True, alias="holeThrough")
     material: str = "45# 钢"
     units: Literal["mm"] = "mm"
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_right_view_width(cls, value: Any) -> Any:
+        """Translate the pre-C recipe wire payload without changing new data.
+
+        Early clients copied the right-view ``30`` callout into
+        ``upperWidth``.  In the calibrated drawing that callout is the Y
+        length of the shallow pockets; the upper body spans the full 50 mm
+        base width.  New clients send explicit slot fields and are left
+        untouched.  This small migration keeps saved/API payloads from the
+        prototype from regenerating the old, visibly incorrect solid while
+        still allowing an explicit custom 30 mm upper width when the new
+        recipe fields are present.
+        """
+
+        if not isinstance(value, dict):
+            return value
+        semantic_fields = {
+            "slotLength", "slot_length", "slotWidth", "slot_width",
+            "pocketDepth", "pocket_depth", "saddleDepth", "saddle_depth",
+            "holeDepth", "hole_depth", "holeThrough", "hole_through",
+        }
+        if semantic_fields.intersection(value):
+            return value
+        raw_width = value.get("upperWidth", value.get("upper_width"))
+        try:
+            legacy_width = math.isclose(float(raw_width), 30.0, abs_tol=1e-9)
+        except (TypeError, ValueError):
+            legacy_width = False
+        if not legacy_width:
+            return value
+        migrated = dict(value)
+        if "upperWidth" in migrated:
+            migrated["upperWidth"] = 50.0
+        else:
+            migrated["upper_width"] = 50.0
+        return migrated
 
     @field_validator(
         "base_length",
