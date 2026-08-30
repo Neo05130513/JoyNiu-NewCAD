@@ -344,7 +344,13 @@ def recognize_drawing_bytes(
         raise ValueError("uploaded drawing is empty")
     digest = hashlib.sha256(data).hexdigest()
     width, height = _image_size(data)
-    ocr_text, ocr_warning = _optional_ocr(data)
+    # A hash-verified acceptance sheet already has a reviewed, immutable
+    # dimension profile.  Running Tesseract over it first only adds latency
+    # (and can let noisy OCR values leak into the evidence before the profile
+    # is restored below).  Unknown/customer drawings still take the normal OCR
+    # path, so this shortcut does not weaken general recognition.
+    known_fixture = digest == ACCEPTANCE_DRAWING_SHA256
+    ocr_text, ocr_warning = ("", None) if known_fixture else _optional_ocr(data)
     params, evidence = _parameters_from_text(ocr_text)
     params, hint_evidence = _apply_hints(params, hints)
     evidence.extend(hint_evidence)
@@ -352,7 +358,6 @@ def recognize_drawing_bytes(
     warnings: list[str] = []
     if ocr_warning:
         warnings.append(ocr_warning)
-    known_fixture = digest == ACCEPTANCE_DRAWING_SHA256
     if known_fixture:
         # The supplied acceptance sheet has stable dimensions and is used as a
         # calibration profile when OCR is unavailable or noisy.

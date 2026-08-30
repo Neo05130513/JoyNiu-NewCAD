@@ -1,7 +1,7 @@
 # JoyNiu NewCAD
 
 JoyNiu NewCAD 是一个面向机械设计与制造协作的浏览器 CAD 工作台。它复刻了
-CurrentCAD 线程中验证过的交互，并在 v0.2.0 增加了“上传图纸 → 证据确认 →
+CurrentCAD 线程中验证过的交互，并在 v0.2.1 增加了“工作台 AI 对话上传 → 参数补丁 → 实体验证 →
 参数化三维 → PDM/CAM 交付”的可运行服务边界。
 
 ## 当前已实现
@@ -9,6 +9,9 @@ CurrentCAD 线程中验证过的交互，并在 v0.2.0 增加了“上传图纸 
 前端工作台仍可离线演示，同时通过 `src/api.js` 连接 FastAPI：
 
 - AI 参数化零件 Agent：解析中文描述、编辑参数、同步特征树和三维预览。
+- 多模态 AI Copilot：在设计工作台对话框上传图片、PDF、DXF 或 DWG，携带当前模型状态进行
+  多轮尺寸编辑；服务端通过 GPTX Responses 兼容端点调用 `gpt-5.6-sol` / `high`，并只把
+  白名单参数补丁交给 CAD 编辑器。
 - Three.js WebGL 三维查看器：优先加载 FastAPI 生成的真实 GLB 网格，支持 OrbitControls
   旋转/缩放、等轴/前/俯视相机、剖切平面和可见的参数化 fallback 状态。
 - 三视图/2D 工程图、装配、标准件库、项目文件和导出交互。
@@ -47,6 +50,7 @@ apps/api/scripts/acceptance_check.py 端到端离线验收脚本
 | 几何校验/生成 | `POST /api/v1/brackets/validate`、`POST /api/v1/brackets/generate` |
 | STEP/GLB 下载 | `GET /api/v1/artifacts/{id}.{format}` |
 | 认证 | `POST /api/v1/auth/users`、`POST /api/v1/auth/login`、`GET /api/v1/auth/me` |
+| AI Copilot | `GET /api/v1/ai/status`、`POST /api/v1/ai/conversation`、`POST /api/v1/ai/chat` |
 | PDM | `/api/v1/pdm/projects`、`/api/v1/pdm/documents/{id}/versions` |
 | OCR 证据 | `/api/v1/ocr/analyze`、`/api/v1/ocr/{recognitionId}/confirm` |
 | CAM/NC | `/api/v1/cam/plans`、`/api/v1/cam/plans/{id}/simulate`/`approve`/`release`、`/api/v1/cam/nc/{id}` |
@@ -63,10 +67,10 @@ npm install
 npm run dev
 ```
 
-打开 <http://localhost:5173/>。若要连接后端，在启动 Vite 前设置：
+打开 <http://localhost:5173/>。若要连接后端，在启动 Vite 前设置（下面以 8011/5175 为本地联调端口）：
 
 ```bash
-VITE_API_BASE=http://localhost:8010/api/v1 npm run dev
+VITE_API_BASE=http://127.0.0.1:8011/api/v1 npm run dev -- --port 5175
 ```
 
 ### FastAPI 服务（推荐验收配置）
@@ -76,8 +80,20 @@ cd apps/api
 python3 -m pip install -e '.[dev,geometry,ocr]'
 export JOYNIU_AUTH_SECRET='use-a-random-secret-of-at-least-24-bytes'
 export JOYNIU_DB="$PWD/data/joyniu.sqlite3"
-uvicorn app.main:app --reload --port 8010
+# AI key stays on the API process; point this at a restrictive local file or
+# set JOYNIU_AI_API_KEY in the server environment (never VITE_*).
+export JOYNIU_AI_API_KEY_FILE='/absolute/path/to/provider-key.md'
+export JOYNIU_LLM_BASE_URL='https://gptx.shop/v1'
+export JOYNIU_LLM_MODEL='gpt-5.6-sol'
+export JOYNIU_LLM_REASONING_EFFORT='high'
+# Local-only guest testing. Keep this 0 in a shared/production deployment.
+export JOYNIU_AI_ALLOW_ANONYMOUS='1'
+uvicorn app.main:app --reload --port 8011
 ```
+
+The relay configuration follows the [GPTX integration guide](https://gptx.shop/docs/).
+The API accepts a plain key file, JSON auth file, or a Markdown code block and extracts only
+the credential token; the file contents are never returned to the browser.
 
 可选能力：
 
@@ -120,6 +136,16 @@ python3 apps/api/scripts/acceptance_check.py --strict-optional --drawing /path/t
 `bossCenterDistance` 仅作为旧客户端兼容别名，不代表实体凸台。fixture 结果为
 `status=confirmed`，但生产交付仍必须看
 几何引擎的 `productionReady` 和实体校验报告。
+
+### 工作台 AI 对话验收
+
+进入 3D 建模页，点击 AI 对话框的回形针，选择一张图纸。上传会自动进入“解析图纸并生成
+完整参数化三维模型”命令；生成成功后可继续输入“把底板长度改为 90 mm”等自然语言，系统
+会调用同一会话并重新导出 STEP/GLB。验收图应显示真实 WebGL/GLB、`cadquery-occt`、包络
+`100 × 50 × 40`、`1 / 24`，且消息明确写出“通过 OCCT 拓扑检查”。
+
+未知图纸仍会显示 `needs_review` 并要求人工确认；PDF/DXF/DWG 已纳入上传和远程文件输入
+协议，但当前版本不承诺 DWG 原生实体拓扑重建或多页 PDF 视图自动对齐。
 
 ## 测试与文件化开发
 

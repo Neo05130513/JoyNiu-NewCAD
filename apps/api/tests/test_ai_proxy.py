@@ -316,6 +316,9 @@ def test_ai_route_passes_file_and_turn_state_to_injected_proxy():
     drawing = payload["drawingRecognition"]
     assert drawing["status"] == "needs_review"
     assert drawing["id"] in services.recognitions
+    # This synthetic PDF has no deterministic recipe; the compatibility alias
+    # is still present and intentionally empty until reviewer confirmation.
+    assert drawing["parameters"] == {}
     assert services.recognitions[drawing["id"]].source_filename == "drawing.pdf"
     assert fake.calls[0][0] == "把底板加长"
     assert fake.calls[0][1] == "resp_previous"
@@ -379,6 +382,56 @@ def test_ai_route_explicit_anonymous_demo_accepts_file_alias(monkeypatch):
     assert payload["responseId"] == "local_guest"
     assert payload["attachments"][0]["filename"] == "drawing.dwg"
     assert payload["drawingRecognition"]["status"] == "needs_review"
+
+
+def test_ai_chat_alias_preserves_camel_case_turn_state():
+    services = build_platform_services(":memory:", auth_secret="f" * 32)
+    designer = services.auth.create_user("camel@example.com", "long-password", "Designer", roles=["designer"])
+
+    class FakeAI:
+        allow_anonymous = False
+
+        def __init__(self):
+            self.call = None
+
+        def converse(self, message, *, previous_response_id, model_state, files):
+            self.call = (message, previous_response_id, model_state)
+            return AIConversationResult("resp_camel", "ok", {}, False, ())
+
+    fake = FakeAI()
+    services.ai = fake
+    client = _client_for(services)
+    response = client.post(
+        "/api/v1/ai/chat",
+        headers=_auth_for(services, designer),
+        data={
+            "message": "继续",
+            "previousResponseId": "resp_previous",
+            "modelState": json.dumps({"kind": "bracket", "baseLength": 100}),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert fake.call == ("继续", "resp_previous", {"kind": "bracket", "baseLength": 100})
+
+
+def test_ai_route_rejects_malformed_model_state_as_validation_error():
+    services = build_platform_services(":memory:", auth_secret="g" * 32)
+    designer = services.auth.create_user("bad-state@example.com", "long-password", "Designer", roles=["designer"])
+
+    class FakeAI:
+        allow_anonymous = False
+
+        def converse(self, **_kwargs):  # pragma: no cover - must not be called
+            raise AssertionError("malformed state should be rejected before AI invocation")
+
+    services.ai = FakeAI()
+    client = _client_for(services)
+    response = client.post(
+        "/api/v1/ai/conversation",
+        headers=_auth_for(services, designer),
+        data={"message": "继续", "model_state_json": "{not-json"},
+    )
+    assert response.status_code == 422, response.text
 
 
 def test_platform_recognition_id_is_accepted_by_geometry_generate(monkeypatch):

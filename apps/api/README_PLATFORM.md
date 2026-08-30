@@ -37,9 +37,24 @@ drawing-to-model workflow persists its source bytes, evidence/recipe metadata,
 parameters and generated artifacts as immutable PDM versions. A future
 multi-node deployment should move blobs/sessions to managed storage.
 
+For the local customer demo, configure the relay before starting Uvicorn (the
+credential file may be the supplied Markdown note):
+
+```bash
+export JOYNIU_AI_API_KEY_FILE='/absolute/path/to/provider-key.md'
+export JOYNIU_LLM_BASE_URL='https://gptx.shop/v1'
+export JOYNIU_LLM_MODEL='gpt-5.6-sol'
+export JOYNIU_LLM_REASONING_EFFORT='high'
+export JOYNIU_AI_ALLOW_ANONYMOUS='1'  # local-only; keep 0 in production
+uvicorn app.main:app --host 127.0.0.1 --port 8011
+```
+
+The API process reads the key file; do not place the key in a `VITE_*`
+variable, browser storage, or a frontend source file.
+
 Useful server environment variables are documented in the repository
 `.env.example`: `JOYNIU_DB`, `JOYNIU_AUTH_SECRET`, `JOYNIU_OCR_ENGINE`,
-`JOYNIU_CORS_ORIGINS` and the upload limit.
+`JOYNIU_CORS_ORIGINS`, the upload limit, and the server-only AI settings.
 
 ## API surface
 
@@ -50,7 +65,7 @@ All routes below are relative to the prefix selected by the host application.
 | Auth/RBAC | `POST /auth/users`, `POST /auth/login`, `GET /auth/me`, role/active administration |
 | PDM | project/document CRUD, immutable `POST /pdm/documents/{id}/versions`, content download, status transitions |
 | OCR | `GET /ocr/fixtures`, JSON base64 `POST /ocr/analyze`, binary `POST /ocr/analyze-bytes`, reviewer confirmation |
-| AI copilot | Authenticated multipart `POST /ai/conversation` with text and optional image/PDF/DXF/DWG; returns a validated parameter patch |
+| AI copilot | `GET /ai/status`, multipart `POST /ai/conversation` (and `/ai/chat`) with text and optional image/PDF/DXF/DWG; returns a validated parameter patch |
 | Workflow | `POST /workflows/drawing-to-model` (SHA-anchored OCR → OCCT → PDM transaction) |
 | CAM/NC | plan/tools, operation creation, simulation, gate status, reviewer approval, NC release/download, admin snapshot import/export |
 
@@ -65,13 +80,24 @@ re-check the current account on every request.
 The AI copilot is a server-side proxy to the OpenAI Responses-compatible
 endpoint `https://gptx.shop/v1`, using model `gpt-5.6-sol` and high reasoning.
 Configure the credential in the API process only, either as
-`JOYNIU_AI_API_KEY` or as the contents of the file named by
-`JOYNIU_AI_API_KEY_FILE`. The browser never receives this value. The route is
-restricted to the `designer` and `admin` roles (`ai:chat` permission), accepts
-an optional `previous_response_id` for multi-turn editing, and returns only
-`responseId`, an explanatory message, review questions, and an allowlisted
-`parameterPatch`. Unknown fields from a provider response are rejected before
-they can reach the model editor.
+`JOYNIU_AI_API_KEY` or as the file named by `JOYNIU_AI_API_KEY_FILE`.
+Markdown code blocks and JSON auth files are accepted; only the token is
+extracted. `JOYNIU_LLM_API_KEY` / `JOYNIU_LLM_API_KEY_FILE` are compatibility
+aliases. The browser never receives the credential. The route is restricted
+to the `designer` and `admin` roles (`ai:chat` permission) by default. A local
+customer demo may explicitly set `JOYNIU_AI_ALLOW_ANONYMOUS=1`; this does not
+grant access to PDM, OCR confirmation, CAM or account routes and must remain
+disabled in shared/production deployments.
+
+The default provider settings are `https://gptx.shop/v1`, model
+`gpt-5.6-sol`, and `reasoning.effort=high`, matching the [GPTX integration
+guide](https://gptx.shop/docs/). `GET /ai/status` reports only endpoint,
+model, reasoning strength, configured state and mode. The provider key is
+never returned. An optional `previous_response_id` enables multi-turn editing;
+the proxy returns only `responseId`, an explanatory message, review questions,
+attachment metadata, and an allowlisted `parameterPatch`. Unknown fields,
+non-finite values and unsupported types are rejected before they reach the CAD
+editor.
 
 Example (use a real platform token; do not place the provider key in this
 request):
@@ -85,9 +111,19 @@ curl -X POST http://localhost:8010/api/v1/ai/conversation \
 ```
 
 The proxy forwards images as Responses `input_image` data URLs and PDF/DXF/DWG
-files as `input_file` data URLs. Files are limited to 20 MiB, all requests
-require authentication, and provider errors are deliberately reduced to safe
-HTTP status messages.
+files as `input_file` data URLs. Files are limited to 20 MiB (maximum four per
+turn), and provider errors are deliberately reduced to safe HTTP status
+messages. The AI route registers each uploaded file in the platform OCR map;
+the returned `drawingRecognition.id` can therefore be passed directly to
+`/brackets/generate` or to the reviewer confirmation route without a 404.
+
+The supplied acceptance image is hash-calibrated and can take a deterministic
+local path before the remote call. Unknown images and native CAD files remain
+`needs_review` unless a reviewer confirms their evidence. PDF/DXF/DWG are
+accepted and forwarded, but this release does not include a complete DWG
+entity converter or multi-page PDF view alignment; install a deployment-side
+converter/parser and add a reviewed recipe before treating those formats as
+production geometry.
 
 ## Drawing acceptance fixture
 

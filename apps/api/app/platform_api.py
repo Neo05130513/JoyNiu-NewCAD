@@ -543,7 +543,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             effective_previous_response_id = previous_response_id or previous_response_id_alias
             effective_model_state = model_state_json or model_state_alias
             if effective_model_state:
-                parsed_state = json.loads(effective_model_state)
+                try:
+                    parsed_state = json.loads(effective_model_state)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationError("modelState must be valid JSON") from exc
                 if not isinstance(parsed_state, Mapping):
                     raise ValidationError("modelState must be a JSON object")
                 model_state = dict(parsed_state)

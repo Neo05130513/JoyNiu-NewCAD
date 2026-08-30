@@ -184,6 +184,12 @@ class DrawingRecognition:
     created_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        # Keep the platform evidence envelope compatible with the lightweight
+        # drawing endpoint and the browser client.  ``modelRecipe`` remains
+        # the auditable source of truth, while a top-level ``parameters``
+        # alias makes direct AI-conversation consumers interoperable without
+        # knowing which recognition adapter produced the result.
+        parameters = self.model_recipe.get("parameters", {})
         return {
             "id": self.id,
             "status": self.status,
@@ -196,6 +202,7 @@ class DrawingRecognition:
             "dimensions": [item.to_dict() for item in self.dimensions],
             "features": [item.to_dict() for item in self.features],
             "modelRecipe": self.model_recipe,
+            "parameters": dict(parameters) if isinstance(parameters, Mapping) else {},
             "assumptions": list(self.assumptions),
             "warnings": list(self.warnings),
             "unresolved": list(self.unresolved),

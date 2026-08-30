@@ -17,6 +17,7 @@
 - AI 供应商凭证仅从 API 服务端的 `JOYNIU_AI_API_KEY` 或
   `JOYNIU_AI_API_KEY_FILE` 读取（`JOYNIU_LLM_*` 为兼容配置），不进入前端 bundle、localStorage 或响应体。
 - AI 对话默认需要 Bearer token 和 `ai:chat` 权限，仅 designer/admin 可用；匿名演示必须由本地部署显式开启。供应商原始错误不转发给浏览器。
+- 本地匿名 AI 入口进一步限制为 loopback 或显式 development/local 环境；未知图纸的复核状态会跨后续纯文字对话保留，未注册的兼容识别 ID 不会作为可生成来源返回。
 - 附件会传至部署所配置的远程 AI 端点；生产部署必须在数据分类、传输、保留和供应商合规完成后才能上传保密图纸。
 
 ### Changed

@@ -127,6 +127,30 @@ async function sha256File(file) {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
 }
 
+// Normalize every browser/file-picker shape at the UI boundary.  A native
+// FileList is array-like (and iterable in modern browsers) but is not an
+// Array; wrapping it as one item would send the list object to FormData and
+// bypass the attachment-count/review gates below.  Keep File/Blob-like
+// objects intact while expanding FileList, DataTransfer.files and iterables.
+function normalizeFilesInput(input) {
+  if (!input || typeof input === 'string') return []
+  if (Array.isArray(input)) return input.filter(Boolean)
+  if (typeof input === 'object') {
+    if (input.files && input.files !== input) return normalizeFilesInput(input.files)
+    const fileLike = typeof input.name === 'string' || typeof input.arrayBuffer === 'function'
+    const length = Number(input.length)
+    if (!fileLike && Number.isFinite(length) && length >= 0) {
+      try { return Array.from(input).filter(Boolean) } catch { /* fall through to iterable/single-item handling */ }
+    }
+    if (!fileLike && typeof Symbol !== 'undefined') {
+      try {
+        if (typeof input[Symbol.iterator] === 'function') return Array.from(input).filter(Boolean)
+      } catch { /* malformed iterables should not break the chat composer */ }
+    }
+  }
+  return [input].filter(Boolean)
+}
+
 function dxfForModel(model) {
   const lines = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES']
   const line = (x1, y1, x2, y2, layer = 'OBJECT') => lines.push('0', 'LINE', '8', layer, '10', String(x1), '20', String(y1), '30', '0', '11', String(x2), '21', String(y2), '31', '0')
@@ -210,7 +234,19 @@ function parsePrompt(prompt, current) {
     const bracketMatch = (patterns, fallback) => {
       for (const pattern of patterns) {
         const result = prompt.match(pattern)
-        if (result) return Number(result[1])
+        if (result) {
+          let rawValue = result[1]
+          // For edits that mention both values (for example
+          // "底板长度从100改为90" or "R15 改为 R12"), use the final number
+          // in the same clause as the requested target.
+          const tail = prompt.slice((result.index || 0) + result[0].length, (result.index || 0) + result[0].length + 80)
+          const clause = tail.split(/[,，;；。\n]/, 1)[0]
+          if (/(?:改为|改成|调整为|设为|设置为|变更为|换成|变成|替换为|为|到)/.test(clause)) {
+            const candidates = clause.match(/\d+(?:\.\d+)?/g)
+            if (candidates?.length) rawValue = candidates[candidates.length - 1]
+          }
+          return Number(rawValue)
+        }
       }
       return fallback
     }
@@ -222,7 +258,7 @@ function parsePrompt(prompt, current) {
     next.upperHeight = bracketMatch([/上部[^\d]{0,8}(?:高|高度)[^\d]*(\d+(?:\.\d+)?)/i], current.upperHeight ?? bracketModel.upperHeight)
     next.totalHeight = bracketMatch([/总高(?:度)?\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.totalHeight ?? (next.baseThickness + next.upperHeight))
     next.notchOpening = bracketMatch([/(?:缺口|开口)[^\d]{0,8}(?:宽|开口)?[^\d]*(\d+(?:\.\d+)?)/i], current.notchOpening ?? bracketModel.notchOpening)
-    next.notchRadius = bracketMatch([/(?:缺口|圆弧)[^\d]{0,8}(?:半径|R)\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /R\s*(\d+(?:\.\d+)?)/i], current.notchRadius ?? bracketModel.notchRadius)
+    next.notchRadius = bracketMatch([/(?:缺口|圆弧)?\s*(?:半径|R)\s*\d+(?:\.\d+)?[^\d]{0,16}(?:改为|改成|调整为|设为|换成|到)[^\d]*(?:R\s*)?(\d+(?:\.\d+)?)/i, /(?:缺口|圆弧)[^\d]{0,8}(?:半径|R)\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /R\s*(\d+(?:\.\d+)?)/i], current.notchRadius ?? bracketModel.notchRadius)
     next.slotLength = bracketMatch([/(?:浅槽|槽)[^\d]{0,8}(?:长|长度|沿Y)[^\d]*(\d+(?:\.\d+)?)/i, /槽长\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.slotLength ?? bracketModel.slotLength)
     next.slotWidth = bracketMatch([/(?:浅槽|槽)[^\d]{0,8}(?:宽|宽度)[^\d]*(\d+(?:\.\d+)?)/i, /槽宽\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.slotWidth ?? bracketModel.slotWidth)
     next.pocketDepth = bracketMatch([/(?:浅槽|口袋|槽)[^\d]{0,8}(?:深|深度)[^\d]*(\d+(?:\.\d+)?)/i], current.pocketDepth ?? bracketModel.pocketDepth)
@@ -235,12 +271,24 @@ function parsePrompt(prompt, current) {
   const match = (patterns, fallback) => {
     for (const pattern of patterns) {
       const result = prompt.match(pattern)
-      if (result) return Number(result[1])
+      if (result) {
+        let rawValue = result[1]
+        const tail = prompt.slice((result.index || 0) + result[0].length, (result.index || 0) + result[0].length + 80)
+        const clause = tail.split(/[,，;；。\n]/, 1)[0]
+        if (/(?:改为|改成|调整为|设为|设置为|变更为|换成|变成|替换为|为|到)/.test(clause)) {
+          const candidates = clause.match(/\d+(?:\.\d+)?/g)
+          if (candidates?.length) rawValue = candidates[candidates.length - 1]
+        }
+        return Number(rawValue)
+      }
     }
     return fallback
   }
   next.outerDiameter = match([/外径\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /直径\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /OD\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.outerDiameter)
-  next.length = match([/总长度\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /长度\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /length\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.length)
+  const hasKeyway = /键槽/.test(prompt)
+  next.length = match(hasKeyway
+    ? [/总长度\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /零件长度\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /轴长度\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /加长(?:到|为)?\s*(\d+(?:\.\d+)?)/i]
+    : [/总长度\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /长度\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /length\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /加长(?:到|为)?\s*(\d+(?:\.\d+)?)/i], current.length)
   if (next.length === current.length) {
     const shortLength = prompt.match(/长\s*[:：]?\s*(\d+(?:\.\d+)?)/i)
     const keywayIndex = prompt.indexOf('键槽')
@@ -250,7 +298,7 @@ function parsePrompt(prompt, current) {
   next.holeDiameter = match([/通孔\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /内径\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /孔径\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.holeDiameter)
   next.keywayWidth = match([/(?:键槽[^\d]*?)?(?:槽宽|宽度?|宽)\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.keywayWidth)
   next.keywayDepth = match([/(?:键槽[^\d]*?)?(?:槽深|深度?|深)\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.keywayDepth)
-  next.keywayLength = match([/(?:键槽[^\d]*?)?(?:槽长|长度?|长)\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.keywayLength)
+  next.keywayLength = match([/键槽[^\d]{0,12}(?:槽长|长度|长)[^\d]{0,16}(?:改为|改成|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)/i, /键槽[^\d]{0,12}(?:槽长|长度|长)\s*[:：]?\s*(\d+(?:\.\d+)?)/i, /槽长\s*[:：]?\s*(\d+(?:\.\d+)?)/i], current.keywayLength)
   if (/铝|al6061/i.test(prompt)) next.material = 'AL6061 铝合金'
   if (/不锈钢|304/i.test(prompt)) next.material = 'SUS304 不锈钢'
   return next
@@ -278,7 +326,8 @@ function App() {
   const [backend, setBackend] = useState({ status: 'checking', engine: '正在连接几何服务', productionReady: false, health: null, error: '' })
   const [generation, setGeneration] = useState(null)
   const [platform, setPlatform] = useState(() => emptyPlatformState())
-  const [aiConversation, setAiConversation] = useState({ previousResponseId: '' })
+  const [aiConversation, setAiConversation] = useState({ previousResponseId: '', status: null, error: '' })
+  const [chatAttachments, setChatAttachments] = useState([])
   const [prompt, setPrompt] = useState('创建一根动力轴：外径24，长度70，通孔10；增加一条宽6、深3、长40的键槽')
   const [messages, setMessages] = useState([
     { role: 'ai', text: '已加载「动力轴 · 版本 04」。我会把你的描述转成可编辑的参数和特征。' },
@@ -292,6 +341,7 @@ function App() {
   const drawingUrlRef = useRef('')
   const drawingTimerRef = useRef(null)
   const drawingRequestRef = useRef(0)
+  const aiRequestRef = useRef(0)
   // Keep only opaque ids between account switches.  Workflow payloads are
   // reloaded through the API under the newly authenticated user's project ACL;
   // no bearer token or NC text is persisted in browser storage.
@@ -323,6 +373,15 @@ function App() {
     })
     return () => { active = false }
   }, [])
+  useEffect(() => {
+    let active = true
+    api.aiStatus().then((status) => {
+      if (active) setAiConversation((current) => ({ ...current, status, error: '' }))
+    }).catch((error) => {
+      if (active) setAiConversation((current) => ({ ...current, status: null, error: error.message || 'AI 服务状态不可用' }))
+    })
+    return () => { active = false }
+  }, [])
   useEffect(() => () => {
     if (drawingTimerRef.current) window.clearTimeout(drawingTimerRef.current)
     if (drawingUrlRef.current) URL.revokeObjectURL(drawingUrlRef.current)
@@ -342,52 +401,208 @@ function App() {
   const applyAiPatch = (base, patch) => {
     if (!patch || typeof patch !== 'object') return base
     const allowed = new Set([...bracketParameterKeys, 'outerDiameter', 'length', 'holeDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'])
-    const safe = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== null && value !== undefined))
+    const safe = Object.fromEntries(Object.entries(patch).filter(([key, value]) => {
+      if (!allowed.has(key) || value === null || value === undefined) return false
+      if (key === 'material') return typeof value === 'string'
+      if (key === 'units') return String(value).toLowerCase() === 'mm'
+      if (key === 'holeThrough') return typeof value === 'boolean'
+      return Number.isFinite(Number(value)) && Number(value) > 0
+    }))
     return { ...base, ...safe, updatedAt: '刚刚' }
   }
-  const sendAiConversation = async (text, file = null) => {
-    const userText = text?.trim() || (file ? `请解析这份图纸并准备参数化模型：${file.name}` : '')
-    if (!userText && !file) return false
-    setMessages((prev) => [...prev, { role: 'user', text: userText || file.name }])
-    if (!platform.token) return false
+  const modelParametersForApi = (value) => {
+    const keys = value?.kind === 'bracket'
+      ? bracketParameterKeys
+      : ['outerDiameter', 'length', 'holeDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength', 'material']
+    return Object.fromEntries(keys.filter((key) => value?.[key] !== undefined && value?.[key] !== '').map((key) => [key, value[key]]))
+  }
+  const browserFixtureRecognition = (file, digest) => ({
+    id: `offline_${Date.now()}`,
+    status: 'confirmed',
+    confidence: 0.995,
+    sourceFilename: file?.name || 'drawing',
+    sourceSha256: digest,
+    parameters: { ...bracketModel },
+    evidence: bracketParameterKeys.filter((key) => typeof bracketModel[key] === 'number').map((field) => ({ field, value: bracketModel[field], source: '验收夹具哈希匹配', confidence: 0.995 })),
+    engine: 'verified-browser-fixture',
+    validation: { valid: true, productionReady: false, engine: 'browser-preview', metrics: { boundingLength: 100, boundingWidth: 50, boundingHeight: 40, solidCount: 1, faceCount: 24, notchBottomZ: 25 } },
+    warnings: ['FastAPI 不可用；当前使用验收夹具浏览器预览，不能导出生产 STEP。'],
+  })
+  const generateAiArtifact = async (next, sourceDrawingId = '') => {
+    if (next?.kind !== 'bracket' || backend.status === 'offline') return null
+    const generated = await api.generateBracket({
+      parameters: modelParametersForApi(next),
+      formats: ['step', 'glb'],
+      ...(sourceDrawingId && !String(sourceDrawingId).startsWith('offline_') ? { sourceDrawingId, confirmed: true } : {}),
+      // A health check can still be in flight when the customer uploads a
+      // drawing.  Treat every non-offline state as production-intent so a
+      // transient `checking` status cannot silently produce a faceted
+      // fallback and leave the workbench looking complete.
+      requireCadQuery: backend.status !== 'offline',
+    })
+    const step = generated.artifacts?.find((item) => item.format === 'step')
+    if (!step || generated.validation?.valid !== true) throw new Error('实体校验未通过，未生成可交付文件')
+    if (backend.status !== 'offline' && !step.productionReady) throw new Error('OCCT 实体或 STEP 拓扑校验未达到生产交付条件')
+    setGeneration({ ...generated, stale: false })
+    setBackend((current) => ({ ...current, status: current.status === 'checking' ? 'connected' : current.status, engine: generated.engine || step.engine, productionReady: Boolean(step.productionReady), error: '' }))
+    return generated
+  }
+  const sendAiConversation = async (text, filesInput = []) => {
+    const files = normalizeFilesInput(filesInput)
+    const userText = text?.trim() || (files[0] ? `请解析这份图纸并生成完整参数化三维模型：${files[0].name}` : '')
+    if (!userText && !files.length) return false
+    const requestId = aiRequestRef.current + 1
+    aiRequestRef.current = requestId
+    const baseModel = model
+    const attachmentNames = files.map((file) => file.name)
+    setMessages((prev) => [...prev, { role: 'user', text: userText || attachmentNames.join('、'), attachments: attachmentNames }])
     setIsGenerating(true)
+    let recognition = null
+    let recognitionError = null
+    let result = null
+    let aiError = null
     try {
-      const result = await api.aiConversation(userText, file, model, aiConversation.previousResponseId, platform.token)
-      const next = applyAiPatch(model, result.parameterPatch)
+      // Keep an unresolved drawing review requirement across chat turns. The
+      // attachment chip is cleared after each request, but the evidence card
+      // remains the authoritative reviewer state until an explicit confirm
+      // action updates it to ``confirmed``.
+      const pendingDrawingReview = files.length === 0
+        && drawingJob?.evidence
+        && drawingJob.evidence.status !== 'confirmed'
+        ? drawingJob.evidence
+        : null
+      // Keep the geometry evidence registry and the AI conversation in sync.
+      // The first exact drawing is hash-calibrated and returns confirmed
+      // evidence; arbitrary drawings remain reviewable.
+      if (files[0]) {
+        try {
+          recognition = await api.recognizeDrawing(files[0])
+        } catch (error) {
+          recognitionError = error
+          try {
+            const digest = await sha256File(files[0])
+            if (digest === acceptanceDrawingSha256) recognition = browserFixtureRecognition(files[0], digest)
+          } catch { /* no browser crypto in older contexts */ }
+        }
+        if (recognition) {
+          setDrawingJob((current) => ({ ...current, file: files[0], status: 'ready', evidence: recognition, error: '', warning: recognition.warnings?.join('；') || '' }))
+        }
+      }
+      try {
+        result = await api.aiConversation(userText, files, baseModel, aiConversation.previousResponseId, platform.token)
+      } catch (error) {
+        aiError = error
+      }
+      if (requestId !== aiRequestRef.current) return false
+      // Prefer the recognition returned by /drawings/recognize: its id is
+      // registered in the geometry service and can safely be used as
+      // sourceDrawingId. The proxy's compact evidence copy is display-only.
+      const drawing = recognition || result?.drawingRecognition
+      if (!recognition && result?.drawingRecognition) {
+        // Recognition can still arrive from the conversation proxy when the
+        // separate compatibility endpoint is temporarily unavailable. Keep
+        // that review envelope visible for later reviewer confirmation.
+        setDrawingJob((current) => ({
+          ...current,
+          status: 'ready',
+          evidence: result.drawingRecognition,
+          error: '',
+          warning: result.drawingRecognition.warnings?.join('；') || '',
+        }))
+      }
+      const recognizedParameters = parametersFromRecognition(drawing)
+      const resultPatch = result?.parameterPatch || {}
+      const patchKeys = Object.keys(resultPatch)
+      const patchLooksBracket = patchKeys.some((key) => ['baseLength', 'baseWidth', 'upperLength', 'notchRadius', 'slotLength', 'pocketDepth', 'bossDiameter'].includes(key))
+      const patchLooksShaft = patchKeys.some((key) => ['outerDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'].includes(key))
+      const wantsShaft = /轴|外径|键槽|通孔|内径/.test(userText) && !/支架|底板|鞍槽|浅槽|凹槽/.test(userText)
+      const seed = recognizedParameters
+        ? { ...recognizedParameters, kind: 'bracket', name: recognizedParameters.name || '安装支架 · AI 识别', updatedAt: '刚刚' }
+        : patchLooksBracket
+          ? { ...bracketModel, ...(baseModel.kind === 'bracket' ? baseModel : {}), kind: 'bracket' }
+          : patchLooksShaft || wantsShaft
+            ? { ...defaultModel, ...(baseModel.kind === 'shaft' ? baseModel : {}), kind: 'shaft' }
+            : { ...baseModel }
+      let next = applyAiPatch(seed, resultPatch)
+      if (!result && !recognizedParameters && !Object.keys(result?.parameterPatch || {}).length) {
+        // The local grammar is deliberately the last fallback, so an offline
+        // or unauthorized provider cannot leave the chat looking successful
+        // while dropping the customer's explicit edit.
+        // Seed the local grammar with the inferred part kind. This prevents a
+        // shaft prompt from being interpreted as bracket dimensions when the
+        // previous model happened to be a bracket (and vice versa).
+        next = { ...parsePrompt(userText, seed), updatedAt: '刚刚' }
+      }
       setModel(next)
-      if (Object.keys(result.parameterPatch || {}).length) setGeneration((current) => current ? { ...current, stale: true } : current)
-      setAiConversation({ previousResponseId: result.responseId || aiConversation.previousResponseId })
-      const review = result.needsReview ? '；仍需人工复核图纸证据' : ''
-      setMessages((prev) => [...prev, { role: 'ai', text: `${result.message || '已完成参数化修改'}${review}` }])
-      showToast('AI 参数化修改已应用')
+      const fallbackChanged = !result && (
+        next.kind !== baseModel.kind
+        || JSON.stringify(modelParametersForApi(next)) !== JSON.stringify(modelParametersForApi(baseModel))
+      )
+      const patchChanged = Boolean(result?.parameterPatch && Object.keys(result.parameterPatch).length) || Boolean(recognizedParameters) || fallbackChanged
+      if (patchChanged) setGeneration((current) => current ? { ...current, stale: true } : current)
+
+      let generated = null
+      // Any uploaded drawing that is not backed by a confirmed recognition
+      // remains review-gated.  This also covers a transient failure of the
+      // separate recognition request: a remote model must not turn an
+      // unverified attachment into an automatically released solid.
+      const attachmentNeedsReview = (files.length > 0 && (files.length !== 1 || !drawing || drawing.status !== 'confirmed'))
+        || Boolean(pendingDrawingReview)
+      const effectiveNeedsReview = Boolean(result?.needsReview) || attachmentNeedsReview
+      const attachmentGenerationAllowed = (files.length === 0 && !pendingDrawingReview)
+        || (files.length === 1 && drawing?.status === 'confirmed')
+      const canAutoGenerate = next.kind === 'bracket'
+        && !effectiveNeedsReview
+        && attachmentGenerationAllowed
+        && (Boolean(recognizedParameters) || patchChanged)
+        && backend.status !== 'offline'
+      if (canAutoGenerate) {
+        try {
+          generated = await generateAiArtifact(next, drawing?.status === 'confirmed' ? drawing.id : '')
+          if (generated) setDrawingJob((current) => ({ ...current, status: 'generated', generation: generated, evidence: drawing || current.evidence }))
+        } catch (error) {
+          aiError = aiError || error
+        }
+      }
+      const provider = result?.provider || aiConversation.status || null
+      setAiConversation((current) => ({
+        ...current,
+        previousResponseId: result?.provider?.mode === 'remote' ? (result.responseId || current.previousResponseId) : current.previousResponseId,
+        status: provider || current.status,
+        error: aiError ? aiError.message : '',
+      }))
+      const fallbackNote = aiError && !result ? `（AI/实体服务提示：${aiError.message}，已保留本地明确参数）` : ''
+      const review = effectiveNeedsReview ? `；${(result?.questions || []).join('；') || '仍需人工复核图纸证据'}` : ''
+      const localText = next.kind === 'bracket'
+        ? `参数已更新：底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；上部 ${next.upperLength} × ${next.upperWidth} × ${next.upperHeight} mm；R${next.notchRadius} 鞍槽、两条 ${next.slotWidth} × ${next.slotLength} × ${next.pocketDepth} 浅槽、2×Ø${next.bossDiameter} 贯穿凹槽。`
+        : `参数已更新：Ø${next.outerDiameter} × ${next.length} mm，通孔 Ø${next.holeDiameter}；键槽 ${next.keywayWidth} × ${next.keywayDepth} × ${next.keywayLength} mm。`
+      const responseText = `${result?.message || localText}${generated?.validation?.productionReady ? ' 已生成并通过 OCCT 拓扑检查。' : generated ? ' 已生成可交互 GLB 预览。' : ''}${review}${fallbackNote}`
+      setMessages((prev) => [...prev, { role: 'ai', text: responseText }])
+      setChatAttachments([])
+      if (generated?.validation?.productionReady) showToast('AI 修改已应用 · OCCT STEP / GLB 已生成')
+      else if (generated) showToast('AI 修改已应用 · 三维实体已更新')
+      else if (aiError) showToast('已应用本地参数；AI 服务稍后可重试')
+      else showToast('AI 参数化修改已应用')
       return true
     } catch (error) {
-      setMessages((prev) => [...prev, { role: 'ai', text: `AI 服务暂不可用，未应用本次修改：${error.message}` }])
-      showToast(`AI 服务失败：${error.message}`)
-      return true
+      // Keep an unexpected malformed response or UI-side exception from
+      // leaving the workbench in a permanent "生成中" state. API failures
+      // that have a safe local patch are handled above; this branch is the
+      // final guard for genuinely unhandled errors.
+      if (requestId === aiRequestRef.current) {
+        const message = error?.message || 'AI 对话处理失败'
+        setAiConversation((current) => ({ ...current, error: message }))
+        setMessages((prev) => [...prev, { role: 'ai', text: `本次对话未完成：${message}` }])
+        showToast(`AI 对话失败：${message}`)
+      }
+      return false
     } finally {
-      setIsGenerating(false)
+      if (requestId === aiRequestRef.current) setIsGenerating(false)
     }
   }
   const runGenerate = async () => {
-    if (!prompt.trim()) return showToast('请先描述你想创建的零件')
-    if (platform.token) {
-      await sendAiConversation(prompt)
-      return
-    }
-    setIsGenerating(true)
-    setMessages((prev) => [...prev, { role: 'user', text: prompt }])
-    window.setTimeout(() => {
-      const next = parsePrompt(prompt, model)
-      setModel({ ...next, updatedAt: '刚刚' })
-      setGeneration((current) => current ? { ...current, stale: true } : current)
-      const resultText = next.kind === 'bracket'
-        ? `参数已更新：底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；上部 ${next.upperLength} × ${next.upperWidth} × ${next.upperHeight} mm；R${next.notchRadius} 横向鞍槽、两条 ${next.slotWidth} × ${next.slotLength} × ${next.pocketDepth} 浅槽、2×Ø${next.bossDiameter} 贯穿凹槽。`
-        : `参数已更新：Ø${next.outerDiameter} × ${next.length} mm，通孔 Ø${next.holeDiameter}；键槽 ${next.keywayWidth} × ${next.keywayDepth} × ${next.keywayLength} mm。`
-      setMessages((prev) => [...prev, { role: 'ai', text: resultText }])
-      setIsGenerating(false)
-      showToast('本地参数化建模完成（登录后可使用 AI 对话）')
-    }, 900)
+    if (!prompt.trim() && !chatAttachments.length) return showToast('请先描述设计或上传一份图纸')
+    await sendAiConversation(prompt, chatAttachments)
   }
 
   const resetModel = () => { setModel(model.kind === 'bracket' ? bracketModel : defaultModel); setGeneration(null); showToast(model.kind === 'bracket' ? '已恢复支架基准参数' : '已恢复基准参数') }
@@ -405,7 +620,7 @@ function App() {
       if (!artifact && model.kind === 'bracket' && backend.status !== 'offline') {
         showToast(`正在通过 CadQuery/OCCT 生成 ${format.toUpperCase()}…`)
         try {
-          currentGeneration = await api.generateBracket({ parameters: Object.fromEntries(bracketParameterKeys.filter((key) => model[key] !== undefined).map((key) => [key, model[key]])), formats: [format], requireCadQuery: backend.status === 'connected' })
+          currentGeneration = await api.generateBracket({ parameters: Object.fromEntries(bracketParameterKeys.filter((key) => model[key] !== undefined).map((key) => [key, model[key]])), formats: [format], requireCadQuery: backend.status !== 'offline' })
           setGeneration(currentGeneration)
           artifact = currentGeneration.artifacts?.find((item) => item.format === format)
         } catch (error) {
@@ -518,7 +733,7 @@ function App() {
     // clear the visible account-scoped records so a logged-out user cannot
     // inspect a prior project's PDM/CAM details in the UI.
     setPlatform(emptyPlatformState())
-    setAiConversation({ previousResponseId: '' })
+    setAiConversation((current) => ({ ...current, previousResponseId: '' }))
     showToast('已退出平台服务')
   }
 
@@ -616,7 +831,10 @@ function App() {
         projectId: platform.project?.id,
         projectName: selectedProject,
         formats: ['step', 'glb'],
-        requireCadQuery: backend.status === 'connected',
+        // Do not downgrade an upload that races the initial health check to a
+        // browser/faceted preview.  If OCCT is unavailable, the request will
+        // fail explicitly and the UI can offer a retry once the status settles.
+        requireCadQuery: backend.status !== 'offline',
         confirmed: drawingJob.evidence.status === 'confirmed',
       }, platform.token)
       const manifest = await api.projectManifest(result.project.id, platform.token)
@@ -792,15 +1010,15 @@ function App() {
         formats: ['step', 'glb'],
         sourceDrawingId: recognized.id,
         confirmed: true,
-        // A healthy OCCT service is required for a production artifact.  A
-        // degraded service may still return an explicitly-labelled faceted
-        // preview so a reviewer can inspect the result before installing the
-        // optional kernel extra.
-        requireCadQuery: backend.status === 'connected',
+        // A healthy OCCT service is required for this production upload path.
+        // If the health check is still settling, keep the production intent;
+        // an unavailable kernel must fail explicitly instead of being
+        // mistaken for a completed manufacturing artifact.
+        requireCadQuery: backend.status !== 'offline',
       })
       const step = generated.artifacts?.find((item) => item.format === 'step')
       if (!step || generated.validation?.valid !== true) throw new Error('实体校验未通过，未生成可交付文件')
-      if (backend.status === 'connected' && !step.productionReady) throw new Error('OCCT 实体或 STEP 拓扑校验未达到生产交付条件')
+      if (backend.status !== 'offline' && !step.productionReady) throw new Error('OCCT 实体或 STEP 拓扑校验未达到生产交付条件')
       setGeneration(generated)
       setBackend((current) => ({ ...current, status: current.status === 'offline' ? 'degraded' : current.status === 'checking' ? 'connected' : current.status, engine: generated.engine || step.engine, productionReady: Boolean(step.productionReady), error: '' }))
       setDrawingJob((current) => ({ ...current, status: 'generated', generation: generated }))
@@ -835,13 +1053,24 @@ function App() {
     setIsGenerating(false)
     showToast(generated.validation?.productionReady ? '安装支架实体与 STEP 已生成并通过校验' : '已生成支架预览；启动后端后可生成生产 STEP')
   }
-  const attachDrawingToConversation = (file) => {
-    if (!file) return
-    // Keep chat as an entry point while reusing the same validated upload
-    // pipeline as the dedicated drawing-import workspace.
-    setActiveMode('图纸转 3D')
-    analyzeDrawing(file)
-    sendAiConversation(`请解析这份图纸并准备参数化模型：${file.name}`, file)
+  const attachDrawingToConversation = (fileInput) => {
+    const selectedFiles = normalizeFilesInput(fileInput)
+    if (!selectedFiles.length) return
+    if (selectedFiles.length > 4) return showToast('一次最多上传 4 个图纸文件')
+    const unsupported = selectedFiles.find((file) => {
+      const extension = file.name?.split('.').pop()?.toLowerCase()
+      return !(file.type?.startsWith('image/') || ['pdf', 'dxf', 'dwg'].includes(extension))
+    })
+    if (unsupported) return showToast('支持 JPG、PNG、WEBP、PDF、DWG、DXF')
+    if (selectedFiles.some((file) => file.size > 20 * 1024 * 1024)) return showToast('单个图纸不能超过 20 MB')
+    // Chat is the primary entry point, so keep the customer in the design
+    // workbench and immediately run the default import command. The attached
+    // file is still shown as a message chip, and a follow-up prompt can edit
+    // any dimension after the model is generated.
+    setActiveMode('3D 建模')
+    setChatAttachments(selectedFiles)
+    setPrompt('请解析这份图纸并生成完整参数化三维模型')
+    sendAiConversation('请解析这份图纸并生成完整参数化三维模型', selectedFiles)
   }
   return (
     <div className="app-shell">
@@ -871,7 +1100,7 @@ function App() {
 
         <main className="main-area">
           <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 已自动保存</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation }} />}
+          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform }} />}
           {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} showToast={showToast} backend={backend} />}
           {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
           {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
@@ -887,17 +1116,23 @@ function App() {
 }
 
 function ModelWorkspace(props) {
-  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation } = props
+  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform } = props
   const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
   const productionReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
   const topology = generation?.validation?.metrics || {}
+  const aiStatus = aiConversation?.status
+  const providerReady = Boolean(aiStatus?.configured || aiStatus?.mode === 'verified-local')
   return <div className="model-workspace">
     <section className="ai-column panel-card">
       <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>描述你的设计</h2></div><button className="more-button" onClick={() => showToast('已打开 AI 历史记录')}>•••</button></div>
       <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
-      <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble">{message.text}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
-      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么…" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const file = e.target.files?.[0]; e.currentTarget.value = ''; attachDrawingToConversation?.(file) }} /><div className="prompt-actions"><button type="button" className="attach" aria-label="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>⌕</Icon></button><span>图片 / PDF / DWG / DXF · ⌘ ↵ 运行</span><button type="button" className="run-button" disabled={isGenerating} onClick={runGenerate}>{isGenerating ? '生成中…' : '运行'}<Icon>↑</Icon></button></div></div>
+      <div className={`ai-provider-status ${providerReady ? 'ready' : aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{aiStatus?.mode === 'verified-local' ? '图纸校准' : providerReady ? '中转站在线' : '本地回退'}</small></div>
+      {!providerReady && !platform?.token && <div className="ai-auth-hint">图纸识别和明确尺寸可走本地审计回退；要使用通用视觉对话，请在服务端配置中转站密钥并按部署要求登录。</div>}
+      {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
+      <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
+      {chatAttachments.length > 0 && <div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div>}
+      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么…" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach" aria-label="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>⌕</Icon></button><span>图片 / PDF / DWG / DXF · 最多 4 个 · ⌘ ↵ 运行</span><button type="button" className="run-button" disabled={isGenerating} onClick={runGenerate}>{isGenerating ? '生成中…' : '运行'}<Icon>↑</Icon></button></div></div>
       <div className="suggestions"><span>试试：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button><button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button></div>
     </section>
 

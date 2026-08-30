@@ -42,15 +42,39 @@ function absoluteUrl(path) {
   try { return new URL(path, `${API_BASE}/`).toString() } catch { return path }
 }
 
+// FileList/DataTransfer.files are array-like but not Array instances. Keep
+// this boundary tolerant so callers can pass a picker result, an Array, or a
+// single File without accidentally serializing the collection object itself.
+function normalizeFilesInput(input) {
+  if (!input || typeof input === 'string') return []
+  if (Array.isArray(input)) return input.filter(Boolean)
+  if (typeof input === 'object') {
+    if (input.files && input.files !== input) return normalizeFilesInput(input.files)
+    const fileLike = typeof input.name === 'string' || typeof input.arrayBuffer === 'function'
+    const length = Number(input.length)
+    if (!fileLike && Number.isFinite(length) && length >= 0) {
+      try { return Array.from(input).filter(Boolean) } catch { /* fall through to iterable/single-item handling */ }
+    }
+    if (!fileLike && typeof Symbol !== 'undefined') {
+      try {
+        if (typeof input[Symbol.iterator] === 'function') return Array.from(input).filter(Boolean)
+      } catch { /* malformed iterables should not break request construction */ }
+    }
+  }
+  return [input].filter(Boolean)
+}
+
 export const api = {
   health: () => request('/health'),
   recognizeDrawing: (file) => { const form = new FormData(); form.append('file', file); return request('/drawings/recognize', { method: 'POST', body: form }) },
-  aiConversation: (message, file, modelState = {}, previousResponseId = '', token) => {
+  aiStatus: () => request('/ai/status'),
+  aiConversation: (message, fileOrFiles, modelState = {}, previousResponseId = '', token) => {
     const form = new FormData()
     if (message) form.append('message', message)
     form.append('model_state_json', JSON.stringify(modelState || {}))
     if (previousResponseId) form.append('previous_response_id', previousResponseId)
-    if (file) form.append('file', file)
+    const files = normalizeFilesInput(fileOrFiles)
+    files.forEach((file, index) => form.append(index === 0 ? 'file' : 'files', file))
     return request('/ai/conversation', { method: 'POST', body: form, headers: authHeaders(token), timeoutMs: 120_000 })
   },
   confirmDrawing: (drawingId, payload = {}, token) => request(`/drawings/${encodeURIComponent(drawingId)}/confirm`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
