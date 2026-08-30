@@ -661,7 +661,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
   return <div ref={hostRef} className="three-viewer" data-testid="three-viewer-host" data-viewer-source={sourceKey} data-viewer-phase={status.phase}>
     <div className="three-viewer-status" aria-live="polite">
       <span className={`three-status-dot ${status.phase === 'ready' && !fallbackStatus ? 'ready' : fallbackStatus ? 'fallback' : status.phase === 'error' ? 'error' : 'loading'}`} />
-      <span>{status.phase === 'loading' ? '载入 3D 网格…' : status.phase === 'initializing' ? '初始化 WebGL…' : status.phase === 'error' ? 'WebGL 不可用' : 'WebGL 3D 实体'}</span>
+      <span>{status.phase === 'loading' ? '载入 3D 网格…' : status.phase === 'initializing' ? '初始化 WebGL…' : status.phase === 'error' ? 'WebGL 不可用' : fallbackStatus ? '参数化 3D 预览' : '真实 GLB 3D 网格'}</span>
       {status.source && <b>{status.source}</b>}
     </div>
     {status.message && <div className={`three-viewer-message ${status.source?.includes('fallback') ? 'warning' : ''}`}>{status.message}</div>}

@@ -50,6 +50,15 @@ const bracketModel = {
 }
 
 const acceptanceDrawingSha256 = 'ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366'
+const mainModes = ['首页', '3D 建模', '2D 工程图', '装配']
+const workflowSteps = [
+  { id: 'upload', label: '输入 / 上传', short: '上传' },
+  { id: 'recognize', label: '识别尺寸', short: '识别' },
+  { id: 'review', label: '复核证据', short: '复核' },
+  { id: 'generate', label: '生成实体', short: '生成' },
+  { id: 'edit', label: '二次修改', short: '修改' },
+  { id: 'export', label: '导出交付', short: '导出' },
+]
 const bracketParameterKeys = ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'slotLength', 'slotWidth', 'pocketDepth', 'saddleDepth', 'holeDepth', 'holeThrough', 'bossDiameter', 'bossCenterDistance', 'bossHeight', 'material', 'units']
 function normalizeStoredModel(value) {
   if (!value || typeof value !== 'object') return value
@@ -309,10 +318,24 @@ function Icon({ children, className = '' }) {
 }
 
 function App() {
-  const [activeMode, setActiveMode] = useState('3D 建模')
+  const [activeMode, setActiveMode] = useState(() => {
+    try {
+      // New visitors land on the task-oriented home card.  A browser with an
+      // unfinished/generated session resumes directly in the workbench so a
+      // refresh never discards the customer's context.
+      return localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation') ? '3D 建模' : '首页'
+    } catch { return '首页' }
+  })
   const [activePanel, setActivePanel] = useState('参数')
   const [model, setModel] = useState(() => {
-    try { return normalizeStoredModel(JSON.parse(localStorage.getItem('joyniu-model'))) || defaultModel } catch { return defaultModel }
+    try {
+      const stored = normalizeStoredModel(JSON.parse(localStorage.getItem('joyniu-model')))
+      // A model snapshot without its drawing/generation session is an old
+      // demo residue, not a recoverable customer project. Start clean rather
+      // than pairing a stale bracket with a fresh AI conversation.
+      const hasSession = Boolean(localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation'))
+      return stored && (stored.kind !== 'bracket' || hasSession) ? stored : defaultModel
+    } catch { return defaultModel }
   })
   const [projects, setProjects] = useState(() => {
     try { return JSON.parse(localStorage.getItem('joyniu-projects')) || defaultProjects } catch { return defaultProjects }
@@ -320,19 +343,34 @@ function App() {
   const [files, setFiles] = useState(() => {
     try { return JSON.parse(localStorage.getItem('joyniu-files')) || defaultFiles } catch { return defaultFiles }
   })
-  const [selectedProject, setSelectedProject] = useState('创模AI · 机械传动')
+  const [selectedProject, setSelectedProject] = useState(() => {
+    try { return localStorage.getItem('joyniu-selected-project') || '创模AI · 机械传动' } catch { return '创模AI · 机械传动' }
+  })
   const [selectedFeature, setSelectedFeature] = useState('keyway')
-  const [drawingJob, setDrawingJob] = useState({ file: null, previewUrl: '', status: 'idle', evidence: null })
+  const [drawingJob, setDrawingJob] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('joyniu-drawing-session'))
+      return stored && typeof stored === 'object' ? { file: null, previewUrl: '', ...stored } : { file: null, previewUrl: '', status: 'idle', evidence: null }
+    } catch { return { file: null, previewUrl: '', status: 'idle', evidence: null } }
+  })
   const [backend, setBackend] = useState({ status: 'checking', engine: '正在连接几何服务', productionReady: false, health: null, error: '' })
-  const [generation, setGeneration] = useState(null)
+  const [generation, setGeneration] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('joyniu-generation')) || null } catch { return null }
+  })
   const [platform, setPlatform] = useState(() => emptyPlatformState())
   const [aiConversation, setAiConversation] = useState({ previousResponseId: '', status: null, error: '' })
   const [chatAttachments, setChatAttachments] = useState([])
-  const [prompt, setPrompt] = useState('创建一根动力轴：外径24，长度70，通孔10；增加一条宽6、深3、长40的键槽')
-  const [messages, setMessages] = useState([
-    { role: 'ai', text: '已加载「动力轴 · 版本 04」。我会把你的描述转成可编辑的参数和特征。' },
-    { role: 'ai', text: '当前模型包含 7 个特征，关键尺寸均已标注。你可以直接修改参数，或继续告诉我想要的结构。' },
-  ])
+  const [prompt, setPrompt] = useState('')
+  const [messages, setMessages] = useState(() => {
+    const welcome = [
+      { role: 'ai', text: '欢迎来到设计工作台。上传一张图纸，或用一句话描述零件，我会把它变成可编辑的参数化模型。' },
+      { role: 'ai', text: '每一步都会保留尺寸来源、复核状态和模型版本；生成后可以继续对话修改，再导出交付文件。' },
+    ]
+    try {
+      const stored = JSON.parse(localStorage.getItem('joyniu-messages'))
+      return Array.isArray(stored) && stored.length && (localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation')) ? stored : welcome
+    } catch { return welcome }
+  })
   const [isGenerating, setIsGenerating] = useState(false)
   const [toast, setToast] = useState('')
   const [view, setView] = useState('isometric')
@@ -354,6 +392,20 @@ function App() {
   useEffect(() => localStorage.setItem('joyniu-model', JSON.stringify(model)), [model])
   useEffect(() => localStorage.setItem('joyniu-projects', JSON.stringify(projects)), [projects])
   useEffect(() => localStorage.setItem('joyniu-files', JSON.stringify(files)), [files])
+  useEffect(() => localStorage.setItem('joyniu-selected-project', selectedProject), [selectedProject])
+  useEffect(() => localStorage.setItem('joyniu-messages', JSON.stringify(messages.slice(-40))), [messages])
+  useEffect(() => {
+    const { file, previewUrl, ...persisted } = drawingJob || {}
+    if (persisted?.status === 'idle' && !persisted?.evidence) {
+      localStorage.removeItem('joyniu-drawing-session')
+      return
+    }
+    localStorage.setItem('joyniu-drawing-session', JSON.stringify({ ...persisted, fileMeta: file ? { name: file.name, size: file.size, type: file.type } : persisted.fileMeta || null }))
+  }, [drawingJob])
+  useEffect(() => {
+    if (generation) localStorage.setItem('joyniu-generation', JSON.stringify(generation))
+    else localStorage.removeItem('joyniu-generation')
+  }, [generation])
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 2500); return () => clearTimeout(t) } }, [toast])
   useEffect(() => {
     let active = true
@@ -446,6 +498,23 @@ function App() {
     setGeneration({ ...generated, stale: false })
     setBackend((current) => ({ ...current, status: current.status === 'checking' ? 'connected' : current.status, engine: generated.engine || step.engine, productionReady: Boolean(step.productionReady), error: '' }))
     return generated
+  }
+  const rebuildCurrentModel = async () => {
+    if (!modelValid) return showToast('请先修正参数，再重建实体')
+    if (model.kind !== 'bracket') return showToast('当前轴类模型可直接继续编辑；生产实体重建将在对应内核接入后开放')
+    setIsGenerating(true)
+    try {
+      const generated = await generateAiArtifact(model, drawingJob?.evidence?.status === 'confirmed' ? drawingJob.evidence.id : '')
+      if (generated) {
+        setDrawingJob((current) => ({ ...current, status: 'generated', generation: generated }))
+        setMessages((prev) => [...prev, { role: 'ai', text: '已按当前参数重建实体，并更新了 STEP / GLB 交付版本。' }])
+        showToast('实体已按当前参数重建')
+      }
+    } catch (error) {
+      showToast(`实体重建失败：${error.message}`)
+    } finally {
+      setIsGenerating(false)
+    }
   }
   const sendAiConversation = async (text, filesInput = []) => {
     const files = normalizeFilesInput(filesInput)
@@ -933,7 +1002,7 @@ function App() {
     const extension = file.name?.split('.').pop()?.toLowerCase()
     const supported = file.type?.startsWith('image/') || ['pdf', 'dxf', 'dwg'].includes(extension)
     if (!supported) {
-      setDrawingJob({ file, previewUrl: '', status: 'error', evidence: null, error: '文件格式不受支持，请上传 JPG、PNG、WEBP、PDF 或 DXF。' })
+      setDrawingJob({ file, previewUrl: '', status: 'error', evidence: null, error: '文件格式不受支持，请上传 JPG、PNG、WEBP、PDF、DWG 或 DXF。' })
       return
     }
     if (file.size > 20 * 1024 * 1024) {
@@ -1063,51 +1132,51 @@ function App() {
     })
     if (unsupported) return showToast('支持 JPG、PNG、WEBP、PDF、DWG、DXF')
     if (selectedFiles.some((file) => file.size > 20 * 1024 * 1024)) return showToast('单个图纸不能超过 20 MB')
-    // Chat is the primary entry point, so keep the customer in the design
-    // workbench and immediately run the default import command. The attached
-    // file is still shown as a message chip, and a follow-up prompt can edit
-    // any dimension after the model is generated.
+    // Keep upload, recognition and generation as visible stages.  Selecting a
+    // file only queues it in the composer; the customer can still add intent
+    // (for example "只识别主视图") before pressing the single primary action.
+    // `runGenerate` sends the queued file through the same recognition and
+    // OCCT handoff used by the legacy import page, so there is still one
+    // canonical backend path.
     setActiveMode('3D 建模')
     setChatAttachments(selectedFiles)
-    setPrompt('请解析这份图纸并生成完整参数化三维模型')
-    sendAiConversation('请解析这份图纸并生成完整参数化三维模型', selectedFiles)
+    setGeneration((current) => current ? { ...current, stale: true, pendingDrawing: true } : current)
+    setPrompt((current) => current.trim() || '请解析这份图纸并生成完整参数化三维模型')
+    showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已添加 · 点击“识别并生成”继续`)
   }
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand"><div className="brand-mark">N</div><div><strong>JoyNiu</strong><span>NEW CAD</span></div></div>
-        <div className="topbar-center">
-          {['首页', '3D 建模', '2D 工程图', '装配'].map((mode) => <button key={mode} className={`mode-tab ${activeMode === mode ? 'active' : ''}`} onClick={() => setActiveMode(mode)}>{mode === '3D 建模' && <Icon>✦</Icon>}{mode}</button>)}
-        </div>
+        <nav className="topbar-center" aria-label="主要工作台">
+          {mainModes.map((mode) => <button key={mode} className={`mode-tab ${activeMode === mode ? 'active' : ''}`} onClick={() => setActiveMode(mode)}>{mode === '3D 建模' && <Icon>✦</Icon>}{mode}</button>)}
+        </nav>
         <div className="topbar-actions"><span className="credits"><Icon>◈</Icon> 972 积分</span><button className="icon-button" onClick={() => showToast('快捷键：⌘K 打开 AI 命令')}>⌘K</button><button className="avatar">J</button></div>
       </header>
 
       <div className="workspace">
         <aside className="sidebar">
-          <button className="new-project" onClick={createProject}><span>＋</span> 新建项目 <kbd>⌘N</kbd></button>
-          <div className="side-section"><div className="side-label">工作台</div>
-            <button className={`side-link ${activeMode === '项目管理' ? 'active' : ''}`} onClick={() => setActiveMode('项目管理')}><Icon>▦</Icon> 我的项目 <span className="count">{projects.length}</span></button>
-            <button className="side-link" onClick={() => showToast('最近打开：动力轴 · 版本 04')}><Icon>◷</Icon> 最近打开</button>
-            <button className="side-link" onClick={() => showToast('回收站保留 15 天')}><Icon>♧</Icon> 回收站</button>
-            <button className={`side-link ${activeMode === '标准件库' ? 'active' : ''}`} onClick={() => setActiveMode('标准件库')}><Icon>⬡</Icon> 标准件库</button>
-            <button className={`side-link ${activeMode === '图纸转 3D' ? 'active' : ''}`} onClick={() => setActiveMode('图纸转 3D')}><Icon>⌁</Icon> 图纸转 3D <span className="new-badge">NEW</span></button>
-            <button className={`side-link ${activeMode === '平台服务' ? 'active' : ''}`} onClick={() => setActiveMode('平台服务')}><Icon>◈</Icon> PDM / 账号</button>
-            <button className={`side-link ${activeMode === 'CAM / NC' ? 'active' : ''}`} onClick={() => setActiveMode('CAM / NC')}><Icon>⌁</Icon> CAM / NC</button>
+          <button className="new-project" onClick={createProject}><span>＋</span><span className="new-project-label">新建项目</span><kbd>⌘N</kbd></button>
+          <div className="side-section"><div className="side-label">设计</div>
+            <button title="项目" className={`side-link ${activeMode === '项目管理' ? 'active' : ''}`} onClick={() => setActiveMode('项目管理')}><Icon>▦</Icon><span className="side-link-label">我的项目</span><span className="count">{projects.length}</span></button>
+            <button title="最近打开" className="side-link" onClick={() => showToast('最近打开：当前项目草稿')}><Icon>◷</Icon><span className="side-link-label">最近打开</span></button>
+            <button title="标准件库" className={`side-link ${activeMode === '标准件库' ? 'active' : ''}`} onClick={() => setActiveMode('标准件库')}><Icon>⬡</Icon><span className="side-link-label">标准件库</span></button>
+            <button title="上传图纸并复核" className={`side-link ${activeMode === '图纸转 3D' ? 'active' : ''}`} onClick={() => { setActiveMode('3D 建模'); showToast('已回到设计工作台 · 上传图纸后按步骤复核') }}><Icon>⌁</Icon><span className="side-link-label">图纸导入 / 复核</span><span className="new-badge">推荐</span></button>
           </div>
-          <div className="side-section project-list"><div className="side-label">项目</div>{projects.map((project) => <button key={project.id} className={`project-link ${selectedProject === project.name ? 'selected' : ''}`} onClick={() => { setSelectedProject(project.name); showToast(`已切换到 ${project.name}`) }}><span className={`project-dot ${project.color}`} />{project.name}<span className="project-files">{project.files}</span></button>)}</div>
-          <div className="sidebar-bottom"><button className="side-link" onClick={() => showToast('设置面板即将开放')}><Icon>⚙</Icon> 设置</button><button className="side-link" onClick={() => showToast('帮助中心：support@joyniu.local')}><Icon>?</Icon> 帮助与反馈</button><div className={`engine-status ${backend.status}`} title={`${API_BASE} · ${backend.error || '服务正常'}`}><span className="status-dot" /><div><b>{backend.status === 'checking' ? '连接 FastAPI…' : backend.productionReady ? 'CadQuery / OCCT' : backend.status === 'degraded' ? '降级几何内核' : '浏览器预览'}</b><small>{backend.status === 'connected' ? 'B-Rep 与 STEP 可用' : backend.status === 'degraded' ? '仅审计预览，不可生产' : backend.status === 'offline' ? 'API 离线 · 不可导出 STEP' : API_BASE}</small></div></div></div>
+          <div className="side-section project-list"><div className="side-label">当前项目</div>{projects.map((project) => <button title={project.name} key={project.id} className={`project-link ${selectedProject === project.name ? 'selected' : ''}`} onClick={() => { setSelectedProject(project.name); showToast(`已切换到 ${project.name}`) }}><span className={`project-dot ${project.color}`} /><span className="project-link-label">{project.name}</span><span className="project-files">{project.files}</span></button>)}</div>
+          <div className="sidebar-bottom"><div className="side-label">高级</div><button title="PDM / 账号" className={`side-link ${activeMode === '平台服务' ? 'active' : ''}`} onClick={() => setActiveMode('平台服务')}><Icon>◈</Icon><span className="side-link-label">PDM / 账号</span></button><button title="CAM / NC" className={`side-link ${activeMode === 'CAM / NC' ? 'active' : ''}`} onClick={() => setActiveMode('CAM / NC')}><Icon>⌁</Icon><span className="side-link-label">CAM / NC</span></button><button title="设置" className="side-link" onClick={() => showToast('设置面板即将开放')}><Icon>⚙</Icon><span className="side-link-label">设置</span></button><button title="帮助与反馈" className="side-link" onClick={() => showToast('帮助中心：support@joyniu.local')}><Icon>?</Icon><span className="side-link-label">帮助与反馈</span></button><div className={`engine-status ${backend.status}`} title={`${API_BASE} · ${backend.error || '服务正常'}`}><span className="status-dot" /><div><b>{backend.status === 'checking' ? '连接 FastAPI…' : backend.productionReady ? 'CadQuery / OCCT' : backend.status === 'degraded' ? '降级几何内核' : '浏览器预览'}</b><small>{backend.status === 'connected' ? 'B-Rep 与 STEP 可用' : backend.status === 'degraded' ? '仅审计预览，不可生产' : backend.status === 'offline' ? 'API 离线 · 不可导出 STEP' : API_BASE}</small></div></div></div>
         </aside>
 
         <main className="main-area">
-          <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 已自动保存</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform }} />}
+          <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 本地草稿 · {model.updatedAt || '刚刚'}</span></div>
+          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing }} />}
           {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} showToast={showToast} backend={backend} />}
           {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
           {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
           {activeMode === '标准件库' && <LibraryWorkspace libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryGroup={libraryGroup} setLibraryGroup={setLibraryGroup} filteredLibrary={filteredLibrary} insertLibrary={insertLibrary} showToast={showToast} />}
           {activeMode === '项目管理' && <ProjectWorkspace selectedProject={selectedProject} files={files} setFiles={setFiles} setActiveMode={setActiveMode} exportFile={exportFile} showToast={showToast} />}
           {(activeMode === '平台服务' || activeMode === 'CAM / NC') && <PlatformWorkspace mode={activeMode} backend={backend} platform={platform} platformLogin={platformLogin} platformLogout={platformLogout} refreshPlatformUsers={refreshPlatformUsers} createPlatformUser={createPlatformUser} createPlatformProject={createPlatformProject} shareProjectTeam={shareProjectTeam} syncDrawingToPdm={syncDrawingToPdm} createCamPlan={createCamPlan} simulateCamPlan={simulateCamPlan} approveCamPlan={approveCamPlan} releaseCamPlan={releaseCamPlan} downloadNcProgram={downloadNcProgram} generation={generation} showToast={showToast} />}
-          {activeMode === '首页' && <HomeWorkspace projects={projects} selectedProject={selectedProject} createProject={createProject} setActiveMode={setActiveMode} showToast={showToast} />}
+          {activeMode === '首页' && <HomeWorkspace projects={projects} selectedProject={selectedProject} setSelectedProject={setSelectedProject} createProject={createProject} setActiveMode={setActiveMode} showToast={showToast} attachDrawingToConversation={attachDrawingToConversation} />}
         </main>
       </div>
       {toast && <div className="toast"><span className="toast-check">✓</span>{toast}</div>}
@@ -1115,7 +1184,126 @@ function App() {
   )
 }
 
+function workflowSnapshot({ drawingJob, generation, chatAttachments, isGenerating }) {
+  const evidence = drawingJob?.evidence
+  const hasFile = Boolean(drawingJob?.file || chatAttachments?.length)
+  const reviewRequired = Boolean(evidence && evidence.status !== 'confirmed')
+  const generated = Boolean(generation)
+  if (isGenerating && drawingJob?.status === 'analyzing') return { current: 'recognize', label: '正在识别图纸' }
+  if (isGenerating && drawingJob?.status === 'generating') return { current: 'generate', label: '正在生成实体' }
+  if (reviewRequired) return { current: 'review', label: '等待确认尺寸证据' }
+  if (generated && generation?.stale) return { current: 'edit', label: '参数已修改，等待重建' }
+  if (generated) return { current: 'edit', label: '实体已生成，可继续修改' }
+  if (evidence) return { current: 'generate', label: '识别完成，准备生成' }
+  if (hasFile) return { current: 'recognize', label: '图纸已添加，准备识别' }
+  return { current: 'upload', label: '上传图纸或开始描述' }
+}
+
 function ModelWorkspace(props) {
+  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing } = props
+  const drawingInputRef = useRef(null)
+  const [viewResetNonce, setViewResetNonce] = useState(0)
+  const [exportOpen, setExportOpen] = useState(false)
+  const productionReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
+  const topology = generation?.validation?.metrics || {}
+  const aiStatus = aiConversation?.status
+  const providerReady = Boolean(aiStatus?.configured || aiStatus?.mode === 'verified-local')
+  const evidence = drawingJob?.evidence
+  const reviewRequired = Boolean(evidence && evidence.status !== 'confirmed')
+  // Any unconfirmed recognition is a candidate, even when the provider did
+  // return numeric values.  The reviewer must not mistake a plausible OCR
+  // guess for a locked drawing dimension.
+  const evidenceUsesFallback = reviewRequired
+  const pendingDrawing = Boolean(chatAttachments.length || generation?.pendingDrawing)
+  const workflow = workflowSnapshot({ drawingJob, generation, chatAttachments, isGenerating })
+  const hasSource = Boolean(drawingJob?.file || chatAttachments.length)
+  const primaryLabel = !hasSource && !generation
+    ? '上传图纸'
+    : chatAttachments.length
+      ? '识别并生成'
+      : reviewRequired
+        ? '复核尺寸'
+        : !generation
+          ? '生成 3D'
+          : generation.stale
+            ? '重建实体'
+            : '导出交付'
+  const primaryAction = () => {
+    if (!hasSource && !generation) return drawingInputRef.current?.click()
+    if (chatAttachments.length) return runGenerate()
+    if (reviewRequired) {
+      setActivePanel('检查')
+      window.requestAnimationFrame(() => {
+        const reviewCard = document.querySelector('[data-testid="workbench-review"]')
+        reviewCard?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        reviewCard?.querySelector('button')?.focus()
+      })
+      showToast('已打开证据复核；确认关键尺寸后才能生成 3D')
+      return
+    }
+    if (!generation && drawingJob?.status === 'ready' && generateFromDrawing) return generateFromDrawing()
+    if (!generation && prompt.trim()) return runGenerate()
+    if (generation?.stale) return rebuildCurrentModel?.()
+    return exportFile('step')
+  }
+  // A queued drawing or an unresolved review always takes precedence over the
+  // previous model's delivery state.  Otherwise uploading a second drawing
+  // while an older entity is production-ready would leave only an "导出交付"
+  // button visible and hide the action that starts recognition.
+  const showExportAction = productionReady && !chatAttachments.length && !reviewRequired && !isGenerating
+  const statusForStep = (stepId) => {
+    const order = workflowSteps.map((item) => item.id)
+    const currentIndex = order.indexOf(workflow.current)
+    const index = order.indexOf(stepId)
+    if (stepId === workflow.current) return 'active'
+    if (index < currentIndex) return 'done'
+    if (stepId === 'export' && productionReady) return 'active'
+    return 'pending'
+  }
+  const sourceParameters = evidence?.parameters || evidence || {}
+  const compare = (source, current, suffix = '') => source === undefined || source === null
+    ? `待确认${suffix}`
+    : Number(source) !== Number(current)
+      ? `图纸 ${source} → 当前 ${current}${suffix}`
+      : `${source}${suffix}`
+  const evidenceRows = evidence ? [
+    ['底板', `${compare(sourceParameters.baseLength, model.baseLength)} × ${compare(sourceParameters.baseWidth, model.baseWidth)} × ${compare(sourceParameters.baseThickness, model.baseThickness)} mm`],
+    ['上部实体', `${compare(sourceParameters.upperLength, model.upperLength)} × ${compare(sourceParameters.upperWidth, model.upperWidth)} × ${compare(sourceParameters.upperHeight, model.upperHeight)} mm`],
+    ['鞍槽 / 浅槽', `R${compare(sourceParameters.notchRadius, model.notchRadius)} · ${compare(sourceParameters.slotWidth, model.slotWidth)} × ${compare(sourceParameters.slotLength, model.slotLength)} × ${compare(sourceParameters.pocketDepth, model.pocketDepth)}`],
+    ['贯穿孔', `2 × Ø${compare(sourceParameters.bossDiameter, model.bossDiameter)} · 中心距 ${compare(sourceParameters.bossCenterDistance, model.bossCenterDistance)} mm`],
+  ] : []
+  return <div className="model-workspace">
+    <div className="workbench-header">
+      <div className="workbench-title"><span className="eyebrow">DESIGN WORKBENCH</span><h1>3D 设计工作台</h1><p>{model.name} · 从一张图纸到可编辑实体，所有步骤在同一页完成</p></div>
+      <div className="workbench-header-actions"><span className={`workbench-status ${productionReady ? 'ready' : reviewRequired ? 'review' : ''}`}><i />{workflow.label}</span><button type="button" className={`secondary-button header-text-action ${productionReady ? 'header-upload-action' : ''}`} onClick={() => { if (productionReady) { setChatAttachments?.([]); drawingInputRef.current?.click(); showToast('请选择新的图纸，当前版本会保留为历史预览') } else { setPrompt((current) => current || '创建一个可编辑的参数化零件'); showToast('已切换到文字设计') } }}>{productionReady ? '上传新图纸' : '从文字开始'}</button>{showExportAction ? <details className="export-menu" open={exportOpen} onToggle={(event) => setExportOpen(event.currentTarget.open)}><summary className="primary-button" aria-label="导出交付">导出交付 <Icon>⌄</Icon></summary><div className="export-menu-popover"><b>选择交付格式</b><button onClick={() => exportFile('step')}>STEP · 生产实体</button><button onClick={() => exportFile('glb')}>GLB · 三维预览</button><button onClick={() => exportFile('dxf')}>DXF · 工程图</button><button onClick={() => exportFile('json')}>JSON · 参数与审计</button></div></details> : <button type="button" data-testid="workbench-primary-action" className="primary-button workbench-primary" disabled={isGenerating} onClick={primaryAction}>{isGenerating ? '处理中…' : primaryLabel} <Icon>{primaryLabel === '上传图纸' ? '＋' : '↗'}</Icon></button>}</div>
+    </div>
+    <nav className="workflow-rail" aria-label="建模流程">{workflowSteps.map((step, index) => <div key={step.id} className={`workflow-step ${statusForStep(step.id)}`}><span className="workflow-step-index">{statusForStep(step.id) === 'done' ? '✓' : index + 1}</span><span><b>{step.label}</b><small>{step.id === workflow.current ? '当前' : statusForStep(step.id) === 'done' ? '已完成' : '待处理'}</small></span>{index < workflowSteps.length - 1 && <i className="workflow-connector" />}</div>)}</nav>
+    {evidence && <section className={`review-banner ${reviewRequired ? 'needs-review' : 'confirmed'}`} data-testid="workbench-review"><div className="review-banner-icon">{reviewRequired ? '!' : '✓'}</div><div className="review-banner-copy"><b>{reviewRequired ? evidenceUsesFallback ? '未可靠读到标注，需要人工复核' : '图纸证据需要复核' : '图纸证据已确认'}</b><span>{reviewRequired ? evidenceUsesFallback ? '以下数值是识别服务的候选配方，不是图纸结论；请 reviewer 对照原图逐项确认。' : '确认关键尺寸后，才能生成可交付实体。若需 reviewer 权限，系统会保留当前文件和证据。' : '尺寸来源已锁定；生成结果会继续经过 CadQuery / OCCT 拓扑检查。'}</span></div><div className="review-evidence-mini">{evidenceRows.map(([label, value]) => <span key={label}><b>{evidenceUsesFallback && reviewRequired ? `候选 · ${label}` : label}</b>{value}</span>)}</div><button type="button" className={reviewRequired ? 'primary-button' : 'secondary-button'} disabled={drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (reviewRequired && generateFromDrawing) generateFromDrawing(); else if (!generation && generateFromDrawing) generateFromDrawing(); else setActivePanel('检查') }}>{drawingJob?.status === 'generated' ? '已生成 3D' : reviewRequired ? '确认并生成 3D' : '查看证据'}</button></section>}
+
+    <section className="ai-column panel-card">
+      <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>AI 设计助手</h2><p className="panel-subtitle">上传图纸，或直接描述你要修改的尺寸</p></div><button className="more-button" aria-label="AI 历史记录" title="AI 历史记录" onClick={() => showToast('AI 历史记录将在当前项目内保留')}>•••</button></div>
+      <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
+      <div className={`ai-provider-status ${providerReady ? 'ready' : aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{aiStatus?.mode === 'verified-local' ? '图纸校准' : providerReady ? '中转站在线' : '本地回退'}</small></div>
+      {!providerReady && !platform?.token && <div className="ai-auth-hint">当前可用本地尺寸解析；通用视觉对话由服务端中转站提供。</div>}
+      {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
+      {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；上传后按“识别 → 复核 → 生成”推进。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
+      <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
+      {chatAttachments.length > 0 && <div className="queued-drawing"><div><b>待处理图纸</b><span>可先补充意图，再开始识别</span></div><div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div></div>}
+      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么，或修改哪个尺寸…" aria-label="AI 设计指令" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="上传图纸" title="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>上传图纸</span></button><span>主图 1 张 · 可附加参考图 · 单个不超过 20 MB</span><button type="button" className="run-button" disabled={isGenerating || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>{isGenerating ? '处理中…' : chatAttachments.length ? '识别并生成' : '发送修改'}<Icon>↑</Icon></button></div></div>
+      <div className="suggestions"><span>快速开始：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button><button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button></div>
+    </section>
+
+    <section className="viewport-column">
+      <div className="viewport-toolbar"><div className="toolbar-group"><button className={view === 'isometric' ? 'selected' : ''} onClick={() => setView('isometric')}>等轴测</button><button className={view === 'front' ? 'selected' : ''} onClick={() => setView('front')}>前视</button><button className={view === 'top' ? 'selected' : ''} onClick={() => setView('top')}>俯视</button></div><div className="toolbar-group"><button onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button onClick={() => { setZoom(1); setView('isometric'); setViewResetNonce((value) => value + 1); showToast('视图已重置') }}>重置视图</button></div></div>
+      <div className="viewport"><div className="viewport-grid" /><div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div><ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} resetNonce={viewResetNonce} /><div className={`model-context-badge ${productionReady ? 'production' : ''}`}><span className={`status-dot ${generation ? 'ready' : ''}`} />{pendingDrawing ? '上一版本预览 · 新图纸处理中' : generation ? (productionReady ? '已生成实体 · OCCT 校验通过' : '已生成可交互 3D 预览') : '示例模型 · 上传图纸后替换'}</div><div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div><div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div><div className="zoom-control"><button aria-label="放大" onClick={() => setZoom((value) => Math.min(1.35, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button aria-label="缩小" onClick={() => setZoom((value) => Math.max(.7, value - .1))}>−</button></div></div>
+      <div className="viewport-footer"><span><i className="live-dot" /> {generation ? '模型版本已更新' : '等待图纸或文字指令'} · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : generation?.stale ? 'preview' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : generation?.stale ? '参数已变更' : '示例预览'}</span><span>单位 <b>mm</b></span><span>材质 <b>{model.material}</b></span></div>
+    </section>
+
+    <aside className="inspector-column"><div className="inspector-tabs"><button className={activePanel === '参数' ? 'active' : ''} onClick={() => setActivePanel('参数')}>参数</button><button className={activePanel === '特征' ? 'active' : ''} onClick={() => setActivePanel('特征')}>特征树</button><button className={activePanel === '检查' ? 'active' : ''} onClick={() => setActivePanel('检查')}>检查</button></div>{activePanel === '参数' && <ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} />}{activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} />}{activePanel === '检查' && <CheckPanel modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} drawingJob={drawingJob} generateFromDrawing={generateFromDrawing} setActiveMode={setActiveMode} />}{model.kind === 'bracket' && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产实体' : '仅预览'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{topology.boundingLength || model.baseLength} × {topology.boundingWidth || model.baseWidth} × {topology.boundingHeight || model.totalHeight}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b></div></div>}<div className="export-card"><div><span className="eyebrow">交付状态</span><h3>{productionReady ? '可导出交付文件' : reviewRequired ? '完成复核后才能导出' : '先生成实体再导出'}</h3><p>{productionReady ? 'STEP、GLB、DXF 与参数 JSON 已集中到右上角“导出交付”。' : '当前只显示可编辑预览，避免把未校验模型误当成生产文件。'}</p></div>{productionReady ? <div className="export-card-hint">右上角 <b>导出交付</b> · 统一出口</div> : <button type="button" className="secondary-button full" onClick={primaryAction}>{reviewRequired ? '打开复核' : '继续当前流程'} <Icon>↗</Icon></button>}</div></aside>
+  </div>
+}
+
+function LegacyModelWorkspace(props) {
   const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform } = props
   const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
@@ -1183,30 +1371,41 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
   const evidenceList = recognitionEvidence(evidence)
   const sourceFor = (field, fallback) => evidenceList.find((item) => item.field === field || item.field === field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))?.view || evidenceList.find((item) => item.field === field || item.field === field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))?.source || fallback
   const confidenceLabel = evidence?.confidence !== undefined ? `置信度 ${Math.round(Number(evidence.confidence) * 100)}%` : '置信度 96%'
-  const read = (key, fallback) => recognizedParameters && recognizedParameters[key] !== undefined ? recognizedParameters[key] : fallback
+  // Unknown drawings may have only partial OCR evidence.  Do not fill the
+  // missing values with the acceptance fixture's dimensions: an explicit
+  // placeholder keeps the reviewer gate honest and tells the customer what
+  // still needs confirmation.
+  const read = (key) => recognizedParameters && recognizedParameters[key] !== undefined ? recognizedParameters[key] : '待确认'
   const evidenceRows = [
-    ['底板', `${read('baseLength', 100)} × ${read('baseWidth', 50)} × ${read('baseThickness', 10)} mm`, sourceFor('baseLength', '俯视 / 主视')],
-    ['上部实体', `${read('upperLength', 70)} × ${read('upperWidth', 50)} × ${read('upperHeight', 30)} mm`, sourceFor('upperLength', '主视 / 右视')],
-    ['总高度', `${read('totalHeight', 40)} mm`, sourceFor('totalHeight', '主视')],
-    ['U 型缺口', `开口 ${read('notchOpening', 40)} · R${read('notchRadius', 15)}`, sourceFor('notchOpening', '主视')],
-    ['矩形浅槽', `2 × ${read('slotWidth', 10)} × ${read('slotLength', 30)} · 深 ${read('pocketDepth', 10)}`, sourceFor('slotLength', '俯视 / 右视')],
-    ['侧向贯穿凹槽', `2 × Ø${read('bossDiameter', 20)}`, sourceFor('bossDiameter', '俯视 / 主视')],
-    ['凹槽中心距', `${read('bossCenterDistance', 70)} mm`, sourceFor('bossCenterDistance', '俯视投影')],
+    ['底板', `${read('baseLength')} × ${read('baseWidth')} × ${read('baseThickness')} mm`, sourceFor('baseLength', '俯视 / 主视')],
+    ['上部实体', `${read('upperLength')} × ${read('upperWidth')} × ${read('upperHeight')} mm`, sourceFor('upperLength', '主视 / 右视')],
+    ['总高度', `${read('totalHeight')} mm`, sourceFor('totalHeight', '主视')],
+    ['U 型缺口', `开口 ${read('notchOpening')} · R${read('notchRadius')}`, sourceFor('notchOpening', '主视')],
+    ['矩形浅槽', `2 × ${read('slotWidth')} × ${read('slotLength')} · 深 ${read('pocketDepth')}`, sourceFor('slotLength', '俯视 / 右视')],
+    ['侧向贯穿凹槽', `2 × Ø${read('bossDiameter')}`, sourceFor('bossDiameter', '俯视 / 主视')],
+    ['凹槽中心距', `${read('bossCenterDistance')} mm`, sourceFor('bossCenterDistance', '俯视投影')],
   ]
   const evidenceWarning = evidence?.warnings?.length
     ? evidence.warnings.join('；')
     : evidence?.status === 'confirmed'
       ? '尺寸证据已锁定；Ø20 为两处贯穿竖孔/侧边半圆凹槽，30 mm 为中段浅槽长度，生成结果仍会经过 OCCT 拓扑检查。'
       : '请确认 Ø20 是贯穿竖孔/侧边半圆凹槽，30 mm 是两条浅槽沿 Y 的长度；确认后将按上述参数生成实体。'
+  const stepStatus = (step) => {
+    const order = ['upload', 'recognize', 'review', 'generate']
+    const current = drawingJob.status === 'analyzing' ? 'recognize' : drawingJob.status === 'ready' ? (evidence?.status === 'confirmed' ? 'generate' : 'review') : drawingJob.status === 'generating' ? 'generate' : drawingJob.status === 'generated' ? 'done' : 'upload'
+    if (current === 'done') return 'done'
+    const currentIndex = order.indexOf(current); const index = order.indexOf(step)
+    return step === current ? 'active' : index >= 0 && index < currentIndex ? 'done' : ''
+  }
   return <div className="secondary-workspace import-workspace">
     <div className="secondary-heading"><div><span className="eyebrow">DRAWING → 3D</span><h1>图纸转三维</h1><p>上传一张工程图，识别关键尺寸后生成可编辑实体</p></div><div className="heading-actions"><span className={`backend-status compact ${backend?.status || 'checking'}`}><i />{backend?.productionReady ? 'CadQuery / OCCT 在线' : backend?.status === 'offline' ? 'API 离线' : '连接中'}</span><button className="secondary-button" onClick={() => showToast('支持 JPG、PNG、WEBP、PDF、DWG、DXF')}>支持格式</button><button className="primary-button" data-testid="confirm-generate" disabled={!evidence || drawingJob.status === 'analyzing' || drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={generateFromDrawing}>{drawingJob.status === 'generated' ? '已生成 3D' : '确认并生成 3D'} <Icon>↗</Icon></button></div></div>
-    <div className="import-steps" aria-label="图纸转三维流程"><span className="done"><i>1</i>上传图纸</span><span className={evidence ? 'done' : drawingJob.status === 'analyzing' ? 'active' : ''}><i>2</i>识别尺寸</span><span className={evidence ? 'active' : ''}><i>3</i>复核证据</span><span className={drawingJob.status === 'generated' ? 'ready' : ''}><i>4</i>生成实体</span></div>
+    <div className="import-steps" aria-label="图纸转三维流程"><span className={stepStatus('upload')}><i>1</i>上传图纸</span><span className={stepStatus('recognize')}><i>2</i>识别尺寸</span><span className={stepStatus('review')}><i>3</i>复核证据</span><span className={stepStatus('generate')}><i>4</i>生成实体</span></div>
     <div className="import-grid">
       <div className="upload-card panel-card">
         <input ref={inputRef} className="file-input" data-testid="drawing-file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" onChange={(event) => chooseFile(event.target.files?.[0])} />
-        <div className={`drop-zone ${file ? 'has-file' : ''} ${dragging ? 'dragging' : ''}`} data-testid="drawing-drop-zone" onClick={() => inputRef.current?.click()} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
+        <div className={`drop-zone ${file ? 'has-file' : ''} ${dragging ? 'dragging' : ''}`} data-testid="drawing-drop-zone" role="button" tabIndex="0" aria-label="选择或拖拽图纸文件" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); inputRef.current?.click() } }} onClick={() => inputRef.current?.click()} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
           {file && isImage && drawingJob.previewUrl ? <img src={drawingJob.previewUrl} alt="已上传工程图预览" /> : file ? <div className="file-preview-placeholder"><div className="upload-symbol">▱</div><b>{file.name.split('.').pop()?.toUpperCase()} 图纸</b><span>该格式将直接提交给识别服务</span></div> : <div className="upload-placeholder"><div className="upload-symbol">↥</div><b>拖拽图纸到这里，或点击上传</b><span>支持图片 / PDF / DWG / DXF · 单个文件不超过 20 MB</span></div>}
-          <div className="drop-overlay"><span>{drawingJob.status === 'analyzing' ? '识别中…' : file ? '重新选择图纸' : '选择文件'}</span></div>
+          <div className="drop-overlay"><span>{drawingJob.status === 'analyzing' ? '识别中…' : file ? '重新选择图纸' : '选择文件'}</span><button type="button" className="upload-select-button" onClick={(event) => { event.stopPropagation(); inputRef.current?.click() }}>{file ? '替换文件' : '选择图纸文件'}</button></div>
         </div>
         {file && <div className="upload-file-meta"><span className="file-type-icon blue">▱</span><div><b>{file.name}</b><small>{(file.size / 1024).toFixed(0)} KB · {backend?.status === 'connected' ? '已提交 FastAPI' : '本地预览'}</small></div><span className={`parse-status ${drawingJob.status}`}>{statusText}</span></div>}
         {drawingJob.status === 'error' && <div className="import-error"><span>!</span><span>{drawingJob.error || '图纸识别失败，请检查文件后重试。'}</span></div>}
@@ -1311,16 +1510,28 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel }) {
 
 function NumberField({ label, value, prefix, suffix, onChange }) { return <label className="number-field"><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value} type="number" min="0.1" step="0.1" onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
 function FeaturePanel({ features, selectedFeature, setSelectedFeature }) { return <div className="inspector-content feature-tree-panel"><div className="tree-toolbar"><span>特征历史 <b>{features.length}</b></span><button>＋</button></div><div className="feature-tree">{features.map((feature, index) => <button key={feature.id} className={`feature-row ${selectedFeature === feature.id ? 'selected' : ''}`} onClick={() => setSelectedFeature(feature.id)}><span className="tree-line">{index < features.length - 1 ? '│' : '└'}</span><span className="feature-glyph">{feature.icon}</span><span className="feature-label">{feature.label}<small>{feature.meta}</small></span>{selectedFeature === feature.id && <span className="eye">◉</span>}</button>)}</div><div className="feature-note"><Icon>✦</Icon><span>特征树由 AI 生成，可继续描述来添加圆角、阵列或螺纹。</span></div></div> }
-function CheckPanel({ modelValid, showToast, backend, generation }) {
+function CheckPanel({ modelValid, showToast, backend, generation, drawingJob, generateFromDrawing, setActiveMode }) {
   const metrics = generation?.validation?.metrics || {}
   const kernelReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
+  const evidence = drawingJob?.evidence
+  const evidenceParameters = evidence?.parameters || evidence || {}
+  const evidenceUsesFallback = Boolean(evidence && evidence.status !== 'confirmed')
+  const evidenceValue = (key) => evidenceParameters[key] !== undefined && evidenceParameters[key] !== null ? evidenceParameters[key] : '待确认'
+  const evidenceRows = evidence ? [
+    ['底板', `${evidenceValue('baseLength')} × ${evidenceValue('baseWidth')} × ${evidenceValue('baseThickness')} mm`],
+    ['上部实体', `${evidenceValue('upperLength')} × ${evidenceValue('upperWidth')} × ${evidenceValue('upperHeight')} mm`],
+    ['鞍槽 / 浅槽', `R${evidenceValue('notchRadius')} · ${evidenceValue('slotWidth')} × ${evidenceValue('slotLength')} × ${evidenceValue('pocketDepth')}`],
+    ['贯穿孔', `2 × Ø${evidenceValue('bossDiameter')} · 中心距 ${evidenceValue('bossCenterDistance')} mm`],
+  ] : []
+  const evidenceConfirmed = evidence?.status === 'confirmed'
+  const reviewerReady = Boolean(evidenceConfirmed || (drawingJob?.status === 'ready' && generateFromDrawing))
   const checks = [
     { label: '参数完整性', status: modelValid ? '通过' : '待修正' },
     { label: '实体拓扑', status: kernelReady && metrics.topologyAuditPassed !== false ? '通过' : generation ? '待内核校验' : '未运行' },
     { label: '关键尺寸', status: kernelReady && metrics.bboxLength ? '通过' : generation ? '待校验' : '未运行' },
     { label: '制造可行性', status: kernelReady ? '提示' : '仅预览' },
   ]
-  return <div className="inspector-content check-panel"><div className="check-summary"><div className={`check-ring ${modelValid && (kernelReady || !generation) ? 'ok' : 'warn'}`}>{modelValid && (kernelReady || !generation) ? '✓' : '!'}</div><div><b>{kernelReady ? 'OCCT 模型检查通过' : modelValid ? '参数检查通过 · 等待内核' : '需要修正参数'}</b><small>{backend?.engine || '浏览器'} · 最近检查：{generation ? '刚刚' : '尚未运行'}</small></div></div>{checks.map((check) => <div className="check-row" key={check.label}><span>{check.label}</span><span className={`check-status ${check.status === '通过' ? 'pass' : check.status === '提示' ? 'hint' : 'warn'}`}>{check.status}</span></div>)}{generation && <div className="kernel-metrics"><span>包络</span><b>{metrics.boundingLength ?? '—'} × {metrics.boundingWidth ?? '—'} × {metrics.boundingHeight ?? '—'} mm</b><span>体积</span><b>{metrics.volumeMm3 ? `${Number(metrics.volumeMm3).toFixed(3)} mm³` : '—'}</b></div>}<button className="primary-outline" onClick={() => showToast(generation ? '已刷新内核检查报告' : '请先生成一个实体模型')}>重新运行检查 <Icon>↗</Icon></button></div>
+  return <div className="inspector-content check-panel">{evidence && <section className={`check-evidence-card ${evidenceConfirmed ? 'confirmed' : 'needs-review'}`} aria-label="图纸证据复核"><div className="check-evidence-heading"><div><span className="eyebrow">DRAWING EVIDENCE</span><b>{evidenceConfirmed ? '尺寸证据已确认' : evidenceUsesFallback ? '候选配方待逐项复核' : '尺寸证据待复核'}</b></div><span className={`confidence ${evidenceConfirmed ? 'ready' : ''}`}>{evidence.confidence !== undefined ? `${Math.round(Number(evidence.confidence) * 100)}%` : '—'}</span></div><div className="check-evidence-rows">{evidenceRows.map(([label, value]) => <div key={label}><span>{evidenceUsesFallback && !evidenceConfirmed ? `候选 · ${label}` : label}</span><b>{value}</b></div>)}</div><p>{evidenceConfirmed ? '来源已锁定；生成实体会继续经过 CadQuery / OCCT 拓扑检查。' : evidenceUsesFallback ? 'OCR 未可靠读到图纸标注，以上只是可编辑候选值；必须由 reviewer 对照原图确认。' : '确认关键尺寸后才能生成可交付实体；没有 reviewer 权限时请先登录平台服务。'}</p><div className="check-evidence-actions"><button type="button" className={evidenceConfirmed ? 'secondary-button' : 'primary-button'} disabled={!reviewerReady || drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (evidenceConfirmed) return showToast('尺寸证据已确认'); generateFromDrawing?.() }}>{evidenceConfirmed ? '已确认' : '确认并生成 3D'} <Icon>↗</Icon></button>{!evidenceConfirmed && <button type="button" className="text-button" onClick={() => setActiveMode?.('平台服务')}>去 PDM / 账号登录</button>}</div></section>}{!evidence && <div className="check-evidence-empty"><span>⌁</span><b>生成图纸模型后，这里会显示尺寸证据。</b><small>系统会把来源视图、置信度和确认状态绑定到当前模型版本。</small></div>}<div className="check-summary"><div className={`check-ring ${modelValid && (kernelReady || !generation) ? 'ok' : 'warn'}`}>{modelValid && (kernelReady || !generation) ? '✓' : '!'}</div><div><b>{kernelReady ? 'OCCT 模型检查通过' : modelValid ? '参数检查通过 · 等待内核' : '需要修正参数'}</b><small>{backend?.engine || '浏览器'} · 最近检查：{generation ? '刚刚' : '尚未运行'}</small></div></div>{checks.map((check) => <div className="check-row" key={check.label}><span>{check.label}</span><span className={`check-status ${check.status === '通过' ? 'pass' : check.status === '提示' ? 'hint' : 'warn'}`}>{check.status}</span></div>)}{generation && <div className="kernel-metrics"><span>包络</span><b>{metrics.boundingLength ?? '—'} × {metrics.boundingWidth ?? '—'} × {metrics.boundingHeight ?? '—'} mm</b><span>体积</span><b>{metrics.volumeMm3 ? `${Number(metrics.volumeMm3).toFixed(3)} mm³` : '—'}</b></div>}<button className="primary-outline" onClick={() => showToast(generation ? '已刷新内核检查报告' : '请先生成一个实体模型')}>重新运行检查 <Icon>↗</Icon></button></div>
 }
 
 const svgPointString = (points) => points.map(([x, y]) => `${Number(x).toFixed(2)},${Number(y).toFixed(2)}`).join(' ')
@@ -1450,9 +1661,25 @@ function ShaftCadModel({ model, section, view }) {
   return <svg className={`cad-svg ${view}`} viewBox="0 0 420 420" role="img" aria-label="参数化轴三维预览"><defs><linearGradient id="metal" x1="0" x2="1"><stop offset="0" stopColor="#718096" /><stop offset=".22" stopColor="#d8e2ed" /><stop offset=".5" stopColor="#8fa0b5" /><stop offset=".76" stopColor="#e8eef4" /><stop offset="1" stopColor="#5d7088" /></linearGradient><linearGradient id="metalDark" x1="0" x2="1"><stop offset="0" stopColor="#53667e" /><stop offset=".5" stopColor="#afbdd0" /><stop offset="1" stopColor="#485b72" /></linearGradient><filter id="shadow"><feGaussianBlur stdDeviation="8" /></filter></defs><ellipse cx="210" cy="352" rx={bodyWidth * .72} ry="20" fill="#08101c" opacity=".6" filter="url(#shadow)" /><g transform={view === 'front' ? 'translate(35 4) rotate(-2 210 210)' : view === 'top' ? 'translate(0 54)' : 'translate(0 0)'}><ellipse cx="210" cy={210 - bodyHeight / 2} rx={bodyWidth / 2} ry="34" fill="url(#metalDark)" stroke="#d6e2ef" strokeWidth="2" /><rect x={210 - bodyWidth / 2} y={210 - bodyHeight / 2} width={bodyWidth} height={bodyHeight} rx="10" fill="url(#metal)" stroke="#b7c9dc" strokeWidth="2" /><ellipse cx="210" cy={210 + bodyHeight / 2} rx={bodyWidth / 2} ry="34" fill="url(#metalDark)" stroke="#9db0c7" strokeWidth="2" /><ellipse cx="210" cy={210 - bodyHeight / 2} rx={hole / 2} ry="10" fill="#111c2b" stroke="#d7e5f3" strokeWidth="2" /><ellipse cx="210" cy={210 + bodyHeight / 2} rx={hole / 2} ry="10" fill="#182537" stroke="#9db0c7" strokeWidth="2" /><path d={`M ${210 - finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 - 3} L ${210 + finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 - 3} L ${210 + finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 + finiteDimension(model.keywayLength, 40) * 1.8} L ${210 - finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 + finiteDimension(model.keywayLength, 40) * 1.8} Z`} fill={section ? '#ffb65c' : '#34465d'} opacity=".85" /><line x1={210 - bodyWidth / 2 - 24} y1={210 - bodyHeight / 2} x2={210 - bodyWidth / 2 - 24} y2={210 + bodyHeight / 2} stroke="#6f89a7" strokeDasharray="3 5" /><line x1="102" y1={210 - bodyHeight / 2} x2="102" y2={210 + bodyHeight / 2} stroke="#87a1c0" strokeWidth="1" /><text x="78" y="205" fill="#91a7c0" fontSize="11" textAnchor="middle">{model.length}</text><text x="210" y={182 - bodyHeight / 2} fill="#a8bad0" fontSize="11" textAnchor="middle">Ø{model.outerDiameter}</text></g></svg>
 }
 
-function DrawingWorkspace({ model, drawingScale, setDrawingScale, exportFile, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">2D DRAWING</span><h1>动力轴 · 工程图</h1><p>自动生成三视图 · 尺寸与来源可追溯</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('已创建工程图新版本')}>＋ 新建版本</button><button className="primary-button" onClick={() => exportFile('dxf')}>导出 DXF <Icon>↓</Icon></button></div></div><div className="drawing-layout"><div className="drawing-canvas panel-card"><div className="drawing-toolbar"><div><button className="selected">选择</button><button>标注</button><button>图层</button></div><label>比例 <select value={drawingScale} onChange={(e) => setDrawingScale(e.target.value)}><option>1:1</option><option>1:2</option><option>2:1</option></select></label></div><svg className="drawing-svg" viewBox="0 0 780 500"><rect x="25" y="25" width="730" height="450" fill="#121a26" stroke="#34465d" /><text x="52" y="58" fill="#9fb2c9" fontSize="13">JOYNIU NEWCAD · 2D WORKBENCH</text><g stroke="#c8d6e5" fill="none" strokeWidth="2"><rect x="100" y="130" width="230" height="76" rx="8" /><line x1="215" y1="130" x2="215" y2="206" /><circle cx="150" cy="168" r="25" stroke="#80a9d4" /><circle cx="280" cy="168" r="25" stroke="#80a9d4" /><rect x="100" y="296" width="230" height="54" rx="5" /><line x1="100" y1="323" x2="330" y2="323" strokeDasharray="4 5" /><circle cx="215" cy="323" r="16" stroke="#80a9d4" /><rect x="450" y="125" width="178" height="84" rx="8" /><circle cx="539" cy="167" r="26" stroke="#80a9d4" /><line x1="539" y1="125" x2="539" y2="209" strokeDasharray="4 4" /></g><g stroke="#e8a85e" fill="#e8a85e" strokeWidth="1"><line x1="100" y1="105" x2="330" y2="105" /><path d="M100 105l8-4v8zM330 105l-8-4v8z" /><line x1="215" y1="105" x2="215" y2="130" strokeDasharray="3 4" /><line x1="100" y1="372" x2="330" y2="372" /><path d="M100 372l8-4v8zM330 372l-8-4v8z" /><line x1="674" y1="125" x2="674" y2="209" /><path d="M674 125l-4 8h8zM674 209l-4-8h8z" /></g><g fill="#e8a85e" fontSize="12"><text x="215" y="96" textAnchor="middle">Ø{model.outerDiameter} h7</text><text x="215" y="393" textAnchor="middle">总长 {model.length}</text><text x="688" y="171">通孔 Ø{model.holeDiameter}</text><text x="106" y="120">A</text><text x="460" y="120">B</text><text x="106" y="285">C</text></g><g fill="#7f93ad" fontSize="11"><text x="100" y="235">主视图</text><text x="100" y="376">俯视图</text><text x="450" y="235">左视图</text><text x="570" y="445">比例 {drawingScale}</text></g></svg><div className="drawing-legend"><span><i className="legend-line" /> 尺寸标注 4</span><span><i className="legend-dot" /> AI 识别来源 6</span><span><i className="legend-warn" /> 待确认 0</span></div></div><aside className="drawing-inspector panel-card"><div className="inspector-title"><b>图纸属性</b><button onClick={() => showToast('图纸属性已保存')}>⋯</button></div><div className="drawing-status"><span className="status-dot" /> 尺寸验证通过</div><div className="drawing-field"><span>图纸名称</span><b>动力轴 · 工程图</b></div><div className="drawing-field"><span>来源模型</span><b>{model.name}</b></div><div className="drawing-field"><span>视图数量</span><b>3 个视图</b></div><div className="drawing-field"><span>标注尺寸</span><b>6 个</b></div><div className="layer-list"><div className="field-group-title">图层</div>{[['DIM', '尺寸标注', '#e8a85e'], ['CENTER', '中心线', '#80a9d4'], ['OBJECT', '可见轮廓', '#c8d6e5']].map(([id, name, color]) => <div className="layer-row" key={id}><span className="layer-color" style={{ background: color }} /><span>{id}</span><small>{name}</small><button>◉</button></div>)}</div><button className="primary-outline full" onClick={() => showToast('已运行 2D 尺寸检查')}>运行尺寸检查 <Icon>↗</Icon></button></aside></div></div> }
+function DrawingWorkspace(props) {
+  return props.model?.kind === 'bracket' ? <BracketDrawingWorkspace {...props} /> : <ShaftDrawingWorkspace {...props} />
+}
 
-function AssemblyWorkspace({ model, assemblyChecked, setAssemblyChecked, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">ASSEMBLY AGENT</span><h1>传动轴组件 · 装配</h1><p>2 个实例 · 1 个同轴配合 · 0 个干涉</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('装配向导已打开')}>✦ 装配 Agent</button><button className="primary-button" onClick={() => { setAssemblyChecked(true); showToast('装配检查完成') }}>运行检查 <Icon>↗</Icon></button></div></div><div className="assembly-grid"><div className="assembly-view panel-card"><div className="assembly-toolbar"><span><i className="live-dot" /> 实时装配预览</span><div><button onClick={() => showToast('已切换爆炸视图')}>爆炸视图</button><button onClick={() => showToast('已打开截面分析')}>截面</button></div></div><div className="assembly-scene"><div className="assembly-axis-line" /><div className="assembly-part bearing"><div className="bearing-ring" /><span>6204 轴承</span></div><div className="assembly-part shaft"><div className="shaft-body" /><span>{model.name}</span></div><div className="assembly-part washer"><div className="washer-ring" /><span>垫圈</span></div></div><div className="assembly-footer"><span>拖拽零件调整位置</span><span>同轴度 <b>0.02 mm</b></span></div></div><aside className="assembly-inspector panel-card"><div className="inspector-title"><b>装配树</b><span className="muted">2 实例</span></div><div className="assembly-tree"><div className="assembly-node root"><Icon>▣</Icon><span>传动轴组件</span></div><div className="assembly-node"><span className="tree-branch">└</span><Icon>◉</Icon><div><b>{model.name}</b><small>实例 01 · 固定</small></div><span className="node-badge">固定</span></div><div className="assembly-node"><span className="tree-branch">└</span><Icon>◉</Icon><div><b>深沟球轴承 6204</b><small>实例 02 · 可移动</small></div></div></div><div className="mates"><div className="field-group-title">配合关系 <b>1</b></div><div className="mate-card"><span className="mate-icon">◎</span><div><b>同轴配合</b><small>轴 · 圆柱面 ↔ 轴承 · 内圈</small></div><span className="check-status pass">通过</span></div></div><div className={`assembly-check ${assemblyChecked ? 'checked' : ''}`}><span>{assemblyChecked ? '✓' : 'i'}</span>{assemblyChecked ? '装配检查通过，未发现干涉。' : '运行检查以验证间隙与配合。'}</div></aside></div></div> }
+function BracketDrawingWorkspace({ model, drawingScale, setDrawingScale, exportFile, showToast }) {
+  const L = Number(model.baseLength) || 100; const W = Number(model.baseWidth) || 50; const T = Number(model.baseThickness) || 10; const H = Number(model.totalHeight) || 40; const R = Number(model.notchRadius) || 15
+  return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">2D DRAWING · LINKED MODEL</span><h1>{model.name} · 工程图</h1><p>当前视图绑定安装支架实体 · 尺寸来源与 3D 模型同步</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('已创建工程图新版本')}>＋ 新建版本</button><button className="primary-button" onClick={() => exportFile('dxf')}>导出 DXF <Icon>↓</Icon></button></div></div><div className="drawing-layout"><div className="drawing-canvas panel-card"><div className="drawing-toolbar"><div><button className="selected">选择</button><button onClick={() => showToast('标注工具将在下一版开放')}>标注</button><button onClick={() => showToast('图层面板已打开')}>图层</button></div><label>比例 <select value={drawingScale} onChange={(e) => setDrawingScale(e.target.value)}><option>1:1</option><option>1:2</option><option>2:1</option></select></label></div><svg className="drawing-svg bracket-drawing-svg" viewBox="0 0 780 500" role="img" aria-label="安装支架三视图"><rect x="25" y="25" width="730" height="450" fill="#121a26" stroke="#34465d" /><text x="52" y="58" fill="#9fb2c9" fontSize="13">JOYNIU NEWCAD · BRACKET DRAWING</text><g stroke="#c8d6e5" fill="none" strokeWidth="2"><path d="M95 205V125H190Q215 125 240 125H335V205H390V250H40V205Z" /><path d="M95 125V205M335 125V205M165 125Q190 190 215 190Q240 190 265 125" stroke="#e8a85e" /><rect x="95" y="310" width="240" height="105" /><circle cx="130" cy="362" r="23" stroke="#80a9d4" /><circle cx="300" cy="362" r="23" stroke="#80a9d4" /><rect x="180" y="337" width="24" height="55" stroke="#80a9d4" /><rect x="226" y="337" width="24" height="55" stroke="#80a9d4" /><rect x="480" y="130" width="175" height="120" /><line x1="480" y1="188" x2="655" y2="188" strokeDasharray="4 4" /><line x1="568" y1="130" x2="568" y2="250" strokeDasharray="4 4" /></g><g stroke="#e8a85e" fill="#e8a85e" strokeWidth="1"><line x1="95" y1="95" x2="335" y2="95" /><path d="M95 95l8-4v8zM335 95l-8-4v8z" /><line x1="95" y1="435" x2="335" y2="435" /><path d="M95 435l8-4v8zM335 435l-8-4v8z" /><line x1="365" y1="125" x2="365" y2="250" /><path d="M365 125l-4 8h8zM365 250l-4-8h8z" /></g><g fill="#e8a85e" fontSize="12"><text x="215" y="86" textAnchor="middle">上部长度 {Number(model.upperLength) || 70}</text><text x="215" y="457" textAnchor="middle">底板长度 {L}</text><text x="378" y="190">总高 {H}</text><text x="185" y="215">R{R} 鞍槽</text><text x="568" y="272" textAnchor="middle">中心距 {Number(model.bossCenterDistance) || 70}</text></g><g fill="#7f93ad" fontSize="11"><text x="95" y="275">主视图</text><text x="95" y="430">俯视图 · {W} mm</text><text x="480" y="275">右视图 · {T} mm</text><text x="570" y="445">比例 {drawingScale}</text></g></svg><div className="drawing-legend"><span><i className="legend-line" /> 尺寸标注 7</span><span><i className="legend-dot" /> AI 识别来源 16</span><span><i className="legend-warn" /> 待确认 0</span></div></div><aside className="drawing-inspector panel-card"><div className="inspector-title"><b>图纸属性</b><button aria-label="图纸属性" onClick={() => showToast('图纸属性已保存')}>⋯</button></div><div className="drawing-status"><span className="status-dot" /> 尺寸验证通过</div><div className="drawing-field"><span>图纸名称</span><b>{model.name} · 工程图</b></div><div className="drawing-field"><span>来源模型</span><b>{model.name}</b></div><div className="drawing-field"><span>关键尺寸</span><b>{L} × {W} × {H} mm</b></div><div className="drawing-field"><span>特征</span><b>鞍槽 · 浅槽 ×2 · 贯穿孔 ×2</b></div><button className="primary-outline full" onClick={() => showToast('已运行 2D 尺寸检查')}>运行尺寸检查 <Icon>↗</Icon></button></aside></div></div>
+}
+
+function ShaftDrawingWorkspace({ model, drawingScale, setDrawingScale, exportFile, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">2D DRAWING</span><h1>{model.name} · 工程图</h1><p>自动生成三视图 · 尺寸与来源可追溯</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('已创建工程图新版本')}>＋ 新建版本</button><button className="primary-button" onClick={() => exportFile('dxf')}>导出 DXF <Icon>↓</Icon></button></div></div><div className="drawing-layout"><div className="drawing-canvas panel-card"><div className="drawing-toolbar"><div><button className="selected">选择</button><button onClick={() => showToast('标注工具将在下一版开放')}>标注</button><button onClick={() => showToast('图层面板已打开')}>图层</button></div><label>比例 <select value={drawingScale} onChange={(e) => setDrawingScale(e.target.value)}><option>1:1</option><option>1:2</option><option>2:1</option></select></label></div><svg className="drawing-svg" viewBox="0 0 780 500"><rect x="25" y="25" width="730" height="450" fill="#121a26" stroke="#34465d" /><text x="52" y="58" fill="#9fb2c9" fontSize="13">JOYNIU NEWCAD · 2D WORKBENCH</text><g stroke="#c8d6e5" fill="none" strokeWidth="2"><rect x="100" y="130" width="230" height="76" rx="8" /><line x1="215" y1="130" x2="215" y2="206" /><circle cx="150" cy="168" r="25" stroke="#80a9d4" /><circle cx="280" cy="168" r="25" stroke="#80a9d4" /><rect x="100" y="296" width="230" height="54" rx="5" /><line x1="100" y1="323" x2="330" y2="323" strokeDasharray="4 5" /><circle cx="215" cy="323" r="16" stroke="#80a9d4" /><rect x="450" y="125" width="178" height="84" rx="8" /><circle cx="539" cy="167" r="26" stroke="#80a9d4" /><line x1="539" y1="125" x2="539" y2="209" strokeDasharray="4 4" /></g><g stroke="#e8a85e" fill="#e8a85e" strokeWidth="1"><line x1="100" y1="105" x2="330" y2="105" /><path d="M100 105l8-4v8zM330 105l-8-4v8z" /><line x1="215" y1="105" x2="215" y2="130" strokeDasharray="3 4" /><line x1="100" y1="372" x2="330" y2="372" /><path d="M100 372l8-4v8zM330 372l-8-4v8z" /><line x1="674" y1="125" x2="674" y2="209" /><path d="M674 125l-4 8h8zM674 209l-4-8h8z" /></g><g fill="#e8a85e" fontSize="12"><text x="215" y="96" textAnchor="middle">Ø{model.outerDiameter} h7</text><text x="215" y="393" textAnchor="middle">总长 {model.length}</text><text x="688" y="171">通孔 Ø{model.holeDiameter}</text><text x="106" y="120">A</text><text x="460" y="120">B</text><text x="106" y="285">C</text></g><g fill="#7f93ad" fontSize="11"><text x="100" y="235">主视图</text><text x="100" y="376">俯视图</text><text x="450" y="235">左视图</text><text x="570" y="445">比例 {drawingScale}</text></g></svg><div className="drawing-legend"><span><i className="legend-line" /> 尺寸标注 4</span><span><i className="legend-dot" /> AI 识别来源 6</span><span><i className="legend-warn" /> 待确认 0</span></div></div><aside className="drawing-inspector panel-card"><div className="inspector-title"><b>图纸属性</b><button aria-label="图纸属性" onClick={() => showToast('图纸属性已保存')}>⋯</button></div><div className="drawing-status"><span className="status-dot" /> 尺寸验证通过</div><div className="drawing-field"><span>图纸名称</span><b>{model.name} · 工程图</b></div><div className="drawing-field"><span>来源模型</span><b>{model.name}</b></div><div className="drawing-field"><span>视图数量</span><b>3 个视图</b></div><div className="drawing-field"><span>标注尺寸</span><b>6 个</b></div><div className="layer-list"><div className="field-group-title">图层</div>{[['DIM', '尺寸标注', '#e8a85e'], ['CENTER', '中心线', '#80a9d4'], ['OBJECT', '可见轮廓', '#c8d6e5']].map(([id, name, color]) => <div className="layer-row" key={id}><span className="layer-color" style={{ background: color }} /><span>{id}</span><small>{name}</small><button aria-label={`${name}图层`} onClick={() => showToast(`${name}图层已切换`)}>◉</button></div>)}</div><button className="primary-outline full" onClick={() => showToast('已运行 2D 尺寸检查')}>运行尺寸检查 <Icon>↗</Icon></button></aside></div></div> }
+
+function AssemblyWorkspace(props) {
+  if (props.model?.kind === 'bracket') {
+    return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">ASSEMBLY WORKSPACE</span><h1>{props.model.name} · 装配</h1><p>当前项目还没有装配实例。先在 3D 设计工作台完成实体，再添加配合关系。</p></div><div className="heading-actions"><button className="primary-button" onClick={() => props.showToast('请先返回 3D 建模并保存一个实体版本')}>返回 3D 设计 <Icon>↗</Icon></button></div></div><div className="assembly-empty panel-card"><div className="quick-start-icon">◈</div><h2>尚未创建装配</h2><p>安装支架是单个零件。装配树、同轴配合和干涉检查会在添加第二个零件后显示。</p><button className="secondary-button" onClick={() => props.showToast('标准件库可用于添加轴承、紧固件等实例')}>去标准件库</button></div></div>
+  }
+  return <LegacyAssemblyWorkspace {...props} />
+}
+
+function LegacyAssemblyWorkspace({ model, assemblyChecked, setAssemblyChecked, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">ASSEMBLY AGENT</span><h1>{model.name} · 装配</h1><p>2 个实例 · 1 个同轴配合 · 0 个干涉</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('装配向导已打开')}>✦ 装配 Agent</button><button className="primary-button" onClick={() => { setAssemblyChecked(true); showToast('装配检查完成') }}>运行检查 <Icon>↗</Icon></button></div></div><div className="assembly-grid"><div className="assembly-view panel-card"><div className="assembly-toolbar"><span><i className="live-dot" /> 实时装配预览</span><div><button onClick={() => showToast('已切换爆炸视图')}>爆炸视图</button><button onClick={() => showToast('已打开截面分析')}>截面</button></div></div><div className="assembly-scene"><div className="assembly-axis-line" /><div className="assembly-part bearing"><div className="bearing-ring" /><span>6204 轴承</span></div><div className="assembly-part shaft"><div className="shaft-body" /><span>{model.name}</span></div><div className="assembly-part washer"><div className="washer-ring" /><span>垫圈</span></div></div><div className="assembly-footer"><span>拖拽零件调整位置</span><span>同轴度 <b>0.02 mm</b></span></div></div><aside className="assembly-inspector panel-card"><div className="inspector-title"><b>装配树</b><span className="muted">2 实例</span></div><div className="assembly-tree"><div className="assembly-node root"><Icon>▣</Icon><span>{model.name} · 组件</span></div><div className="assembly-node"><span className="tree-branch">└</span><Icon>◉</Icon><div><b>{model.name}</b><small>实例 01 · 固定</small></div><span className="node-badge">固定</span></div><div className="assembly-node"><span className="tree-branch">└</span><Icon>◉</Icon><div><b>深沟球轴承 6204</b><small>实例 02 · 可移动</small></div></div></div><div className="mates"><div className="field-group-title">配合关系 <b>1</b></div><div className="mate-card"><span className="mate-icon">◎</span><div><b>同轴配合</b><small>轴 · 圆柱面 ↔ 轴承 · 内圈</small></div><span className="check-status pass">通过</span></div></div><div className={`assembly-check ${assemblyChecked ? 'checked' : ''}`}><span>{assemblyChecked ? '✓' : 'i'}</span>{assemblyChecked ? '装配检查通过，未发现干涉。' : '运行检查以验证间隙与配合。'}</div></aside></div></div> }
 
 function LibraryWorkspace({ libraryQuery, setLibraryQuery, libraryGroup, setLibraryGroup, filteredLibrary, insertLibrary, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">STANDARD LIBRARY</span><h1>标准件库</h1><p>常用机械件已按国标整理，可直接插入当前项目</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('标准件同步完成 · 1,248 项')}>↻ 同步库</button><button className="primary-button" onClick={() => showToast('已打开自定义标准件向导')}>＋ 自定义零件</button></div></div><div className="library-layout"><div className="library-main panel-card"><div className="library-toolbar"><div className="search-box"><Icon>⌕</Icon><input value={libraryQuery} onChange={(e) => setLibraryQuery(e.target.value)} placeholder="搜索名称、规格或国标号" /></div><div className="library-filters">{['全部', '紧固件', '轴承', '定位件'].map((group) => <button className={libraryGroup === group ? 'selected' : ''} key={group} onClick={() => setLibraryGroup(group)}>{group}</button>)}</div></div><div className="library-grid">{filteredLibrary.map((item) => <div className="library-card" key={item.name}><div className="library-icon">{item.icon}</div><div className="library-card-copy"><b>{item.name}</b><span>{item.spec}</span><small>{item.group} · GB/T 推荐</small></div><button className="insert-button" onClick={() => insertLibrary(item)}>插入</button></div>)}{filteredLibrary.length === 0 && <div className="empty-state">没有找到匹配的标准件，试试搜索 “M8” 或 “轴承”。</div>}</div></div><aside className="library-side panel-card"><div className="inspector-title"><b>项目零件库</b><span className="muted">3 个</span></div><div className="project-part"><span className="part-preview shaft-mini" /><div><b>动力轴 · 版本 04</b><small>当前模型</small></div><span className="part-check">✓</span></div><div className="project-part"><span className="part-preview bearing-mini" /><div><b>深沟球轴承 6204</b><small>已插入 · 实例 02</small></div><span className="part-check">✓</span></div><div className="project-part"><span className="part-preview washer-mini" /><div><b>弹簧垫圈 M8</b><small>最近使用</small></div><span className="part-check muted">＋</span></div><div className="library-tip"><Icon>✦</Icon><span>从标准件库插入的零件会保留规格来源，方便后续替换和追溯。</span></div></aside></div></div> }
 
@@ -1464,6 +1691,11 @@ function ProjectWorkspace({ selectedProject, files, setFiles, setActiveMode, exp
   return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">PROJECT FILES</span><h1>{selectedProject}</h1><p>项目文件、版本和交付物统一管理 · {files.length} 个文件</p></div><div className="heading-actions"><button className="secondary-button" onClick={saveVersion}>↥ 保存新版本</button><button className="primary-button" onClick={addFile}>＋ 新建文件</button></div></div><div className="project-layout"><div className="file-table panel-card"><div className="file-table-toolbar"><div className="search-box"><Icon>⌕</Icon><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索项目文件" /></div><div className="file-toolbar-meta"><span><i className="status-dot" /> 已自动保存</span><button onClick={() => showToast('排序：最近更新')}>最近更新 ⌄</button></div></div><div className="file-table-head"><span>名称</span><span>类型</span><span>版本</span><span>大小</span><span>最近更新</span><span>状态</span><span /></div>{visibleFiles.map((file) => <div className="file-row" key={file.id}><div className="file-name"><span className={`file-type-icon ${file.type === '工程图' ? 'orange' : file.type === '装配体' ? 'violet' : file.type === '文档' ? 'green' : 'blue'}`}>{file.type === '工程图' ? '▱' : file.type === '装配体' ? '◈' : file.type === '文档' ? '≡' : '◉'}</span><div><b>{file.name}</b><small>{file.id === 'f1' ? '当前打开 · 可编辑' : `文件 ID ${file.id}`}</small></div></div><span className="file-type">{file.type}</span><span className="file-version">{file.version}</span><span className="file-size">{file.size}</span><span className="file-updated">{file.updated}</span><span className={`file-status ${file.status === '仅本地' ? 'local' : ''}`}>{file.status}</span><div className="file-actions"><button onClick={() => { setActiveMode(file.type === '工程图' ? '2D 工程图' : file.type === '装配体' ? '装配' : '3D 建模'); showToast(`正在打开 ${file.name}`) }}>打开</button><button onClick={() => exportFile(file.type === '工程图' ? 'dxf' : 'step')}>下载</button></div></div>)}{visibleFiles.length === 0 && <div className="empty-state">没有找到匹配的项目文件。</div>}<div className="file-table-footer"><span>已显示 {visibleFiles.length} / {files.length} 个文件</span><span>回收站中的文件保留 15 天</span></div></div><aside className="project-summary panel-card"><div className="inspector-title"><b>项目概览</b><button onClick={() => showToast('项目属性已保存')}>⋯</button></div><div className="project-health"><div className="health-ring">94<small>%</small></div><div><b>交付准备度</b><small>模型、图纸与参数均已同步</small></div></div><div className="summary-item"><span>零件</span><b>3</b></div><div className="summary-item"><span>工程图</span><b>2</b></div><div className="summary-item"><span>装配体</span><b>1</b></div><div className="summary-item"><span>版本总数</span><b>12</b></div><div className="project-summary-tip"><Icon>✦</Icon><span>建议在导出前保存一个新版本，便于回溯尺寸与设计意图。</span></div></aside></div></div>
 }
 
-function HomeWorkspace({ projects, selectedProject, createProject, setActiveMode, showToast }) { return <div className="home-workspace"><div className="home-hero"><div><span className="eyebrow">WELCOME BACK, JOY</span><h1>把想法，变成可制造的形状。</h1><p>用自然语言驱动参数化设计，所有尺寸、特征和版本都可追溯。</p><div className="hero-actions"><button className="primary-button" onClick={() => setActiveMode('3D 建模')}>✦ 开始 AI 建模</button><button className="secondary-button" onClick={() => setActiveMode('2D 工程图')}>打开工程图</button></div></div><div className="hero-orbit"><div className="orbit orbit-1" /><div className="orbit orbit-2" /><div className="hero-cube">N</div></div></div><div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div><div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => { setActiveMode('3D 建模'); showToast(`正在打开 ${project.name}`) }}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div><div className="quick-grid"><button onClick={() => setActiveMode('3D 建模')}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>三视图与尺寸标注</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>配合与干涉检查</small></div><span>→</span></button></div></div> }
+function LegacyHomeWorkspace({ projects, selectedProject, createProject, setActiveMode, showToast }) { return <div className="home-workspace"><div className="home-hero"><div><span className="eyebrow">WELCOME BACK, JOY</span><h1>把想法，变成可制造的形状。</h1><p>用自然语言驱动参数化设计，所有尺寸、特征和版本都可追溯。</p><div className="hero-actions"><button className="primary-button" onClick={() => setActiveMode('3D 建模')}>✦ 开始 AI 建模</button><button className="secondary-button" onClick={() => setActiveMode('2D 工程图')}>打开工程图</button></div></div><div className="hero-orbit"><div className="orbit orbit-1" /><div className="orbit orbit-2" /><div className="hero-cube">N</div></div></div><div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div><div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => { setActiveMode('3D 建模'); showToast(`正在打开 ${project.name}`) }}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div><div className="quick-grid"><button onClick={() => setActiveMode('3D 建模')}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>三视图与尺寸标注</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>配合与干涉检查</small></div><span>→</span></button></div></div> }
+
+function HomeWorkspace({ projects, selectedProject, setSelectedProject, createProject, setActiveMode, showToast, attachDrawingToConversation }) {
+  const inputRef = useRef(null)
+  return <div className="home-workspace"><section className="home-hero"><div className="home-hero-copy"><span className="eyebrow">WELCOME TO JOYNIU NEW CAD</span><h1>一张图纸，开始一个可编辑的 3D 模型。</h1><p>按“上传 → 识别 → 复核 → 生成 → 修改 → 导出”完成设计。AI 会保留每个尺寸的来源与版本。</p><div className="hero-actions"><input ref={inputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="上传图纸生成三维模型" onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><button className="primary-button hero-upload" onClick={() => inputRef.current?.click()}>📎 上传图纸生成 3D <Icon>↗</Icon></button><button className="secondary-button" onClick={() => { setActiveMode('3D 建模'); showToast('已打开设计工作台 · 可直接输入尺寸') }}>从文字开始</button></div><div className="hero-format-note">支持 JPG、PNG、WEBP、PDF、DWG、DXF · 单个文件不超过 20 MB</div></div><div className="hero-orbit" aria-hidden="true"><div className="orbit orbit-1" /><div className="orbit orbit-2" /><div className="hero-cube">N</div></div></section><div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div><div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => { setSelectedProject?.(project.name); setActiveMode('3D 建模'); showToast(`正在打开 ${project.name}`) }}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div><div className="quick-grid"><button onClick={() => { setActiveMode('3D 建模'); showToast('已打开 AI 设计助手') }}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>由当前模型生成视图</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>已有实体后再创建装配</small></div><span>→</span></button></div></div>
+}
 
 export default App
