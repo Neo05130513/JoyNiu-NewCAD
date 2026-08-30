@@ -145,6 +145,42 @@ def test_proxy_does_not_consume_generic_openai_environment_key(monkeypatch):
     assert "generic-key-must-not-forward" not in str(error.value)
 
 
+def test_unknown_drawing_returns_review_envelope_without_provider(monkeypatch):
+    """Missing relay configuration must not turn unknown evidence into 503."""
+    from app import ai_proxy
+
+    for name in (
+        "JOYNIU_LLM_API_KEY", "JOYNIU_AI_API_KEY", "JOYNIU_LLM_API_KEY_FILE",
+        "JOYNIU_AI_API_KEY_FILE", "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        ai_proxy,
+        "_recognize_attachment",
+        lambda _item: {"id": "compat_unknown", "status": "needs_review", "parameters": {}},
+    )
+    result = AIProxy().converse(
+        "解析这份图纸",
+        files=(AIFile("unknown.dwg", "application/octet-stream", b"AC10"),),
+    )
+    assert result.needs_review is True
+    assert result.parameter_patch == {}
+    assert result.drawing["id"] == "compat_unknown"
+
+
+def test_anonymous_ai_requires_loopback_or_development_environment(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.platform_api import _anonymous_ai_request_allowed
+
+    remote_request = SimpleNamespace(client=SimpleNamespace(host="10.20.30.40"))
+    monkeypatch.delenv("JOYNIU_ENV", raising=False)
+    assert _anonymous_ai_request_allowed(remote_request) is False
+    monkeypatch.setenv("JOYNIU_ENV", "development")
+    assert _anonymous_ai_request_allowed(remote_request) is True
+
+
+
 def test_proxy_rejects_unsupported_provider_patch(monkeypatch):
     monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
     monkeypatch.setattr(
@@ -206,6 +242,18 @@ def test_unreviewed_attachment_keeps_review_gate_for_local_edit(monkeypatch):
     )
     assert result.parameter_patch == {"baseLength": 110}
     assert result.needs_review is True
+
+
+def test_local_dimension_grammar_prefers_target_value_and_separates_keyway_length(monkeypatch):
+    """Offline edits should use the new value, not an old dimension token."""
+    from app.ai_proxy import _text_parameter_patch
+
+    assert _text_parameter_patch("把底板长度从100改为90", {"kind": "bracket"}) == {"baseLength": 90}
+    assert _text_parameter_patch("修改 R15 为 R12", {"kind": "bracket"}) == {"notchRadius": 12}
+    assert _text_parameter_patch("把键槽长度改为45", {"kind": "shaft"}) == {"keywayLength": 45}
+    assert _text_parameter_patch(
+        "把轴长度改为80，同时把键槽长度改为45", {"kind": "shaft"}
+    ) == {"length": 80, "keywayLength": 45}
 
 
 def _client_for(services):
@@ -274,6 +322,36 @@ def test_ai_route_passes_file_and_turn_state_to_injected_proxy():
     assert fake.calls[0][2]["baseLength"] == 100
     assert fake.calls[0][3][0].filename == "drawing.pdf"
     assert fake.calls[0][3][0].data == b"%PDF-test"
+
+
+def test_ai_route_drops_unregistered_compatibility_recognition(monkeypatch):
+    services = build_platform_services(":memory:", auth_secret="e" * 32)
+    designer = services.auth.create_user("compat@example.com", "long-password", "Designer", roles=["designer"])
+
+    class FakeAI:
+        def converse(self, message, *, previous_response_id, model_state, files):
+            return AIConversationResult(
+                "resp_compat", "收到", {}, True, (),
+                drawing={"id": "compat_not_registered", "status": "confirmed"},
+            )
+
+    class BrokenOCR:
+        def analyze(self, *_args, **_kwargs):
+            raise RuntimeError("parser unavailable")
+
+    services.ai = FakeAI()
+    services.ocr = BrokenOCR()
+    client = _client_for(services)
+    response = client.post(
+        "/api/v1/ai/conversation",
+        headers=_auth_for(services, designer),
+        data={"message": "解析"},
+        files={"file": ("drawing.dxf", b"0\nSECTION", "application/dxf")},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "drawingRecognition" not in payload
+    assert payload["needsReview"] is True
 
 
 def test_ai_route_explicit_anonymous_demo_accepts_file_alias(monkeypatch):

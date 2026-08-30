@@ -19,6 +19,7 @@ import base64
 import binascii
 import asyncio
 import hashlib
+import ipaddress
 import json
 import os
 import uuid
@@ -216,6 +217,18 @@ def _is_admin_actor(services: PlatformServices, actor: Any) -> bool:
         return services.auth.has_permission(actor, Permission.USER_MANAGE)
     except PlatformError:
         return False
+
+
+def _anonymous_ai_request_allowed(request: Any) -> bool:
+    """Allow guest AI only for loopback or an explicit development env."""
+
+    host = str(getattr(getattr(request, "client", None), "host", "") or "").strip().casefold()
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host in {"localhost", "testclient"}
+    environment = os.environ.get("JOYNIU_ENV", "").strip().casefold()
+    return loopback or environment in {"development", "dev", "local", "test"}
 
 
 def _member_identity(entry: Any) -> tuple[str | None, str]:
@@ -497,6 +510,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
 
     @router.post("/ai/conversation")
     async def ai_conversation(
+        request: Request,
         message: str = Form(default=""),
         previous_response_id: str | None = Form(default=None),
         previous_response_id_alias: str | None = Form(default=None, alias="previousResponseId"),
@@ -523,7 +537,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             if authorization:
                 actor = _token_user(services, authorization)
                 services.auth.require(actor, Permission.AI_CHAT)
-            elif not services.ai.allow_anonymous:
+            elif not services.ai.allow_anonymous or not _anonymous_ai_request_allowed(request):
                 raise AuthenticationError("bearer token is required")
             model_state: Mapping[str, Any] | None = None
             effective_previous_response_id = previous_response_id or previous_response_id_alias
@@ -584,13 +598,22 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                         attachment.data,
                         filename=attachment.filename,
                     )
-                except PlatformError:
+                except Exception:
+                    # OCR is an enrichment step after the AI request. A
+                    # missing rasterizer/parser must not discard an otherwise
+                    # valid conversation response; the attachment metadata
+                    # and any review flag from the AI proxy remain available.
                     continue
                 services.recognitions[candidate.id] = candidate
                 if registered_drawing is None:
                     registered_drawing = candidate
             if registered_drawing is not None:
                 result = replace(result, drawing=registered_drawing.to_dict())
+            elif attachments and getattr(result, "drawing", None) is not None:
+                # Never return a compatibility recognition id that is absent
+                # from this platform service graph.  Such an id would later
+                # produce a misleading 404 when used as sourceDrawingId.
+                result = replace(result, drawing=None, needs_review=True)
             # Keep the response metadata authoritative even when an injected
             # provider/test double does not populate its own attachment list.
             if canonical_attachments:
@@ -601,20 +624,24 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
 
     @router.post("/ai/chat")
     async def ai_chat_alias(
+        request: Request,
         message: str = Form(default=""),
         previous_response_id: str | None = Form(default=None),
+        previous_response_id_alias: str | None = Form(default=None, alias="previousResponseId"),
         model_state_json: str | None = Form(default=None),
+        model_state_alias: str | None = Form(default=None, alias="modelState"),
         file: UploadFile | None = File(default=None),
         files: list[UploadFile] | None = File(default=None),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         """Short alias used by newer clients; accept both file conventions."""
         return await ai_conversation(
+            request=request,
             message=message,
             previous_response_id=previous_response_id,
-            previous_response_id_alias=None,
+            previous_response_id_alias=previous_response_id_alias,
             model_state_json=model_state_json,
-            model_state_alias=None,
+            model_state_alias=model_state_alias,
             file=file,
             files=files,
             authorization=authorization,

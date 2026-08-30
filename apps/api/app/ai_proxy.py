@@ -209,8 +209,12 @@ def _provider_key() -> str:
             continue
         try:
             text = Path(key_file).expanduser().read_text(encoding="utf-8")
-        except OSError as exc:
-            raise AIProviderNotConfigured("AI provider credential file is unavailable") from exc
+        except OSError:
+            # A deployment may leave an optional canonical path set while a
+            # legacy fallback file is still present. Try the remaining source
+            # before reporting configuration failure, without echoing paths
+            # or filesystem details to the client.
+            continue
         value = _extract_key(text, allow_plain=True)
         if value:
             return value
@@ -406,10 +410,23 @@ def _recognition_patch(drawing: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def _number(text: str, patterns: Iterable[str]) -> float | None:
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            raw_value = match.group(1)
+            # Change requests often include both the old and target value,
+            # e.g. ``底板长度从100改为90`` or ``R15 改为 R12``.  The compact
+            # label regexes above naturally match the first number; when a
+            # change verb follows that match, prefer the last number in the
+            # same clause (up to punctuation) so the patch reflects the new
+            # value.  Descriptive drawing text without a change verb keeps
+            # the original first-match behaviour.
+            tail = text[match.end() : match.end() + 80]
+            clause = re.split(r"[,，;；。\n]", tail, maxsplit=1)[0]
+            if re.search(r"(?:改为|改成|调整为|设为|设置为|变更为|换成|变成|替换为|为|到)", clause):
+                candidates = re.findall(r"\d+(?:\.\d+)?", clause)
+                if candidates:
+                    raw_value = candidates[-1]
             try:
-                value = float(match.group(1))
+                value = float(raw_value)
             except (TypeError, ValueError):
                 continue
             if math.isfinite(value) and value > 0:
@@ -426,19 +443,61 @@ def _text_parameter_patch(message: str, model_state: Mapping[str, Any] | None) -
     patch: dict[str, Any] = {}
     if bracket:
         patterns: dict[str, tuple[str, ...]] = {
-            "baseLength": (r"底板[^\d]{0,10}(?:长|长度)\D{0,8}(\d+(?:\.\d+)?)", r"底板\D{0,8}(\d+(?:\.\d+)?)\s*[×x*]"),
-            "baseWidth": (r"底板[^\d]{0,10}(?:宽|宽度)\D{0,8}(\d+(?:\.\d+)?)",),
-            "baseThickness": (r"底板[^\d]{0,10}(?:厚|厚度)\D{0,8}(\d+(?:\.\d+)?)", r"厚度\D{0,8}(\d+(?:\.\d+)?)"),
-            "upperLength": (r"上部[^\d]{0,10}(?:长|长度)\D{0,8}(\d+(?:\.\d+)?)",),
-            "upperWidth": (r"上部[^\d]{0,10}(?:宽|深|深度)\D{0,8}(\d+(?:\.\d+)?)",),
-            "upperHeight": (r"上部[^\d]{0,10}(?:高|高度)\D{0,8}(\d+(?:\.\d+)?)",),
+            "baseLength": (
+                r"底板[^\d]{0,10}(?:长|长度)[^\d]{0,16}(?:改为|调整为|设为|设置为|变更为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"底板[^\d]{0,10}(?:长|长度)\D{0,8}(\d+(?:\.\d+)?)",
+                r"底板\D{0,8}(\d+(?:\.\d+)?)\s*[×x*]",
+            ),
+            "baseWidth": (
+                r"底板[^\d]{0,10}(?:宽|宽度)[^\d]{0,16}(?:改为|调整为|设为|设置为|变更为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"底板[^\d]{0,10}(?:宽|宽度)\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "baseThickness": (
+                r"底板[^\d]{0,10}(?:厚|厚度)[^\d]{0,16}(?:改为|调整为|设为|设置为|变更为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"底板[^\d]{0,10}(?:厚|厚度)\D{0,8}(\d+(?:\.\d+)?)",
+                r"厚度\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "upperLength": (
+                r"上部[^\d]{0,10}(?:长|长度)[^\d]{0,16}(?:改为|调整为|设为|设置为|变更为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"上部[^\d]{0,10}(?:长|长度)\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "upperWidth": (
+                r"上部[^\d]{0,10}(?:宽|深|深度)[^\d]{0,16}(?:改为|调整为|设为|设置为|变更为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"上部[^\d]{0,10}(?:宽|深|深度)\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "upperHeight": (
+                r"上部[^\d]{0,10}(?:高|高度)[^\d]{0,16}(?:改为|调整为|设为|设置为|变更为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"上部[^\d]{0,10}(?:高|高度)\D{0,8}(\d+(?:\.\d+)?)",
+            ),
             "totalHeight": (r"总高(?:度)?\D{0,8}(\d+(?:\.\d+)?)",),
-            "notchOpening": (r"(?:缺口|开口)[^\d]{0,10}(?:宽|开口)?\D{0,8}(\d+(?:\.\d+)?)",),
-            "notchRadius": (r"(?:圆弧|缺口)[^\d]{0,10}(?:半径|R)\D{0,5}(\d+(?:\.\d+)?)", r"\bR\s*(\d+(?:\.\d+)?)"),
-            "slotLength": (r"(?:浅槽|槽)[^\d]{0,10}(?:长|长度|沿Y)\D{0,8}(\d+(?:\.\d+)?)", r"槽长\D{0,8}(\d+(?:\.\d+)?)"),
-            "slotWidth": (r"(?:浅槽|槽)[^\d]{0,10}(?:宽|宽度)\D{0,8}(\d+(?:\.\d+)?)", r"槽宽\D{0,8}(\d+(?:\.\d+)?)"),
-            "pocketDepth": (r"(?:浅槽|口袋|槽)[^\d]{0,10}(?:深|深度)\D{0,8}(\d+(?:\.\d+)?)",),
-            "bossDiameter": (r"(?:孔|凹槽|侧孔|圆柱)[^\d]{0,10}(?:直径|Ø|φ)\D{0,5}(\d+(?:\.\d+)?)", r"[ØΦφ]\s*(\d+(?:\.\d+)?)"),
+            "notchOpening": (
+                r"(?:缺口|开口)[^\d]{0,10}(?:宽|开口)?[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"(?:缺口|开口)[^\d]{0,10}(?:宽|开口)?\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "notchRadius": (
+                r"(?:圆弧|缺口)?\s*(?:半径|R)\s*\d+(?:\.\d+)?[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(?:R\s*)?(\d+(?:\.\d+)?)",
+                r"(?:圆弧|缺口)[^\d]{0,10}(?:半径|R)\D{0,5}(\d+(?:\.\d+)?)",
+                r"\bR\s*(\d+(?:\.\d+)?)",
+            ),
+            "slotLength": (
+                r"(?:浅槽|槽)[^\d]{0,10}(?:长|长度|沿Y)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"(?:浅槽|槽)[^\d]{0,10}(?:长|长度|沿Y)\D{0,8}(\d+(?:\.\d+)?)",
+                r"槽长\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "slotWidth": (
+                r"(?:浅槽|槽)[^\d]{0,10}(?:宽|宽度)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"(?:浅槽|槽)[^\d]{0,10}(?:宽|宽度)\D{0,8}(\d+(?:\.\d+)?)",
+                r"槽宽\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "pocketDepth": (
+                r"(?:浅槽|口袋|槽)[^\d]{0,10}(?:深|深度)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"(?:浅槽|口袋|槽)[^\d]{0,10}(?:深|深度)\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "bossDiameter": (
+                r"(?:孔|凹槽|侧孔|圆柱)[^\d]{0,10}(?:直径|Ø|φ)[^\d]{0,12}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"(?:孔|凹槽|侧孔|圆柱)[^\d]{0,10}(?:直径|Ø|φ)\D{0,5}(\d+(?:\.\d+)?)",
+                r"[ØΦφ]\s*(\d+(?:\.\d+)?)",
+            ),
             "bossCenterDistance": (r"中心距\D{0,8}(\d+(?:\.\d+)?)",),
         }
         for field, field_patterns in patterns.items():
@@ -456,21 +515,52 @@ def _text_parameter_patch(message: str, model_state: Mapping[str, Any] | None) -
         return patch
 
     patterns = {
-        "outerDiameter": (r"外径\D{0,8}(\d+(?:\.\d+)?)", r"(?:直径|OD)\D{0,8}(\d+(?:\.\d+)?)"),
-        # "加长到 80" is a part-length edit; do not let it become a keyway
-        # length merely because the Chinese character 长 appears in it.
-        "length": (r"(?:总长度|零件长度|长度|加长(?:到)?|长)\D{0,8}(\d+(?:\.\d+)?)",),
-        "holeDiameter": (r"(?:通孔|内径|孔径)\D{0,8}(\d+(?:\.\d+)?)", r"[ØΦφ]\s*(\d+(?:\.\d+)?)"),
+        "outerDiameter": (
+            r"外径[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+            r"外径\D{0,8}(\d+(?:\.\d+)?)",
+            r"(?:直径|OD)\D{0,8}(\d+(?:\.\d+)?)",
+        ),
+        "holeDiameter": (
+            r"(?:通孔|内径|孔径)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+            r"(?:通孔|内径|孔径)\D{0,8}(\d+(?:\.\d+)?)",
+            r"[ØΦφ]\s*(\d+(?:\.\d+)?)",
+        ),
     }
+    # "加长到 80" is a part-length edit.  When the sentence mentions a
+    # keyway, avoid the generic ``长度`` label so ``键槽长度改为45`` cannot
+    # accidentally overwrite the shaft's total length.
+    if re.search(r"键槽", text):
+        patterns["length"] = (
+            r"(?:总长度|零件长度|轴长度)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+            r"(?:总长度|零件长度|轴长度)\D{0,8}(\d+(?:\.\d+)?)",
+            r"加长(?:到|为)?\D{0,8}(\d+(?:\.\d+)?)",
+        )
+    else:
+        patterns["length"] = (
+            r"(?:总长度|零件长度|轴长度|长度)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+            r"(?:总长度|零件长度|轴长度|长度)\D{0,8}(\d+(?:\.\d+)?)",
+            r"加长(?:到|为)?\D{0,8}(\d+(?:\.\d+)?)",
+            r"长\D{0,8}(\d+(?:\.\d+)?)",
+        )
     for field, field_patterns in patterns.items():
         value = _number(text, field_patterns)
         if value is not None:
             patch[field] = value
     if re.search(r"键槽|槽宽|槽深|槽长", text):
         keyway_patterns = {
-            "keywayWidth": (r"(?:键槽[^\d]{0,8})?(?:槽宽|宽度|宽)\D{0,8}(\d+(?:\.\d+)?)",),
-            "keywayDepth": (r"(?:键槽[^\d]{0,8})?(?:槽深|深度|深)\D{0,8}(\d+(?:\.\d+)?)",),
-            "keywayLength": (r"(?:键槽[^\d]{0,8})(?:槽长|长度|长)\D{0,8}(\d+(?:\.\d+)?)", r"槽长\D{0,8}(\d+(?:\.\d+)?)"),
+            "keywayWidth": (
+                r"(?:键槽[^\d]{0,8})?(?:槽宽|宽度|宽)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"(?:键槽[^\d]{0,8})?(?:槽宽|宽度|宽)\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "keywayDepth": (
+                r"(?:键槽[^\d]{0,8})?(?:槽深|深度|深)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"(?:键槽[^\d]{0,8})?(?:槽深|深度|深)\D{0,8}(\d+(?:\.\d+)?)",
+            ),
+            "keywayLength": (
+                r"键槽[^\d]{0,12}(?:槽长|长度|长)[^\d]{0,16}(?:改为|调整为|设为|换成|到)[^\d]*(\d+(?:\.\d+)?)",
+                r"键槽[^\d]{0,12}(?:槽长|长度|长)\D{0,8}(\d+(?:\.\d+)?)",
+                r"槽长\D{0,8}(\d+(?:\.\d+)?)",
+            ),
         }
         for field, field_patterns in keyway_patterns.items():
             value = _number(text, field_patterns)
@@ -739,18 +829,27 @@ class AIProxy:
                 attachments=tuple(attachment_meta),
             )
 
+        # An unknown attachment is itself a valid evidence result even when
+        # no relay key is configured. Return the review envelope rather than a
+        # misleading 503, so a reviewer can inspect/confirm it through the
+        # platform OCR workflow.
+        if drawing is not None and drawing.get("status") != "confirmed":
+            return AIConversationResult(
+                response_id=f"local_{uuid4().hex[:16]}",
+                message=(
+                    "已收到图纸，但当前无法完成可信参数化识别；识别结果需要人工确认后才会生成实体。"
+                    if remote_error is None
+                    else "已收到图纸，但当前中转站不可用；识别结果需要人工确认后才会生成实体。"
+                ),
+                parameter_patch={},
+                needs_review=True,
+                questions=("请确认图纸单位、视图对应关系和关键特征后重试。",),
+                drawing=drawing,
+                provider=_safe_provider_info("local-fallback", configured),
+                attachments=tuple(attachment_meta),
+            )
+
         if remote_error is not None:
-            if drawing is not None and drawing.get("status") != "confirmed":
-                return AIConversationResult(
-                    response_id=f"local_{uuid4().hex[:16]}",
-                    message="已收到图纸，但当前中转站不可用；识别结果需要人工确认后才会生成实体。",
-                    parameter_patch={},
-                    needs_review=True,
-                    questions=("请确认图纸单位、视图对应关系和关键特征后重试。",),
-                    drawing=drawing,
-                    provider=_safe_provider_info("local-fallback", configured),
-                    attachments=tuple(attachment_meta),
-                )
             raise remote_error
         raise AIProviderNotConfigured("AI provider is not configured and no deterministic patch was found")
 
