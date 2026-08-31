@@ -15,12 +15,12 @@ from datetime import datetime, timezone
 import hashlib
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
 from . import __version__
@@ -83,6 +83,98 @@ app.add_middleware(
 _drawings: dict[str, DrawingRecognition] = {}
 _artifacts: dict[str, dict[str, Any]] = {}
 _requests: dict[str, GeometryResponse] = {}
+
+# ``recognition.py`` is intentionally backwards-compatible: when no OCR
+# dimension can be recovered it returns a complete canonical bracket profile
+# so older clients can still render a preview.  Those values are a visual
+# scaffold, not evidence from the uploaded sheet.  Keep the distinction at
+# the HTTP confirmation boundary too; otherwise a direct legacy ``/accept``
+# call could turn the scaffold into a production source without a human ever
+# supplying the missing dimensions.
+_LEGACY_FALLBACK_ENGINES = frozenset(
+    {"heuristic-review", "tesseract-compatible", "compatibility-recognizer"}
+)
+_REQUIRED_DRAWING_FIELDS = frozenset(
+    {
+        "baseLength", "baseWidth", "baseThickness", "upperLength", "upperWidth",
+        "upperHeight", "totalHeight", "notchOpening", "notchRadius", "slotLength",
+        "slotWidth", "pocketDepth", "bossDiameter", "bossCenterDistance",
+    }
+)
+_DRAWING_FIELD_ALIASES = {
+    "base_length": "baseLength", "base_width": "baseWidth", "base_thickness": "baseThickness",
+    "upper_length": "upperLength", "upper_width": "upperWidth", "upper_height": "upperHeight",
+    "total_height": "totalHeight", "notch_opening": "notchOpening", "notch_radius": "notchRadius",
+    "slot_length": "slotLength", "slot_width": "slotWidth", "pocket_depth": "pocketDepth",
+    "saddle_depth": "saddleDepth", "hole_depth": "holeDepth", "hole_through": "holeThrough",
+    "boss_diameter": "bossDiameter", "boss_center_distance": "bossCenterDistance", "boss_height": "bossHeight",
+}
+
+
+def _normalise_drawing_field(value: Any) -> str:
+    raw = str(value or "")
+    return _DRAWING_FIELD_ALIASES.get(raw, raw)
+
+
+def _explicit_drawing_candidate_fields(
+    result: DrawingRecognition,
+    overrides: Mapping[str, Any] | None = None,
+) -> set[str]:
+    """Return fields backed by real candidate evidence, not fallback defaults.
+
+    For the legacy compatibility recognizer, only explicit AI/OCR/hint
+    dimensions and request overrides count.  The canonical ``parameters``
+    object is deliberately ignored for fallback engines because it is filled
+    even when the image contains no recoverable dimensions.  Non-fallback
+    external submissions are already explicit structured candidates and keep
+    their historical behaviour.
+    """
+
+    fields: set[str] = set()
+
+    def add_mapping(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if item is not None and item != "":
+                    normalized = _normalise_drawing_field(key)
+                    if normalized in _REQUIRED_DRAWING_FIELDS:
+                        fields.add(normalized)
+
+    add_mapping(overrides)
+    add_mapping(getattr(result, "candidate_parameters", {}))
+    fallback_engine = str(getattr(result, "engine", "")) in _LEGACY_FALLBACK_ENGINES
+    if not fallback_engine:
+        parameters = getattr(result, "parameters", None)
+        add_mapping(parameters.model_dump(by_alias=True) if hasattr(parameters, "model_dump") else parameters)
+        add_mapping(getattr(result, "model_recipe", {}).get("parameters", {}))
+        return fields
+
+    # ``dimensions`` carries source labels.  Exclude the synthetic canonical
+    # rows while retaining OCR-labelled values and client-hint rows.
+    for dimension in getattr(result, "dimensions", ()) or ():
+        if isinstance(dimension, Mapping):
+            field = dimension.get("field")
+            value = dimension.get("value")
+            source = dimension.get("sourceText", dimension.get("source", ""))
+        else:
+            field = getattr(dimension, "field", "")
+            value = getattr(dimension, "value", None)
+            source = getattr(dimension, "source_text", getattr(dimension, "source", ""))
+        if value is None or value == "":
+            continue
+        if str(source).casefold().startswith("canonical-bracket-fallback"):
+            continue
+        normalized = _normalise_drawing_field(field)
+        if normalized in _REQUIRED_DRAWING_FIELDS:
+            fields.add(normalized)
+    return fields
+
+
+def _legacy_candidate_missing(
+    result: DrawingRecognition,
+    overrides: Mapping[str, Any] | None = None,
+) -> list[str]:
+    return sorted(_REQUIRED_DRAWING_FIELDS - _explicit_drawing_candidate_fields(result, overrides))
 
 
 def _json(model: Any) -> Any:
@@ -352,11 +444,12 @@ async def submit_drawing_result(body: dict[str, Any] = Body(...)) -> DrawingReco
     validation = validate_bracket(submission.parameters)
     result = DrawingRecognition(
         id=f"drw_{uuid4().hex[:16]}",
-        # This compatibility endpoint has no authenticated reviewer context.
+        # This compatibility endpoint has no authenticated customer/designer
+        # context.
         # Never trust a client-supplied ``confirmed`` bit: otherwise an
         # unauthenticated caller could inject arbitrary parameters and attach
         # them to a production geometry request.  Confirmation is performed by
-        # the reviewer-protected platform OCR route instead.
+        # an explicit customer/designer acceptance route instead.
         status="needs_review",
         partType="bracket",
         sourceFilename=submission.source_filename,
@@ -366,7 +459,7 @@ async def submit_drawing_result(body: dict[str, Any] = Body(...)) -> DrawingReco
         evidence=submission.evidence,
         ocrText=submission.ocr_text,
         warnings=[
-            "External recognition is untrusted; reviewer confirmation is required before geometry generation."
+            "External recognition is untrusted; explicit customer/designer confirmation (reviewer confirmation in formal release workflows) is required before geometry generation."
         ],
         validation=validation,
     )
@@ -406,13 +499,15 @@ async def confirm_drawing_result(
     body: dict[str, Any] = Body(default_factory=dict),
     authorization: str | None = Header(default=None),
 ) -> DrawingRecognition:
-    """Confirm a compatibility recognition through an authenticated reviewer.
+    """Confirm a compatibility recognition through an authenticated actor.
 
     The public upload/result endpoints intentionally do not trust a client
     ``confirmed`` flag.  This route is the bridge for clients that use the
-    lightweight ``/drawings/recognize`` API: a reviewer token is required, and
-    optional parameter overrides are validated before the result can be used
-    as ``sourceDrawingId`` for geometry generation.
+    lightweight ``/drawings/recognize`` API. The legacy ``/confirm`` route
+    remains formal-review protected; the customer-facing ``/accept`` route
+    records a local customer/designer acknowledgement. Optional parameter
+    overrides are validated before the result can be used as ``sourceDrawingId``
+    for geometry generation.
     """
 
     if platform_services is None:
@@ -460,6 +555,17 @@ async def confirm_drawing_result(
             status_code=422,
             detail="unknown parameter override(s): " + ", ".join(unknown_overrides),
         )
+    if result.status != "confirmed":
+        missing = _legacy_candidate_missing(result, raw_overrides)
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "drawing candidate is incomplete; provide explicit parameterOverrides",
+                    "missingFields": missing,
+                    "hint": "Supply every required bracket field, then confirm again.",
+                },
+            )
 
     parameters = result.parameters
     if raw_overrides:
@@ -490,6 +596,145 @@ async def confirm_drawing_result(
             "model_recipe": recipe,
             "review_required": False,
             "warnings": warnings,
+        }
+    )
+    _drawings[drawing_id] = confirmed
+    return confirmed
+
+
+@app.post(
+    "/api/drawings/{drawing_id}/accept",
+    response_model=DrawingRecognition,
+    tags=["drawings"],
+)
+@app.post(
+    "/api/v1/drawings/{drawing_id}/accept",
+    response_model=DrawingRecognition,
+    include_in_schema=False,
+)
+async def accept_drawing_result(
+    drawing_id: str,
+    request: Request,
+    body: dict[str, Any] = Body(default_factory=dict),
+    authorization: str | None = Header(default=None),
+) -> DrawingRecognition:
+    """Customer/designer acceptance bridge for legacy drawing IDs.
+
+    Token users need either OCR execution (designer) or document review
+    permission.  Tokenless acceptance is restricted to loopback development
+    environments and is recorded as a customer decision.
+    """
+
+    actor_id = "anonymous"
+    confirmation_type = "customer"
+    if authorization:
+        if platform_services is None:
+            raise HTTPException(status_code=503, detail="platform authentication service is unavailable")
+        try:
+            from .platform import Permission, PlatformError
+            from .platform_api import _token_user
+
+            actor = _token_user(platform_services, authorization)
+            if platform_services.auth.has_permission(actor, Permission.DOCUMENT_REVIEW):
+                confirmation_type = "reviewer"
+            elif platform_services.auth.has_permission(actor, Permission.OCR_RUN):
+                confirmation_type = "designer"
+            else:
+                raise HTTPException(status_code=403, detail="ocr:run or document:review permission is required")
+            actor_id = actor.id
+        except PlatformError as exc:
+            from .platform_api import _domain_http_exception
+
+            raise _domain_http_exception(exc)
+    else:
+        from .platform_api import _anonymous_drawing_accept_allowed
+
+        if not _anonymous_drawing_accept_allowed(request):
+            raise HTTPException(status_code=401, detail="bearer token is required")
+
+    result = _drawings.get(drawing_id)
+    # The platform router is mounted after this legacy route, so bridge
+    # platform OCR ids here as well when the app exposes both route sets.
+    if result is None and platform_services is not None:
+        platform_result = getattr(platform_services, "recognitions", {}).get(drawing_id)
+        if platform_result is not None:
+            data = body if isinstance(body, dict) else {}
+            raw_overrides = data.get("parameterOverrides", data.get("parameter_overrides", {}))
+            if raw_overrides is None:
+                raw_overrides = {}
+            if not isinstance(raw_overrides, dict):
+                raise HTTPException(status_code=422, detail="parameterOverrides must be an object")
+            try:
+                accepted = platform_services.ocr.confirm(
+                    platform_result,
+                    reviewer_id=actor_id,
+                    parameter_overrides=raw_overrides,
+                    confirmation_type=confirmation_type,
+                )
+            except Exception as exc:
+                from .platform_api import _domain_http_exception
+
+                raise _domain_http_exception(exc)
+            platform_services.recognitions[drawing_id] = accepted
+            return JSONResponse(content=accepted.to_dict())
+    if result is None:
+        raise HTTPException(status_code=404, detail="drawing recognition not found")
+    if result.status == "rejected":
+        raise HTTPException(status_code=409, detail="rejected drawing cannot be accepted")
+    data = body if isinstance(body, dict) else {}
+    raw_overrides = data.get("parameterOverrides", data.get("parameter_overrides", {}))
+    if raw_overrides is None:
+        raw_overrides = {}
+    if not isinstance(raw_overrides, dict):
+        raise HTTPException(status_code=422, detail="parameterOverrides must be an object")
+    allowed = set(BracketParameters.model_fields)
+    allowed.update(field.alias for field in BracketParameters.model_fields.values() if getattr(field, "alias", None))
+    unknown = sorted(str(key) for key in raw_overrides if str(key) not in allowed)
+    if unknown:
+        raise HTTPException(status_code=422, detail="unknown parameter override(s): " + ", ".join(unknown))
+    if result.status != "confirmed":
+        missing = _legacy_candidate_missing(result, raw_overrides)
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "drawing candidate is incomplete; provide explicit parameterOverrides",
+                    "missingFields": missing,
+                    "hint": "Supply every required bracket field, then accept again.",
+                },
+            )
+    parameters = result.parameters
+    if raw_overrides:
+        candidate = parameters.model_dump(by_alias=True)
+        candidate.update(raw_overrides)
+        try:
+            parameters = BracketParameters.model_validate(candidate)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    report = validate_bracket(parameters)
+    if not report.valid:
+        raise _validation_error(report)
+    confirmed_at = datetime.now(timezone.utc)
+    recipe = dict(result.model_recipe or {})
+    recipe["parameters"] = parameters.model_dump(by_alias=True)
+    recipe["confirmationType"] = confirmation_type
+    recipe["confirmedBy"] = actor_id
+    recipe["confirmedAt"] = confirmed_at.isoformat()
+    warnings = list(result.warnings or [])
+    warning = "Customer confirmation recorded; geometry generation may proceed."
+    if warning not in warnings:
+        warnings.append(warning)
+    confirmed = result.model_copy(
+        update={
+            "status": "confirmed",
+            "parameters": parameters,
+            "validation": report,
+            "model_recipe": recipe,
+            "review_required": False,
+            "warnings": warnings,
+            "confirmation_type": confirmation_type,
+            "confirmed_by": actor_id,
+            "confirmed_at": confirmed_at,
         }
     )
     _drawings[drawing_id] = confirmed
@@ -537,17 +782,17 @@ async def generate_bracket(body: dict[str, Any] = Body(default_factory=dict)) ->
         if drawing is None:
             raise HTTPException(status_code=404, detail="source drawing recognition not found")
         # ``confirmed`` is an informational client hint, not an authority
-        # boundary.  A caller must use the reviewer-protected platform OCR
-        # confirmation route (or submit an explicitly confirmed external
-        # result) before a needs_review drawing can reach geometry generation.
+        # boundary. A caller must use an explicit customer/designer acceptance
+        # (or the formal reviewer route) before a needs_review drawing can reach
+        # geometry generation.
         if drawing.status != "confirmed":
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "message": "drawing evidence requires reviewer confirmation before generation",
+                    "message": "drawing evidence requires explicit human confirmation before generation",
                     "drawingId": drawing.id,
                     "status": drawing.status,
-                    "hint": "POST /api/v1/ocr/{recognitionId}/confirm with a reviewer token",
+                    "hint": "POST /api/v1/drawings/{drawingId}/accept with edited parameterOverrides",
                 },
             )
     report = validate_bracket(request.parameters)

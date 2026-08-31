@@ -53,13 +53,58 @@ const acceptanceDrawingSha256 = 'ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4
 const mainModes = ['首页', '3D 建模', '2D 工程图', '装配']
 const workflowSteps = [
   { id: 'upload', label: '输入 / 上传', short: '上传' },
-  { id: 'recognize', label: '识别尺寸', short: '识别' },
-  { id: 'review', label: '复核证据', short: '复核' },
-  { id: 'generate', label: '生成实体', short: '生成' },
+  { id: 'recognize', label: 'AI 分析', short: '分析' },
+  { id: 'review', label: '确认数据', short: '确认' },
+  { id: 'generate', label: '生成 3D', short: '生成' },
   { id: 'edit', label: '二次修改', short: '修改' },
   { id: 'export', label: '导出交付', short: '导出' },
 ]
 const bracketParameterKeys = ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'slotLength', 'slotWidth', 'pocketDepth', 'saddleDepth', 'holeDepth', 'holeThrough', 'bossDiameter', 'bossCenterDistance', 'bossHeight', 'material', 'units']
+const bracketRequiredParameterKeys = ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'slotLength', 'slotWidth', 'pocketDepth', 'bossDiameter', 'bossCenterDistance']
+const bracketParameterLabels = {
+  baseLength: '底板长度', baseWidth: '底板宽度', baseThickness: '底板厚度',
+  upperLength: '上部长度', upperWidth: '上部全宽', upperHeight: '上部高度',
+  totalHeight: '总高度', notchOpening: '鞍槽开口', notchRadius: '鞍槽半径',
+  slotLength: '浅槽长度', slotWidth: '浅槽宽度', pocketDepth: '浅槽深度',
+  bossDiameter: '侧向凹槽直径', bossCenterDistance: '凹槽中心距',
+}
+const recognitionParameterAliases = {
+  base_length: 'baseLength', base_width: 'baseWidth', base_thickness: 'baseThickness',
+  upper_length: 'upperLength', upper_width: 'upperWidth', upper_height: 'upperHeight',
+  total_height: 'totalHeight', notch_opening: 'notchOpening', notch_radius: 'notchRadius',
+  slot_length: 'slotLength', slot_width: 'slotWidth', pocket_depth: 'pocketDepth',
+  saddle_depth: 'saddleDepth', hole_depth: 'holeDepth', hole_through: 'holeThrough',
+  boss_diameter: 'bossDiameter', boss_center_distance: 'bossCenterDistance', boss_height: 'bossHeight',
+}
+
+// Return only fields genuinely supplied by the recognizer/AI.  The rendering
+// model may fill safe defaults so the viewport stays usable, but those defaults
+// must never count as drawing evidence or silently pass the customer confirm
+// gate for an unknown/partial drawing.
+function recognitionCandidateFields(recognition) {
+  const fields = new Set()
+  const add = (raw) => {
+    if (!raw || typeof raw !== 'object') return
+    Object.keys(raw).forEach((key) => {
+      const normalized = recognitionParameterAliases[key] || key
+      if (bracketParameterKeys.includes(normalized)) fields.add(normalized)
+    })
+  }
+  const fallbackEngine = ['heuristic-review', 'tesseract-compatible', 'compatibility-recognizer'].includes(String(recognition?.engine || ''))
+  add(recognition?.candidateParameters || recognition?.candidate_parameters)
+  if (!fallbackEngine) {
+    add(recognition?.parameters)
+    add(recognition?.modelRecipe?.parameters)
+  }
+  if (Array.isArray(recognition?.dimensions)) {
+    recognition.dimensions.forEach((item) => {
+      if (String(item?.sourceText || item?.source || '').startsWith('canonical-bracket-fallback')) return
+      const normalized = recognitionParameterAliases[item?.field] || snakeToCamel(String(item?.field || ''))
+      if (bracketParameterKeys.includes(normalized) && item?.value !== undefined && item?.value !== null) fields.add(normalized)
+    })
+  }
+  return [...fields]
+}
 function normalizeStoredModel(value) {
   if (!value || typeof value !== 'object') return value
   if (value.kind !== 'bracket') return value
@@ -86,34 +131,71 @@ function normalizeStoredModel(value) {
 const snakeToCamel = (value) => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
 const emptyPlatformState = () => ({ token: '', user: null, users: [], project: null, manifest: null, camPlan: null, approval: null, simulation: null, gate: null, nc: null, busy: false, error: '' })
 
+function rawParametersFromRecognition(recognition) {
+  if (!recognition || typeof recognition !== 'object') return null
+  const normalize = (raw) => {
+    if (!raw || typeof raw !== 'object') return null
+    const converted = Object.fromEntries(Object.entries(raw)
+      .map(([key, value]) => [recognitionParameterAliases[key] || key, value])
+      .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== ''))
+    return Object.keys(converted).length ? converted : null
+  }
+  // The legacy compatibility recognizer fills an entire canonical bracket
+  // profile when OCR finds no labelled value. Treat that profile as a visual
+  // scaffold only; use actual labelled dimensions as candidates instead.
+  const compatibilityFallback = ['heuristic-review', 'tesseract-compatible', 'compatibility-recognizer'].includes(String(recognition.engine || ''))
+  const candidate = normalize(recognition.candidateParameters || recognition.candidate_parameters)
+  if (candidate) return candidate
+  if (!compatibilityFallback) {
+    const parameters = normalize(recognition.parameters)
+    if (parameters) return parameters
+    const recipe = normalize(recognition.modelRecipe?.parameters || recognition.model_recipe?.parameters)
+    if (recipe) return recipe
+  }
+  if (Array.isArray(recognition.dimensions)) {
+    const dimensions = normalize(Object.fromEntries(recognition.dimensions
+      .filter((item) => !String(item?.sourceText || item?.source || '').startsWith('canonical-bracket-fallback'))
+      .map((item) => [item.field, item.value])))
+    if (dimensions) return dimensions
+  }
+  return compatibilityFallback ? null : normalize(recognition)
+}
+
+function sanitiseRecognitionForCandidate(recognition) {
+  if (!recognition || typeof recognition !== 'object') return recognition
+  const fallbackEngine = ['heuristic-review', 'tesseract-compatible', 'compatibility-recognizer'].includes(String(recognition.engine || ''))
+  const source = recognition.modelRecipe?.source || recognition.model_recipe?.source
+  const compatibilityFallback = fallbackEngine || String(source || '').toLowerCase() === 'compatibility-recognizer'
+  if (!compatibilityFallback) return recognition
+  const explicit = rawParametersFromRecognition(recognition) || {}
+  const warnings = Array.isArray(recognition.warnings) ? recognition.warnings : []
+  return {
+    ...recognition,
+    status: 'needs_review',
+    partType: 'unknown',
+    parameters: explicit,
+    candidateParameters: explicit,
+    modelRecipe: { ...(recognition.modelRecipe || {}), parameters: explicit, source: 'ai-candidate' },
+    unresolved: [...new Set([...(recognition.unresolved || []), 'part_type', 'dimensions', 'feature_topology'])],
+    warnings: [...new Set([...warnings, '兼容识别器仅提供预览基准；以下尺寸必须由 AI/人工确认'])],
+  }
+}
+
 function parametersFromRecognition(recognition) {
   if (!recognition) return null
   const normalize = (raw) => {
     if (!raw || typeof raw !== 'object') return null
-    const aliases = {
-      base_length: 'baseLength', base_width: 'baseWidth', base_thickness: 'baseThickness',
-      upper_length: 'upperLength', upper_width: 'upperWidth', upper_height: 'upperHeight',
-      total_height: 'totalHeight', notch_opening: 'notchOpening', notch_radius: 'notchRadius',
-      slot_length: 'slotLength', slot_width: 'slotWidth', pocket_depth: 'pocketDepth',
-      saddle_depth: 'saddleDepth', hole_depth: 'holeDepth',
-      hole_through: 'holeThrough', boss_diameter: 'bossDiameter',
-      boss_center_distance: 'bossCenterDistance', boss_height: 'bossHeight',
-    }
-    const converted = Object.fromEntries(Object.entries(raw).map(([key, value]) => [aliases[key] || key, value]))
+    const converted = Object.fromEntries(Object.entries(raw).map(([key, value]) => [recognitionParameterAliases[key] || key, value]))
     return { ...bracketModel, ...converted, kind: 'bracket' }
   }
-  if (recognition.parameters) return normalize(recognition.parameters)
-  if (recognition.modelRecipe?.parameters) return normalize(recognition.modelRecipe.parameters)
-  if (Array.isArray(recognition.dimensions)) {
-    const parameters = {}
-    recognition.dimensions.forEach((item) => {
-      const key = snakeToCamel(String(item.field || ''))
-      if (bracketParameterKeys.includes(key)) parameters[key] = item.value
-    })
-    return Object.keys(parameters).length ? normalize(parameters) : null
-  }
-  const parameters = Object.fromEntries(bracketParameterKeys.filter((key) => recognition[key] !== undefined).map((key) => [key, recognition[key]]))
-  return Object.keys(parameters).length ? normalize(parameters) : null
+  // A rich platform recognition can expose an AI-only candidate separately
+  // from the durable recipe.  Prefer that candidate while it is pending, but
+  // never treat an empty object as a successful recognition (an empty object
+  // is truthy in JavaScript and used to make an unknown drawing look like the
+  // calibrated bracket).
+  const rawCandidate = rawParametersFromRecognition(recognition)
+  if (rawCandidate) return normalize(rawCandidate)
+  return null
 }
 
 function recognitionEvidence(recognition) {
@@ -364,7 +446,7 @@ function App() {
   const [messages, setMessages] = useState(() => {
     const welcome = [
       { role: 'ai', text: '欢迎来到设计工作台。上传一张图纸，或用一句话描述零件，我会把它变成可编辑的参数化模型。' },
-      { role: 'ai', text: '每一步都会保留尺寸来源、复核状态和模型版本；生成后可以继续对话修改，再导出交付文件。' },
+      { role: 'ai', text: '每一步都会保留尺寸来源、确认状态和模型版本；生成后可以继续对话修改，再导出交付文件。' },
     ]
     try {
       const stored = JSON.parse(localStorage.getItem('joyniu-messages'))
@@ -441,8 +523,33 @@ function App() {
 
   const showToast = (text) => setToast(text)
   const updateModel = (key, value) => {
-    setModel((prev) => ({ ...prev, [key]: key === 'material' ? value : value === '' ? '' : Number(value), updatedAt: '刚刚' }))
+    const nextValue = key === 'material' ? value : value === '' ? '' : Number(value)
+    setModel((prev) => ({ ...prev, [key]: nextValue, updatedAt: '刚刚' }))
     setGeneration((current) => current ? { ...current, stale: true } : current)
+    // Edits made in the main parameter inspector are the human-confirmation
+    // input for an AI drawing candidate. Keep them in the evidence envelope
+    // as well as the visible model so the confirm gate can distinguish an
+    // explicitly supplied value from a visual scaffold default.
+    setDrawingJob((current) => {
+      if (!current?.evidence || current.evidence.status === 'confirmed') return current
+      const candidateParameters = {
+        ...(current.evidence.candidateParameters && typeof current.evidence.candidateParameters === 'object' ? current.evidence.candidateParameters : {}),
+        [key]: nextValue,
+      }
+      const parameters = {
+        ...(current.evidence.parameters && typeof current.evidence.parameters === 'object' ? current.evidence.parameters : {}),
+        [key]: nextValue,
+      }
+      const humanEditedFields = [...new Set([...(current.humanEditedFields || []), key])]
+      const missingFields = bracketRequiredParameterKeys.filter((field) => !(Number(candidateParameters[field]) > 0))
+      return {
+        ...current,
+        evidence: { ...current.evidence, parameters, candidateParameters, status: 'pending' },
+        candidateFields: [...new Set([...(current.candidateFields || []), key])],
+        humanEditedFields,
+        analysis: { ...(current.analysis || {}), candidateParameters, missingFields, needsInput: missingFields.length > 0 },
+      }
+    })
   }
   const modelValid = model.kind === 'bracket'
     ? ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'slotLength', 'slotWidth', 'pocketDepth', 'bossDiameter', 'bossCenterDistance'].every((key) => Number(model[key]) > 0) && Number(model.upperLength) <= Number(model.baseLength) && Number(model.upperWidth) <= Number(model.baseWidth) && Number(model.slotLength) <= Number(model.baseWidth) && Number(model.pocketDepth) <= Number(model.upperHeight) && Number(model.baseThickness) < Number(model.totalHeight) && Math.abs(Number(model.totalHeight) - Number(model.baseThickness) - Number(model.upperHeight)) < 1e-6 && Number(model.notchOpening) >= Number(model.notchRadius) * 2
@@ -518,7 +625,7 @@ function App() {
   }
   const sendAiConversation = async (text, filesInput = []) => {
     const files = normalizeFilesInput(filesInput)
-    const userText = text?.trim() || (files[0] ? `请解析这份图纸并生成完整参数化三维模型：${files[0].name}` : '')
+    const userText = text?.trim() || (files[0] ? `请解析这份图纸并提取候选参数：${files[0].name}` : '')
     if (!userText && !files.length) return false
     const requestId = aiRequestRef.current + 1
     aiRequestRef.current = requestId
@@ -533,7 +640,8 @@ function App() {
     try {
       // Keep an unresolved drawing review requirement across chat turns. The
       // attachment chip is cleared after each request, but the evidence card
-      // remains the authoritative reviewer state until an explicit confirm
+      // remains the authoritative candidate state until an explicit customer
+      // or designer confirmation
       // action updates it to ``confirmed``.
       const pendingDrawingReview = files.length === 0
         && drawingJob?.evidence
@@ -544,6 +652,7 @@ function App() {
       // The first exact drawing is hash-calibrated and returns confirmed
       // evidence; arbitrary drawings remain reviewable.
       if (files[0]) {
+        setDrawingJob((current) => ({ ...current, file: files[0], status: 'analyzing', evidence: null, customerAccepted: false, humanConfirmed: false, analysis: null, candidateFields: [], humanEditedFields: [], questions: [], error: '', warning: '' }))
         try {
           recognition = await api.recognizeDrawing(files[0])
         } catch (error) {
@@ -554,7 +663,10 @@ function App() {
           } catch { /* no browser crypto in older contexts */ }
         }
         if (recognition) {
-          setDrawingJob((current) => ({ ...current, file: files[0], status: 'ready', evidence: recognition, error: '', warning: recognition.warnings?.join('；') || '' }))
+          // Recognition is analysis only. Even a calibrated fixture must pass
+          // through the explicit customer confirmation step before generation.
+          const candidate = { ...sanitiseRecognitionForCandidate(recognition), status: 'pending' }
+          setDrawingJob((current) => ({ ...current, file: files[0], status: 'ready', evidence: candidate, questions: candidate.questions || [], error: '', warning: candidate.warnings?.join('；') || '' }))
         }
       }
       try {
@@ -563,23 +675,53 @@ function App() {
         aiError = error
       }
       if (requestId !== aiRequestRef.current) return false
+      if (recognition && result?.questions?.length) {
+        setDrawingJob((current) => ({ ...current, questions: result.questions }))
+      }
       // Prefer the recognition returned by /drawings/recognize: its id is
       // registered in the geometry service and can safely be used as
       // sourceDrawingId. The proxy's compact evidence copy is display-only.
-      const drawing = recognition || result?.drawingRecognition
-      if (!recognition && result?.drawingRecognition) {
-        // Recognition can still arrive from the conversation proxy when the
-        // separate compatibility endpoint is temporarily unavailable. Keep
-        // that review envelope visible for later reviewer confirmation.
+      // The legacy compatibility upload endpoint is not part of the
+      // platform recognition registry, so its id cannot be used for customer
+      // acceptance. Prefer the canonical recognition returned by the AI
+      // conversation; only retain the legacy exact-fixture result as a local
+      // preview fallback. In particular, never carry its heuristic canonical
+      // defaults into an arbitrary drawing candidate.
+      const platformDrawing = result?.drawingRecognition
+      const legacyFixturePreview = recognition?.engine === 'deterministic-calibration' && files[0]
+        ? browserFixtureRecognition(files[0], recognition.sourceSha256 || acceptanceDrawingSha256)
+        : null
+      const drawing = platformDrawing
+        ? { ...sanitiseRecognitionForCandidate(platformDrawing), status: 'pending' }
+          : legacyFixturePreview
+            ? { ...legacyFixturePreview, status: 'pending' }
+            : null
+      if (drawing) {
         setDrawingJob((current) => ({
           ...current,
           status: 'ready',
-          evidence: result.drawingRecognition,
+          evidence: drawing,
           error: '',
+          warning: drawing.warnings?.join('；') || '',
+        }))
+      }
+      if (!recognition && result?.drawingRecognition) {
+        // Recognition can still arrive from the conversation proxy when the
+        // separate compatibility endpoint is temporarily unavailable. Keep
+        // that candidate envelope visible for later customer confirmation.
+        setDrawingJob((current) => ({
+          ...current,
+          status: 'ready',
+          evidence: drawing || { ...sanitiseRecognitionForCandidate(result.drawingRecognition), status: 'pending' },
+          error: '',
+          questions: result.questions || result.drawingRecognition.questions || [],
           warning: result.drawingRecognition.warnings?.join('；') || '',
         }))
       }
       const recognizedParameters = parametersFromRecognition(drawing)
+      if (files.length > 0 && !drawing) {
+        setDrawingJob((current) => ({ ...current, status: 'error', error: aiError?.message || recognitionError?.message || 'AI 未返回可用尺寸候选', warning: '' }))
+      }
       const resultPatch = result?.parameterPatch || {}
       const patchKeys = Object.keys(resultPatch)
       const patchLooksBracket = patchKeys.some((key) => ['baseLength', 'baseWidth', 'upperLength', 'notchRadius', 'slotLength', 'pocketDepth', 'bossDiameter'].includes(key))
@@ -588,10 +730,18 @@ function App() {
       const seed = recognizedParameters
         ? { ...recognizedParameters, kind: 'bracket', name: recognizedParameters.name || '安装支架 · AI 识别', updatedAt: '刚刚' }
         : patchLooksBracket
-          ? { ...bracketModel, ...(baseModel.kind === 'bracket' ? baseModel : {}), kind: 'bracket' }
+          ? { ...bracketModel, ...(files.length === 0 && baseModel.kind === 'bracket' ? baseModel : {}), kind: 'bracket' }
           : patchLooksShaft || wantsShaft
-            ? { ...defaultModel, ...(baseModel.kind === 'shaft' ? baseModel : {}), kind: 'shaft' }
-            : { ...baseModel }
+            ? { ...defaultModel, ...(files.length === 0 && baseModel.kind === 'shaft' ? baseModel : {}), kind: 'shaft' }
+            // An attachment with no reliable part classification still needs
+            // a complete, editable candidate surface.  Use the supported
+            // bracket recipe as a clearly-labelled draft rather than leaving
+            // the customer on the old shaft demo or in a reviewer-only dead
+            // end.  The candidate remains pending until the customer accepts
+            // the values (and can be corrected in the parameter panel).
+            : files.length > 0
+              ? { ...bracketModel, kind: 'bracket', name: 'AI 候选 · 待确认' }
+              : { ...baseModel }
       let next = applyAiPatch(seed, resultPatch)
       if (!result && !recognizedParameters && !Object.keys(result?.parameterPatch || {}).length) {
         // The local grammar is deliberately the last fallback, so an offline
@@ -603,6 +753,7 @@ function App() {
         next = { ...parsePrompt(userText, seed), updatedAt: '刚刚' }
       }
       setModel(next)
+      if (files.length > 0) setActivePanel('参数')
       const fallbackChanged = !result && (
         next.kind !== baseModel.kind
         || JSON.stringify(modelParametersForApi(next)) !== JSON.stringify(modelParametersForApi(baseModel))
@@ -620,7 +771,8 @@ function App() {
       const effectiveNeedsReview = Boolean(result?.needsReview) || attachmentNeedsReview
       const attachmentGenerationAllowed = (files.length === 0 && !pendingDrawingReview)
         || (files.length === 1 && drawing?.status === 'confirmed')
-      const canAutoGenerate = next.kind === 'bracket'
+      const canAutoGenerate = files.length === 0
+        && next.kind === 'bracket'
         && !effectiveNeedsReview
         && attachmentGenerationAllowed
         && (Boolean(recognizedParameters) || patchChanged)
@@ -641,10 +793,73 @@ function App() {
         error: aiError ? aiError.message : '',
       }))
       const fallbackNote = aiError && !result ? `（AI/实体服务提示：${aiError.message}，已保留本地明确参数）` : ''
-      const review = effectiveNeedsReview ? `；${(result?.questions || []).join('；') || '仍需人工复核图纸证据'}` : ''
+      const review = effectiveNeedsReview ? `；${(result?.questions || []).join('；') || '候选数据待人工确认'}` : ''
       const localText = next.kind === 'bracket'
         ? `参数已更新：底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；上部 ${next.upperLength} × ${next.upperWidth} × ${next.upperHeight} mm；R${next.notchRadius} 鞍槽、两条 ${next.slotWidth} × ${next.slotLength} × ${next.pocketDepth} 浅槽、2×Ø${next.bossDiameter} 贯穿凹槽。`
         : `参数已更新：Ø${next.outerDiameter} × ${next.length} mm，通孔 Ø${next.holeDiameter}；键槽 ${next.keywayWidth} × ${next.keywayDepth} × ${next.keywayLength} mm。`
+      // Keep the complete AI analysis beside the editable candidate.  This is
+      // intentionally a plain JSON envelope so it survives a refresh and can
+      // be audited without exposing provider payloads or credentials.
+      if (files.length > 0 || drawing) {
+        const source = drawing || result?.drawingRecognition || {}
+        // Keep only values that came from the drawing/OCR/AI candidate. The
+        // editable model has a supported recipe surface for previewing, but
+        // its default values are not evidence and must never silently become
+        // an accepted answer for an unrelated upload.
+        const sourceParameters = rawParametersFromRecognition(source) || {}
+        const aiCandidateParameters = Object.fromEntries(
+          Object.entries({ ...sourceParameters, ...resultPatch })
+            .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== '')
+        )
+        const candidateParameters = files.length > 0 ? aiCandidateParameters : modelParametersForApi(next)
+        const missingCandidateFields = bracketRequiredParameterKeys.filter((key) => !(Number(candidateParameters[key]) > 0))
+        const candidateFields = [...new Set([
+          ...recognitionCandidateFields(source),
+          ...Object.keys(resultPatch).filter((key) => bracketParameterKeys.includes(key)),
+        ])]
+        const questions = result?.questions || source.questions || []
+        const assumptions = source.assumptions || source.modelRecipe?.assumptions || []
+        const unresolved = source.unresolved || []
+        const features = source.features || []
+        const analysisMessage = result?.message || (
+          recognizedParameters
+            ? 'AI 已从图纸证据提取候选尺寸；请逐项核对来源视图与特征语义。'
+            : 'AI 暂未形成可信的完整拓扑；已创建可编辑候选参数，请补全并确认后再生成。'
+        )
+        setDrawingJob((current) => {
+          const currentEvidence = current?.evidence || source
+          if (!currentEvidence || typeof currentEvidence !== 'object' || !Object.keys(currentEvidence).length) return current
+          const evidenceParameters = {
+            ...(currentEvidence.parameters && typeof currentEvidence.parameters === 'object' ? currentEvidence.parameters : {}),
+            ...candidateParameters,
+          }
+          return {
+            ...current,
+            status: current.status === 'error' ? current.status : 'ready',
+            evidence: {
+              ...currentEvidence,
+              status: 'pending',
+              parameters: evidenceParameters,
+              candidateParameters,
+            },
+            candidateFields,
+            questions,
+            analysis: {
+              message: analysisMessage,
+              provider: result?.provider?.mode || source.engine || 'local-fallback',
+              partType: source.partType || source.part_type || (next.kind === 'bracket' ? 'bracket' : 'shaft'),
+              units: source.units || 'mm',
+              confidence: source.confidence,
+              assumptions,
+              unresolved,
+              features,
+              candidateParameters,
+              missingFields: missingCandidateFields,
+              needsInput: missingCandidateFields.length > 0,
+            },
+          }
+        })
+      }
       const responseText = `${result?.message || localText}${generated?.validation?.productionReady ? ' 已生成并通过 OCCT 拓扑检查。' : generated ? ' 已生成可交互 GLB 预览。' : ''}${review}${fallbackNote}`
       setMessages((prev) => [...prev, { role: 'ai', text: responseText }])
       setChatAttachments([])
@@ -1023,7 +1238,38 @@ function App() {
       const parameters = parametersFromRecognition(result)
       if (!parameters) throw new Error('识别服务未返回可建模参数')
       if (result.validation && result.validation.valid === false) throw new Error('图纸尺寸存在几何冲突，请先复核证据')
-      setDrawingJob({ file, previewUrl, status: 'ready', evidence: result, error: '', warning: result.warnings?.join('；') || '' })
+      const candidate = { ...result, status: 'pending' }
+      const candidateParameters = rawParametersFromRecognition(candidate) || {}
+      const missingFields = bracketRequiredParameterKeys.filter((key) => !(Number(candidateParameters[key]) > 0))
+      const candidateFields = recognitionCandidateFields(candidate)
+      setDrawingJob({
+        file,
+        previewUrl,
+        status: 'ready',
+        evidence: { ...candidate, candidateParameters },
+        candidateFields,
+        questions: candidate.questions || [],
+        analysis: {
+          message: 'AI 已完成图纸分析，以下是待确认的结构化候选数据。',
+          provider: candidate.engine || 'OCR',
+          partType: candidate.partType || 'bracket',
+          units: 'mm',
+          confidence: candidate.confidence,
+          assumptions: candidate.assumptions || [],
+          unresolved: candidate.unresolved || [],
+          features: candidate.features || [],
+            candidateParameters,
+            candidateFields,
+            missingFields,
+          needsInput: missingFields.length > 0,
+        },
+        error: '',
+        warning: candidate.warnings?.join('；') || '',
+      })
+      // Show the candidate recipe immediately so every recognized value is
+      // editable before the customer accepts it; no geometry is generated.
+      setModel((current) => ({ ...current, ...parameters, kind: 'bracket', name: parameters.name || '安装支架 · AI 识别', updatedAt: '刚刚' }))
+      setActivePanel('参数')
       setBackend((current) => ({ ...current, status: current.status === 'checking' || current.status === 'offline' ? 'connected' : current.status, engine: result.validation?.engine || current.engine, error: '' }))
       showToast(`图纸识别完成 · ${Math.round(Number(result.confidence || 0) * 100)}% 置信度`)
     } catch (error) {
@@ -1042,7 +1288,33 @@ function App() {
           validation: { valid: true, productionReady: false, engine: 'browser-preview', metrics: { boundingLength: 100, boundingWidth: 50, boundingHeight: 40, notchBottomZ: 25 } },
           warnings: [`FastAPI 暂不可用（${error.message}）；当前只展示验收夹具预览，不能导出生产 STEP。`],
         }
-        setDrawingJob({ file, previewUrl, status: 'ready', evidence: fallbackEvidence, error: '', warning: fallbackEvidence.warnings[0] })
+        const candidate = { ...fallbackEvidence, status: 'pending', candidateParameters: modelParametersForApi(bracketModel) }
+        setDrawingJob({
+          file,
+          previewUrl,
+          status: 'ready',
+          evidence: candidate,
+          candidateFields: [...bracketRequiredParameterKeys],
+          humanEditedFields: [],
+          questions: candidate.questions || [],
+          analysis: {
+            message: '后端暂不可用；已保留验收图的本地候选数据，请确认后再启动生产生成。',
+            provider: 'verified-browser-fixture',
+            partType: 'bracket',
+            units: 'mm',
+            confidence: candidate.confidence,
+            assumptions: ['本地验收夹具哈希匹配；当前仅浏览器预览。'],
+            unresolved: [],
+            features: [],
+            candidateParameters: modelParametersForApi(bracketModel),
+            missingFields: [],
+            needsInput: false,
+          },
+          error: '',
+          warning: candidate.warnings[0],
+        })
+        setModel((current) => ({ ...current, ...bracketModel, kind: 'bracket', name: '安装支架 · AI 识别', updatedAt: '刚刚' }))
+        setActivePanel('参数')
         setBackend((current) => ({ ...current, status: 'offline', productionReady: false, error: error.message }))
         showToast('API 离线：已加载可审计预览，生产 STEP 仍需启动后端')
       } else {
@@ -1050,21 +1322,95 @@ function App() {
       }
     }
   }
+  const updateDrawingEvidence = (field, value) => {
+    const numeric = field === 'material' ? value : value === '' ? '' : Number(value)
+    setModel((current) => ({ ...current, [field]: numeric, kind: 'bracket', updatedAt: '刚刚' }))
+    setGeneration((current) => current ? { ...current, stale: true } : current)
+    setDrawingJob((current) => {
+      if (!current?.evidence) return current
+      const parameters = { ...(current.evidence.parameters || {}), [field]: numeric }
+      const dimensions = Array.isArray(current.evidence.dimensions)
+        ? current.evidence.dimensions.map((item) => {
+          const itemField = snakeToCamel(String(item.field || ''))
+          return itemField === field ? { ...item, value: numeric } : item
+        })
+        : current.evidence.dimensions
+      const candidateParameters = {
+        ...(current.evidence.candidateParameters && typeof current.evidence.candidateParameters === 'object' ? current.evidence.candidateParameters : {}),
+        [field]: numeric,
+      }
+      const missingFields = bracketRequiredParameterKeys.filter((key) => !(Number(candidateParameters[key]) > 0))
+      return {
+        ...current,
+        evidence: { ...current.evidence, parameters, candidateParameters, ...(dimensions ? { dimensions } : {}), status: 'pending' },
+        candidateFields: [...new Set([...(current.candidateFields || []), field])],
+        humanEditedFields: [...new Set([...(current.humanEditedFields || []), field])],
+        analysis: { ...(current.analysis || {}), candidateParameters, missingFields, needsInput: missingFields.length > 0 },
+      }
+    })
+  }
+  const acceptDrawingData = async () => {
+    if (drawingJob.status !== 'ready') return false
+    const currentEvidence = drawingJob.evidence
+    if (!currentEvidence) return showToast('请先完成 AI 分析')
+    // Prefer the AI/OCR candidate, then use the values currently visible in
+    // the parameter panel.  The latter matters for an unknown drawing whose
+    // provider returned only partial fields: the customer can complete the
+    // supported recipe and explicitly accept that snapshot.
+    const rawCandidate = rawParametersFromRecognition(currentEvidence) || {}
+    const candidate = parametersFromRecognition(currentEvidence)
+      || (model?.kind === 'bracket' ? { ...bracketModel, ...model, kind: 'bracket' } : null)
+    if (!candidate) return showToast('识别结果缺少候选参数；请先在参数面板补全支架字段')
+    const overrides = modelParametersForApi({ ...candidate, ...model, kind: 'bracket' })
+    const candidateModel = { ...candidate, ...model, kind: 'bracket' }
+    // A default recipe is useful as an editable visual scaffold, but it is
+    // not drawing evidence. Require every previously missing field to be
+    // supplied by AI/OCR or changed explicitly in the parameter panel.
+    const suppliedCandidateFields = new Set([
+      ...(rawCandidate ? Object.keys(rawCandidate) : []),
+      ...(drawingJob.candidateFields || []),
+      ...(drawingJob.humanEditedFields || []),
+    ])
+    const missing = bracketRequiredParameterKeys.filter((key) => {
+      const value = candidateModel[key]
+      return !(Number(value) > 0) || !suppliedCandidateFields.has(key)
+    })
+    if (missing.length) return showToast(`请先补全候选尺寸：${missing.slice(0, 3).join('、')}${missing.length > 3 ? '…' : ''}`)
+    if (!modelValid && model.kind === 'bracket') return showToast('候选尺寸存在约束冲突，请先修正参数面板中的标红字段')
+    let accepted = { ...currentEvidence, status: currentEvidence.status, parameters: { ...candidate, ...overrides }, candidateParameters: overrides }
+    let serverAccepted = false
+    if (currentEvidence.id && !String(currentEvidence.id).startsWith('offline_')) {
+      try {
+        const result = await api.acceptDrawing(currentEvidence.id, { parameterOverrides: overrides }, platform.token)
+        accepted = { ...accepted, ...result, status: 'confirmed', parameters: { ...accepted.parameters, ...(parametersFromRecognition(result) || {}) }, candidateParameters: overrides }
+        serverAccepted = true
+      } catch (error) {
+        accepted = { ...accepted, warning: `${accepted.warning || ''}${accepted.warning ? '；' : ''}服务端确认失败：${error.message}` }
+      }
+    } else {
+      // Offline fixture acceptance is intentionally local and can only produce
+      // a browser preview; it must never be sent as a confirmed source id.
+      accepted = { ...accepted, warning: `${accepted.warning || ''}${accepted.warning ? '；' : ''}本地确认 · 仅可生成预览` }
+    }
+    setDrawingJob((current) => ({ ...current, evidence: accepted, status: 'ready', customerAccepted: true, humanConfirmed: serverAccepted, error: '', analysis: { ...(current.analysis || {}), candidateParameters: overrides, needsInput: false } }))
+    setModel((current) => ({ ...current, ...accepted.parameters, kind: 'bracket', updatedAt: '刚刚' }))
+    showToast(serverAccepted ? '数据已确认；下一步生成 3D' : '已记录你的确认；服务端确认后才能生成生产实体')
+    return true
+  }
   const generateFromDrawing = async () => {
     if (drawingJob.status !== 'ready') return showToast('请等待图纸识别完成')
     let recognized = drawingJob.evidence
     if (recognized?.status !== 'confirmed') {
-      const permissions = platform.user?.permissions || []
-      const canReview = permissions.includes('*') || permissions.includes('document:review')
-      if (!platform.token || !canReview) {
-        showToast('该图纸需要 reviewer 确认；请先在“PDM / 账号”登录审核账号')
-        return
-      }
-      try {
-        recognized = await api.confirmDrawing(recognized.id, {}, platform.token)
-        setDrawingJob((current) => ({ ...current, evidence: recognized, warning: recognized.warnings?.join('；') || '' }))
-      } catch (error) {
-        showToast(`图纸确认失败：${error.message}`)
+      if (drawingJob.customerAccepted) {
+        if (backend.status !== 'offline') return showToast('服务端尚未确认数据，请重试“确认数据”')
+        // Offline/local acceptance is allowed to create an explicit preview,
+        // but never passes a sourceDrawingId to the production endpoint.
+        recognized = {
+          ...recognized,
+          parameters: parametersFromRecognition(recognized) || modelParametersForApi({ ...bracketModel, ...model, kind: 'bracket' }),
+        }
+      } else {
+        await acceptDrawingData()
         return
       }
     }
@@ -1077,8 +1423,7 @@ function App() {
       generated = await api.generateBracket({
         parameters: recognizedParameters,
         formats: ['step', 'glb'],
-        sourceDrawingId: recognized.id,
-        confirmed: true,
+        ...(recognized.status === 'confirmed' && recognized.id && !String(recognized.id).startsWith('offline_') ? { sourceDrawingId: recognized.id, confirmed: true } : { confirmed: false }),
         // A healthy OCCT service is required for this production upload path.
         // If the health check is still settling, keep the production intent;
         // an unavailable kernel must fail explicitly instead of being
@@ -1141,8 +1486,28 @@ function App() {
     setActiveMode('3D 建模')
     setChatAttachments(selectedFiles)
     setGeneration((current) => current ? { ...current, stale: true, pendingDrawing: true } : current)
-    setPrompt((current) => current.trim() || '请解析这份图纸并生成完整参数化三维模型')
-    showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已添加 · 点击“识别并生成”继续`)
+    // A newly queued file is a new evidence context. Clear the previous
+    // drawing's confirmation/candidate immediately so its dimensions cannot
+    // be mistaken for the file that is waiting to be analysed. The previous
+    // solid remains visible as a labelled stale preview until the new result
+    // is generated.
+    setDrawingJob((current) => ({
+      ...current,
+      file: selectedFiles[0],
+      previewUrl: '',
+      status: 'queued',
+      evidence: null,
+      customerAccepted: false,
+      humanConfirmed: false,
+      analysis: null,
+      candidateFields: [],
+      humanEditedFields: [],
+      questions: [],
+      error: '',
+      warning: '',
+    }))
+    setPrompt((current) => current.trim() || '请解析这份图纸并提取候选参数')
+    showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已添加 · 点击“开始 AI 分析”继续`)
   }
   return (
     <div className="app-shell">
@@ -1161,7 +1526,7 @@ function App() {
             <button title="项目" className={`side-link ${activeMode === '项目管理' ? 'active' : ''}`} onClick={() => setActiveMode('项目管理')}><Icon>▦</Icon><span className="side-link-label">我的项目</span><span className="count">{projects.length}</span></button>
             <button title="最近打开" className="side-link" onClick={() => showToast('最近打开：当前项目草稿')}><Icon>◷</Icon><span className="side-link-label">最近打开</span></button>
             <button title="标准件库" className={`side-link ${activeMode === '标准件库' ? 'active' : ''}`} onClick={() => setActiveMode('标准件库')}><Icon>⬡</Icon><span className="side-link-label">标准件库</span></button>
-            <button title="上传图纸并复核" className={`side-link ${activeMode === '图纸转 3D' ? 'active' : ''}`} onClick={() => { setActiveMode('3D 建模'); showToast('已回到设计工作台 · 上传图纸后按步骤复核') }}><Icon>⌁</Icon><span className="side-link-label">图纸导入 / 复核</span><span className="new-badge">推荐</span></button>
+            <button title="设计工作台 · 图纸导入" className={`side-link ${activeMode === '3D 建模' ? 'active' : ''}`} onClick={() => { setActiveMode('3D 建模'); showToast('已打开设计工作台 · 上传后按 AI 分析 → 确认数据 → 生成 3D') }}><Icon>⌁</Icon><span className="side-link-label">设计工作台 / 图纸导入</span><span className="new-badge">推荐</span></button>
           </div>
           <div className="side-section project-list"><div className="side-label">当前项目</div>{projects.map((project) => <button title={project.name} key={project.id} className={`project-link ${selectedProject === project.name ? 'selected' : ''}`} onClick={() => { setSelectedProject(project.name); showToast(`已切换到 ${project.name}`) }}><span className={`project-dot ${project.color}`} /><span className="project-link-label">{project.name}</span><span className="project-files">{project.files}</span></button>)}</div>
           <div className="sidebar-bottom"><div className="side-label">高级</div><button title="PDM / 账号" className={`side-link ${activeMode === '平台服务' ? 'active' : ''}`} onClick={() => setActiveMode('平台服务')}><Icon>◈</Icon><span className="side-link-label">PDM / 账号</span></button><button title="CAM / NC" className={`side-link ${activeMode === 'CAM / NC' ? 'active' : ''}`} onClick={() => setActiveMode('CAM / NC')}><Icon>⌁</Icon><span className="side-link-label">CAM / NC</span></button><button title="设置" className="side-link" onClick={() => showToast('设置面板即将开放')}><Icon>⚙</Icon><span className="side-link-label">设置</span></button><button title="帮助与反馈" className="side-link" onClick={() => showToast('帮助中心：support@joyniu.local')}><Icon>?</Icon><span className="side-link-label">帮助与反馈</span></button><div className={`engine-status ${backend.status}`} title={`${API_BASE} · ${backend.error || '服务正常'}`}><span className="status-dot" /><div><b>{backend.status === 'checking' ? '连接 FastAPI…' : backend.productionReady ? 'CadQuery / OCCT' : backend.status === 'degraded' ? '降级几何内核' : '浏览器预览'}</b><small>{backend.status === 'connected' ? 'B-Rep 与 STEP 可用' : backend.status === 'degraded' ? '仅审计预览，不可生产' : backend.status === 'offline' ? 'API 离线 · 不可导出 STEP' : API_BASE}</small></div></div></div>
@@ -1169,8 +1534,8 @@ function App() {
 
         <main className="main-area">
           <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 本地草稿 · {model.updatedAt || '刚刚'}</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing }} />}
-          {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} showToast={showToast} backend={backend} />}
+          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData }} />}
+          {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} model={model} updateDrawingEvidence={updateDrawingEvidence} showToast={showToast} backend={backend} />}
           {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
           {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
           {activeMode === '标准件库' && <LibraryWorkspace libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryGroup={libraryGroup} setLibraryGroup={setLibraryGroup} filteredLibrary={filteredLibrary} insertLibrary={insertLibrary} showToast={showToast} />}
@@ -1188,19 +1553,25 @@ function workflowSnapshot({ drawingJob, generation, chatAttachments, isGeneratin
   const evidence = drawingJob?.evidence
   const hasFile = Boolean(drawingJob?.file || chatAttachments?.length)
   const reviewRequired = Boolean(evidence && evidence.status !== 'confirmed')
+  const pendingConfirmedDrawing = Boolean(evidence && evidence.status === 'confirmed' && generation?.pendingDrawing)
   const generated = Boolean(generation)
-  if (isGenerating && drawingJob?.status === 'analyzing') return { current: 'recognize', label: '正在识别图纸' }
-  if (isGenerating && drawingJob?.status === 'generating') return { current: 'generate', label: '正在生成实体' }
-  if (reviewRequired) return { current: 'review', label: '等待确认尺寸证据' }
+  if (isGenerating && drawingJob?.status === 'analyzing') return { current: 'recognize', label: 'AI 分析中' }
+  if (isGenerating && drawingJob?.status === 'generating') return { current: 'generate', label: '正在生成 3D' }
+  // A new upload always starts a new workflow. The previous solid may remain
+  // visible as a clearly labelled historical preview, but its completed steps
+  // must not make the new drawing look analyzed/confirmed/generated already.
+  if (chatAttachments?.length || drawingJob?.status === 'queued') return { current: 'recognize', label: '图纸已添加，开始 AI 分析' }
+  if (reviewRequired) return { current: 'review', label: '确认候选数据' }
+  if (pendingConfirmedDrawing) return { current: 'generate', label: '数据已确认，准备生成' }
   if (generated && generation?.stale) return { current: 'edit', label: '参数已修改，等待重建' }
   if (generated) return { current: 'edit', label: '实体已生成，可继续修改' }
-  if (evidence) return { current: 'generate', label: '识别完成，准备生成' }
+  if (evidence) return { current: 'generate', label: '数据已确认，准备生成' }
   if (hasFile) return { current: 'recognize', label: '图纸已添加，准备识别' }
   return { current: 'upload', label: '上传图纸或开始描述' }
 }
 
 function ModelWorkspace(props) {
-  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing } = props
+  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData } = props
   const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
   const [exportOpen, setExportOpen] = useState(false)
@@ -1210,19 +1581,21 @@ function ModelWorkspace(props) {
   const providerReady = Boolean(aiStatus?.configured || aiStatus?.mode === 'verified-local')
   const evidence = drawingJob?.evidence
   const reviewRequired = Boolean(evidence && evidence.status !== 'confirmed')
+  const pendingConfirmedDrawing = Boolean(evidence && evidence.status === 'confirmed' && generation?.pendingDrawing)
   // Any unconfirmed recognition is a candidate, even when the provider did
-  // return numeric values.  The reviewer must not mistake a plausible OCR
-  // guess for a locked drawing dimension.
-  const evidenceUsesFallback = reviewRequired
+  // return numeric values. A customer must not mistake a plausible OCR guess
+  // for a locked drawing dimension.
   const pendingDrawing = Boolean(chatAttachments.length || generation?.pendingDrawing)
   const workflow = workflowSnapshot({ drawingJob, generation, chatAttachments, isGenerating })
   const hasSource = Boolean(drawingJob?.file || chatAttachments.length)
   const primaryLabel = !hasSource && !generation
     ? '上传图纸'
-    : chatAttachments.length
-      ? '识别并生成'
+      : chatAttachments.length
+      ? '开始 AI 分析'
       : reviewRequired
-        ? '复核尺寸'
+        ? '确认数据'
+        : pendingConfirmedDrawing
+          ? '生成 3D'
         : !generation
           ? '生成 3D'
           : generation.stale
@@ -1232,15 +1605,20 @@ function ModelWorkspace(props) {
     if (!hasSource && !generation) return drawingInputRef.current?.click()
     if (chatAttachments.length) return runGenerate()
     if (reviewRequired) {
-      setActivePanel('检查')
+      // Confirmation is the next customer action, not a terminal reviewer
+      // screen. Keep the editable parameter panel available and invoke the
+      // same explicit acceptance handler used by the evidence card.
+      setActivePanel('参数')
+      if (acceptDrawingData) return acceptDrawingData()
       window.requestAnimationFrame(() => {
         const reviewCard = document.querySelector('[data-testid="workbench-review"]')
         reviewCard?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         reviewCard?.querySelector('button')?.focus()
       })
-      showToast('已打开证据复核；确认关键尺寸后才能生成 3D')
+      showToast('请确认 AI 候选数据后生成 3D')
       return
     }
+    if (pendingConfirmedDrawing && drawingJob?.status === 'ready' && generateFromDrawing) return generateFromDrawing()
     if (!generation && drawingJob?.status === 'ready' && generateFromDrawing) return generateFromDrawing()
     if (!generation && prompt.trim()) return runGenerate()
     if (generation?.stale) return rebuildCurrentModel?.()
@@ -1250,7 +1628,7 @@ function ModelWorkspace(props) {
   // previous model's delivery state.  Otherwise uploading a second drawing
   // while an older entity is production-ready would leave only an "导出交付"
   // button visible and hide the action that starts recognition.
-  const showExportAction = productionReady && !chatAttachments.length && !reviewRequired && !isGenerating
+  const showExportAction = productionReady && !chatAttachments.length && !reviewRequired && !pendingConfirmedDrawing && !isGenerating
   const statusForStep = (stepId) => {
     const order = workflowSteps.map((item) => item.id)
     const currentIndex = order.indexOf(workflow.current)
@@ -1260,7 +1638,20 @@ function ModelWorkspace(props) {
     if (stepId === 'export' && productionReady) return 'active'
     return 'pending'
   }
-  const sourceParameters = evidence?.parameters || evidence || {}
+  // Only values backed by the recognizer/AI candidate belong in the evidence
+  // summary.  Compatibility uploads may carry a complete canonical recipe
+  // solely to keep the old preview renderer alive; rawParametersFromRecognition
+  // deliberately filters that scaffold so the card shows “待确认” instead of
+  // presenting invented dimensions as drawing facts.
+  const sourceParameters = rawParametersFromRecognition(evidence) || {}
+  const analysis = drawingJob?.analysis || {}
+  const analysisFeatures = Array.isArray(analysis.features) ? analysis.features : []
+  const analysisAssumptions = Array.isArray(analysis.assumptions) ? analysis.assumptions : []
+  const analysisUnresolved = Array.isArray(analysis.unresolved) ? analysis.unresolved : []
+  const analysisMissing = Array.isArray(analysis.missingFields) ? analysis.missingFields : []
+  const analysisQuestions = Array.isArray(drawingJob?.questions) ? drawingJob.questions : []
+  const analysisConfidence = Number.isFinite(Number(analysis.confidence)) ? `${Math.round(Number(analysis.confidence) * 100)}%` : '待评估'
+  const entityGenerated = drawingJob?.status === 'generated' || Boolean(generation && !generation.stale && evidence?.status === 'confirmed')
   const compare = (source, current, suffix = '') => source === undefined || source === null
     ? `待确认${suffix}`
     : Number(source) !== Number(current)
@@ -1278,7 +1669,26 @@ function ModelWorkspace(props) {
       <div className="workbench-header-actions"><span className={`workbench-status ${productionReady ? 'ready' : reviewRequired ? 'review' : ''}`}><i />{workflow.label}</span><button type="button" className={`secondary-button header-text-action ${productionReady ? 'header-upload-action' : ''}`} onClick={() => { if (productionReady) { setChatAttachments?.([]); drawingInputRef.current?.click(); showToast('请选择新的图纸，当前版本会保留为历史预览') } else { setPrompt((current) => current || '创建一个可编辑的参数化零件'); showToast('已切换到文字设计') } }}>{productionReady ? '上传新图纸' : '从文字开始'}</button>{showExportAction ? <details className="export-menu" open={exportOpen} onToggle={(event) => setExportOpen(event.currentTarget.open)}><summary className="primary-button" aria-label="导出交付">导出交付 <Icon>⌄</Icon></summary><div className="export-menu-popover"><b>选择交付格式</b><button onClick={() => exportFile('step')}>STEP · 生产实体</button><button onClick={() => exportFile('glb')}>GLB · 三维预览</button><button onClick={() => exportFile('dxf')}>DXF · 工程图</button><button onClick={() => exportFile('json')}>JSON · 参数与审计</button></div></details> : <button type="button" data-testid="workbench-primary-action" className="primary-button workbench-primary" disabled={isGenerating} onClick={primaryAction}>{isGenerating ? '处理中…' : primaryLabel} <Icon>{primaryLabel === '上传图纸' ? '＋' : '↗'}</Icon></button>}</div>
     </div>
     <nav className="workflow-rail" aria-label="建模流程">{workflowSteps.map((step, index) => <div key={step.id} className={`workflow-step ${statusForStep(step.id)}`}><span className="workflow-step-index">{statusForStep(step.id) === 'done' ? '✓' : index + 1}</span><span><b>{step.label}</b><small>{step.id === workflow.current ? '当前' : statusForStep(step.id) === 'done' ? '已完成' : '待处理'}</small></span>{index < workflowSteps.length - 1 && <i className="workflow-connector" />}</div>)}</nav>
-    {evidence && <section className={`review-banner ${reviewRequired ? 'needs-review' : 'confirmed'}`} data-testid="workbench-review"><div className="review-banner-icon">{reviewRequired ? '!' : '✓'}</div><div className="review-banner-copy"><b>{reviewRequired ? evidenceUsesFallback ? '未可靠读到标注，需要人工复核' : '图纸证据需要复核' : '图纸证据已确认'}</b><span>{reviewRequired ? evidenceUsesFallback ? '以下数值是识别服务的候选配方，不是图纸结论；请 reviewer 对照原图逐项确认。' : '确认关键尺寸后，才能生成可交付实体。若需 reviewer 权限，系统会保留当前文件和证据。' : '尺寸来源已锁定；生成结果会继续经过 CadQuery / OCCT 拓扑检查。'}</span></div><div className="review-evidence-mini">{evidenceRows.map(([label, value]) => <span key={label}><b>{evidenceUsesFallback && reviewRequired ? `候选 · ${label}` : label}</b>{value}</span>)}</div><button type="button" className={reviewRequired ? 'primary-button' : 'secondary-button'} disabled={drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (reviewRequired && generateFromDrawing) generateFromDrawing(); else if (!generation && generateFromDrawing) generateFromDrawing(); else setActivePanel('检查') }}>{drawingJob?.status === 'generated' ? '已生成 3D' : reviewRequired ? '确认并生成 3D' : '查看证据'}</button></section>}
+    {evidence && <section className={`review-banner ${reviewRequired ? 'needs-review' : 'confirmed'}`} data-testid="workbench-review">
+      <div className="review-banner-icon">{reviewRequired ? '!' : '✓'}</div>
+      <div className="review-banner-copy">
+        <b>{reviewRequired ? 'AI 分析完成 · 候选数据待确认' : entityGenerated ? '3D 实体已生成' : '数据已确认，可生成 3D'}</b>
+        <span>{reviewRequired ? '候选尺寸、置信度与来源已显示；编辑参数后点击“确认数据”，无需 reviewer 权限。' : entityGenerated ? '实体已通过 CadQuery / OCCT 拓扑检查，可继续二次修改或导出交付。' : '尺寸来源已锁定；生成结果会继续经过 CadQuery / OCCT 拓扑检查。'}</span>
+      </div>
+      <div className="review-evidence-mini">{evidenceRows.map(([label, value]) => <span key={label}><b>{reviewRequired ? `候选 · ${label}` : label}</b>{value}</span>)}</div>
+      <div className="ai-analysis-summary" aria-label="AI 分析摘要">
+        <div className="ai-analysis-summary-heading"><b>AI 分析摘要</b><span>{analysis.provider || evidence.engine || '分析服务'} · 置信度 {analysisConfidence}</span></div>
+        <p>{analysis.message || (reviewRequired ? '已生成候选参数，请在右侧参数面板逐项确认。' : '候选参数已由人工确认。')}</p>
+        {(analysisMissing.length > 0 || analysisAssumptions.length > 0 || analysisUnresolved.length > 0 || analysisFeatures.length > 0 || analysisQuestions.length > 0) && <div className="ai-analysis-tags">
+          {analysisMissing.slice(0, 8).map((key) => <span key={`missing-${key}`} className="warning">待补全：{bracketParameterLabels[key] || key}</span>)}
+          {analysisFeatures.slice(0, 4).map((feature, index) => <span key={`feature-${index}`}>特征：{String(feature?.featureType || feature?.feature_type || feature?.type || feature || '已识别')}</span>)}
+          {analysisAssumptions.slice(0, 2).map((item, index) => <span key={`assumption-${index}`}>假设：{String(item)}</span>)}
+          {analysisUnresolved.slice(0, 2).map((item, index) => <span key={`unresolved-${index}`} className="warning">待确认：{String(item)}</span>)}
+          {analysisQuestions.slice(0, 2).map((item, index) => <span key={`question-${index}`} className="warning">AI 问题：{String(item)}</span>)}
+        </div>}
+      </div>
+      <button type="button" className={reviewRequired ? 'primary-button' : 'secondary-button'} disabled={drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (reviewRequired && acceptDrawingData) acceptDrawingData(); else if (generateFromDrawing && drawingJob?.status === 'ready') generateFromDrawing(); else setActivePanel('检查') }}>{drawingJob?.status === 'generated' ? '已生成 3D' : reviewRequired ? '确认数据' : '生成 3D'}</button>
+    </section>}
 
     <section className="ai-column panel-card">
       <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>AI 设计助手</h2><p className="panel-subtitle">上传图纸，或直接描述你要修改的尺寸</p></div><button className="more-button" aria-label="AI 历史记录" title="AI 历史记录" onClick={() => showToast('AI 历史记录将在当前项目内保留')}>•••</button></div>
@@ -1286,10 +1696,10 @@ function ModelWorkspace(props) {
       <div className={`ai-provider-status ${providerReady ? 'ready' : aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{aiStatus?.mode === 'verified-local' ? '图纸校准' : providerReady ? '中转站在线' : '本地回退'}</small></div>
       {!providerReady && !platform?.token && <div className="ai-auth-hint">当前可用本地尺寸解析；通用视觉对话由服务端中转站提供。</div>}
       {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
-      {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；上传后按“识别 → 复核 → 生成”推进。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
+      {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；上传后按“AI 分析 → 确认数据 → 生成 3D”推进。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
       <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
       {chatAttachments.length > 0 && <div className="queued-drawing"><div><b>待处理图纸</b><span>可先补充意图，再开始识别</span></div><div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div></div>}
-      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么，或修改哪个尺寸…" aria-label="AI 设计指令" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="上传图纸" title="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>上传图纸</span></button><span>主图 1 张 · 可附加参考图 · 单个不超过 20 MB</span><button type="button" className="run-button" disabled={isGenerating || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>{isGenerating ? '处理中…' : chatAttachments.length ? '识别并生成' : '发送修改'}<Icon>↑</Icon></button></div></div>
+      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么，或修改哪个尺寸…" aria-label="AI 设计指令" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="上传图纸" title="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>上传图纸</span></button><span>主图 1 张 · 可附加参考图 · 单个不超过 20 MB</span><button type="button" className="run-button" disabled={isGenerating || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>{isGenerating ? '处理中…' : chatAttachments.length ? '开始 AI 分析' : '发送修改'}<Icon>↑</Icon></button></div></div>
       <div className="suggestions"><span>快速开始：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button><button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button></div>
     </section>
 
@@ -1299,7 +1709,15 @@ function ModelWorkspace(props) {
       <div className="viewport-footer"><span><i className="live-dot" /> {generation ? '模型版本已更新' : '等待图纸或文字指令'} · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : generation?.stale ? 'preview' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : generation?.stale ? '参数已变更' : '示例预览'}</span><span>单位 <b>mm</b></span><span>材质 <b>{model.material}</b></span></div>
     </section>
 
-    <aside className="inspector-column"><div className="inspector-tabs"><button className={activePanel === '参数' ? 'active' : ''} onClick={() => setActivePanel('参数')}>参数</button><button className={activePanel === '特征' ? 'active' : ''} onClick={() => setActivePanel('特征')}>特征树</button><button className={activePanel === '检查' ? 'active' : ''} onClick={() => setActivePanel('检查')}>检查</button></div>{activePanel === '参数' && <ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} />}{activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} />}{activePanel === '检查' && <CheckPanel modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} drawingJob={drawingJob} generateFromDrawing={generateFromDrawing} setActiveMode={setActiveMode} />}{model.kind === 'bracket' && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产实体' : '仅预览'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{topology.boundingLength || model.baseLength} × {topology.boundingWidth || model.baseWidth} × {topology.boundingHeight || model.totalHeight}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b></div></div>}<div className="export-card"><div><span className="eyebrow">交付状态</span><h3>{productionReady ? '可导出交付文件' : reviewRequired ? '完成复核后才能导出' : '先生成实体再导出'}</h3><p>{productionReady ? 'STEP、GLB、DXF 与参数 JSON 已集中到右上角“导出交付”。' : '当前只显示可编辑预览，避免把未校验模型误当成生产文件。'}</p></div>{productionReady ? <div className="export-card-hint">右上角 <b>导出交付</b> · 统一出口</div> : <button type="button" className="secondary-button full" onClick={primaryAction}>{reviewRequired ? '打开复核' : '继续当前流程'} <Icon>↗</Icon></button>}</div></aside>
+    <aside className="inspector-column">
+      <div className="inspector-tabs"><button className={activePanel === '参数' ? 'active' : ''} onClick={() => setActivePanel('参数')}>参数</button><button className={activePanel === '特征' ? 'active' : ''} onClick={() => setActivePanel('特征')}>特征树</button><button className={activePanel === '检查' ? 'active' : ''} onClick={() => setActivePanel('检查')}>检查</button></div>
+      {activePanel === '参数' && <ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} />}
+      {activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} />}
+      {activePanel === '检查' && <CheckPanel model={model} modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} drawingJob={drawingJob} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} setActiveMode={setActiveMode} />}
+      {model.kind === 'bracket' && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产实体' : '仅预览'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{topology.boundingLength || model.baseLength} × {topology.boundingWidth || model.baseWidth} × {topology.boundingHeight || model.totalHeight}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b></div></div>}
+      <div className="export-card"><div><span className="eyebrow">交付状态</span><h3>{productionReady ? '可导出交付文件' : reviewRequired ? '先确认数据才能导出' : '先生成实体再导出'}</h3><p>{productionReady ? 'STEP、GLB、DXF 与参数 JSON 已集中到右上角“导出交付”。' : '当前只显示可编辑预览，避免把未校验模型误当成生产文件。'}</p></div>{productionReady ? <div className="export-card-hint">右上角 <b>导出交付</b> · 统一出口</div> : <button type="button" className="secondary-button full" onClick={primaryAction}>{reviewRequired ? '打开确认数据' : '继续当前流程'} <Icon>↗</Icon></button>}</div>
+    </aside>
+
   </div>
 }
 
@@ -1348,7 +1766,7 @@ function LegacyModelWorkspace(props) {
   </div>
 }
 
-function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawing, showToast, backend }) {
+function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawing, acceptDrawingData, model, updateDrawingEvidence, showToast, backend }) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
   const evidence = drawingJob.evidence
@@ -1367,7 +1785,11 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
     chooseFile(event.dataTransfer.files?.[0])
   }
   const statusText = drawingJob.status === 'analyzing' ? '识别中' : drawingJob.status === 'generating' ? '生成实体中' : drawingJob.status === 'generated' ? '实体已生成' : drawingJob.status === 'ready' ? '识别完成' : drawingJob.status === 'error' ? '识别失败' : '等待上传'
-  const recognizedParameters = evidence?.parameters || evidence
+  // Do not render the compatibility recognizer's canonical preview recipe as
+  // if it were extracted from this upload.  The shared normalizer keeps only
+  // explicit OCR/AI candidate fields; missing values stay blank and require a
+  // deliberate human edit before confirmation.
+  const recognizedParameters = rawParametersFromRecognition(evidence) || {}
   const evidenceList = recognitionEvidence(evidence)
   const sourceFor = (field, fallback) => evidenceList.find((item) => item.field === field || item.field === field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))?.view || evidenceList.find((item) => item.field === field || item.field === field.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))?.source || fallback
   const confidenceLabel = evidence?.confidence !== undefined ? `置信度 ${Math.round(Number(evidence.confidence) * 100)}%` : '置信度 96%'
@@ -1375,21 +1797,22 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
   // missing values with the acceptance fixture's dimensions: an explicit
   // placeholder keeps the reviewer gate honest and tells the customer what
   // still needs confirmation.
-  const read = (key) => recognizedParameters && recognizedParameters[key] !== undefined ? recognizedParameters[key] : '待确认'
+  const missingFields = new Set(Array.isArray(drawingJob.analysis?.missingFields) ? drawingJob.analysis.missingFields : [])
+  const read = (key) => missingFields.has(key) ? '' : recognizedParameters && recognizedParameters[key] !== undefined ? recognizedParameters[key] : ''
   const evidenceRows = [
-    ['底板', `${read('baseLength')} × ${read('baseWidth')} × ${read('baseThickness')} mm`, sourceFor('baseLength', '俯视 / 主视')],
-    ['上部实体', `${read('upperLength')} × ${read('upperWidth')} × ${read('upperHeight')} mm`, sourceFor('upperLength', '主视 / 右视')],
-    ['总高度', `${read('totalHeight')} mm`, sourceFor('totalHeight', '主视')],
-    ['U 型缺口', `开口 ${read('notchOpening')} · R${read('notchRadius')}`, sourceFor('notchOpening', '主视')],
-    ['矩形浅槽', `2 × ${read('slotWidth')} × ${read('slotLength')} · 深 ${read('pocketDepth')}`, sourceFor('slotLength', '俯视 / 右视')],
-    ['侧向贯穿凹槽', `2 × Ø${read('bossDiameter')}`, sourceFor('bossDiameter', '俯视 / 主视')],
-    ['凹槽中心距', `${read('bossCenterDistance')} mm`, sourceFor('bossCenterDistance', '俯视投影')],
+    ['底板', [['baseLength', '长'], ['baseWidth', '宽'], ['baseThickness', '厚']], sourceFor('baseLength', '俯视 / 主视')],
+    ['上部实体', [['upperLength', '长'], ['upperWidth', '宽'], ['upperHeight', '高']], sourceFor('upperLength', '主视 / 右视')],
+    ['总高度', [['totalHeight', '高度']], sourceFor('totalHeight', '主视')],
+    ['U 型缺口', [['notchOpening', '开口'], ['notchRadius', '半径 R']], sourceFor('notchOpening', '主视')],
+    ['矩形浅槽', [['slotWidth', '宽'], ['slotLength', '长'], ['pocketDepth', '深']], sourceFor('slotLength', '俯视 / 右视')],
+    ['侧向贯穿凹槽', [['bossDiameter', '直径 Ø']], sourceFor('bossDiameter', '俯视 / 主视')],
+    ['凹槽中心距', [['bossCenterDistance', '中心距']], sourceFor('bossCenterDistance', '俯视投影')],
   ]
   const evidenceWarning = evidence?.warnings?.length
     ? evidence.warnings.join('；')
     : evidence?.status === 'confirmed'
       ? '尺寸证据已锁定；Ø20 为两处贯穿竖孔/侧边半圆凹槽，30 mm 为中段浅槽长度，生成结果仍会经过 OCCT 拓扑检查。'
-      : '请确认 Ø20 是贯穿竖孔/侧边半圆凹槽，30 mm 是两条浅槽沿 Y 的长度；确认后将按上述参数生成实体。'
+      : 'AI 已给出候选值；请确认 Ø20 是贯穿竖孔/侧边半圆凹槽，30 mm 是两条浅槽沿 Y 的长度，再点击“确认数据”。'
   const stepStatus = (step) => {
     const order = ['upload', 'recognize', 'review', 'generate']
     const current = drawingJob.status === 'analyzing' ? 'recognize' : drawingJob.status === 'ready' ? (evidence?.status === 'confirmed' ? 'generate' : 'review') : drawingJob.status === 'generating' ? 'generate' : drawingJob.status === 'generated' ? 'done' : 'upload'
@@ -1398,8 +1821,8 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
     return step === current ? 'active' : index >= 0 && index < currentIndex ? 'done' : ''
   }
   return <div className="secondary-workspace import-workspace">
-    <div className="secondary-heading"><div><span className="eyebrow">DRAWING → 3D</span><h1>图纸转三维</h1><p>上传一张工程图，识别关键尺寸后生成可编辑实体</p></div><div className="heading-actions"><span className={`backend-status compact ${backend?.status || 'checking'}`}><i />{backend?.productionReady ? 'CadQuery / OCCT 在线' : backend?.status === 'offline' ? 'API 离线' : '连接中'}</span><button className="secondary-button" onClick={() => showToast('支持 JPG、PNG、WEBP、PDF、DWG、DXF')}>支持格式</button><button className="primary-button" data-testid="confirm-generate" disabled={!evidence || drawingJob.status === 'analyzing' || drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={generateFromDrawing}>{drawingJob.status === 'generated' ? '已生成 3D' : '确认并生成 3D'} <Icon>↗</Icon></button></div></div>
-    <div className="import-steps" aria-label="图纸转三维流程"><span className={stepStatus('upload')}><i>1</i>上传图纸</span><span className={stepStatus('recognize')}><i>2</i>识别尺寸</span><span className={stepStatus('review')}><i>3</i>复核证据</span><span className={stepStatus('generate')}><i>4</i>生成实体</span></div>
+    <div className="secondary-heading"><div><span className="eyebrow">DRAWING → 3D</span><h1>图纸转三维</h1><p>AI 分析候选尺寸 → 确认数据 → 生成可编辑 3D</p></div><div className="heading-actions"><span className={`backend-status compact ${backend?.status || 'checking'}`}><i />{backend?.productionReady ? 'CadQuery / OCCT 在线' : backend?.status === 'offline' ? 'API 离线' : '连接中'}</span><button className="secondary-button" onClick={() => showToast('支持 JPG、PNG、WEBP、PDF、DWG、DXF')}>支持格式</button><button className="primary-button" data-testid="confirm-generate" disabled={!evidence || drawingJob.status === 'analyzing' || drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={evidence?.status === 'confirmed' ? generateFromDrawing : acceptDrawingData}>{drawingJob.status === 'generated' ? '已生成 3D' : evidence?.status === 'confirmed' ? '生成 3D' : '确认数据'} <Icon>↗</Icon></button></div></div>
+    <div className="import-steps" aria-label="图纸转三维流程"><span className={stepStatus('recognize')}><i>1</i>AI 分析</span><span className={stepStatus('review')}><i>2</i>确认数据</span><span className={stepStatus('generate')}><i>3</i>生成 3D</span></div>
     <div className="import-grid">
       <div className="upload-card panel-card">
         <input ref={inputRef} className="file-input" data-testid="drawing-file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" onChange={(event) => chooseFile(event.target.files?.[0])} />
@@ -1413,7 +1836,7 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
         <div className="privacy-note"><Icon>◈</Icon><span>原图仅用于本次识别；生成前会保留每个尺寸的来源视图和校验状态。</span></div>
       </div>
       <div className="evidence-card panel-card" data-testid="drawing-evidence"><div className="evidence-heading"><div><span className="eyebrow">RECOGNITION EVIDENCE</span><h2>识别结果与尺寸证据</h2></div><span className={`confidence ${evidence ? 'ready' : ''}`}>{evidence ? confidenceLabel : drawingJob.status === 'analyzing' ? '分析中…' : '等待图纸'}</span></div>
-        {!evidence ? <div className="evidence-empty"><span>{drawingJob.status === 'analyzing' ? '⋯' : '⌁'}</span><b>{drawingJob.status === 'analyzing' ? '正在解析视图与标注' : '上传图纸后开始识别'}</b><small>{drawingJob.status === 'analyzing' ? '正在建立尺寸证据链，请稍候。' : '系统会保留每个尺寸的来源视图和校验状态。'}</small><div className="recognition-meter"><i style={{ width: drawingJob.status === 'analyzing' ? '64%' : '0%' }} /></div></div> : <><div className="evidence-banner"><span className="status-dot" /><div><b>已识别：正投影安装支架</b><small>{evidence.engine || 'OCR'} · {evidence.status === 'confirmed' ? '识别结果已确认' : '需要人工确认'} · 三视图证据链</small></div><span className="evidence-source">{evidence.engine || evidence.source || 'OCR'}</span></div><div className="evidence-table">{evidenceRows.map(([label, value, source]) => <div className="evidence-row" key={label}><span className="evidence-check">✓</span><div><b>{label}</b><small>{source}</small></div><strong>{value}</strong><span className="evidence-lock">{evidence.status === 'confirmed' ? '已确认' : '待确认'}</span></div>)}</div><div className="evidence-warning"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidenceWarning}</span></div><div className="evidence-confirmed"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidence.status === 'confirmed' ? '尺寸证据完整 · 可生成可编辑支架模型' : '识别结果待人工确认 · 生成后端会保留审计记录'}</span><button disabled={drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={generateFromDrawing}>{drawingJob.status === 'generated' ? '已生成' : '确认并生成'} <Icon>↗</Icon></button></div></>}</div>
+        {!evidence ? <div className="evidence-empty"><span>{drawingJob.status === 'analyzing' ? '⋯' : '⌁'}</span><b>{drawingJob.status === 'analyzing' ? '正在解析视图与标注' : '上传图纸后开始识别'}</b><small>{drawingJob.status === 'analyzing' ? '正在建立尺寸证据链，请稍候。' : '系统会保留每个尺寸的来源视图和校验状态。'}</small><div className="recognition-meter"><i style={{ width: drawingJob.status === 'analyzing' ? '64%' : '0%' }} /></div></div> : <><div className="evidence-banner"><span className="status-dot" /><div><b>AI 已完成尺寸分析</b><small>{evidence.engine || 'OCR'} · {evidence.status === 'confirmed' ? '数据已确认' : '候选值可编辑'} · 三视图证据链</small></div><span className="evidence-source">{evidence.engine || evidence.source || 'OCR'}</span></div>{drawingJob.analysis?.message && <div className="ai-analysis-summary import-analysis-summary"><div className="ai-analysis-summary-heading"><b>AI 分析摘要</b><span>{drawingJob.analysis.provider || evidence.engine || '分析服务'}</span></div><p>{drawingJob.analysis.message}</p>{missingFields.size > 0 && <div className="ai-analysis-tags">{[...missingFields].slice(0, 8).map((key) => <span key={key} className="warning">待补全：{bracketParameterLabels[key] || key}</span>)}</div>}</div>}<div className="evidence-table">{evidenceRows.map(([label, fields, source]) => <div className="evidence-row" key={label}><span className="evidence-check">{evidence.status === 'confirmed' ? '✓' : '·'}</span><div><b>{label}</b><small>{source} · {evidenceList.find((item) => item.field === fields[0][0])?.confidence ? `${Math.round(Number(evidenceList.find((item) => item.field === fields[0][0]).confidence) * 100)}%` : '候选'} 置信度</small></div><div className="evidence-edit-fields">{fields.map(([field, fieldLabel]) => <label key={field}><span>{missingFields.has(field) ? `${fieldLabel} · 待补全` : fieldLabel}</span><input aria-label={`${label} ${fieldLabel}`} type="number" value={missingFields.has(field) ? '' : model?.[field] ?? ''} placeholder={missingFields.has(field) ? 'AI 未识别' : '待确认'} onChange={(event) => updateDrawingEvidence?.(field, event.target.value)} /></label>)}</div><span className="evidence-lock">{evidence.status === 'confirmed' ? '已确认' : '待确认'}</span></div>)}</div><div className="evidence-warning"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidenceWarning}</span></div>{drawingJob.questions?.length > 0 && <div className="evidence-warning"><span>?</span><span>AI 待确认问题：{drawingJob.questions.join('；')}</span></div>}<div className="evidence-confirmed"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidence.status === 'confirmed' ? '尺寸证据已确认 · 可以生成 3D' : '候选尺寸、置信度和来源已显示；请编辑后确认数据'}</span><button disabled={drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={evidence.status === 'confirmed' ? generateFromDrawing : acceptDrawingData}>{drawingJob.status === 'generated' ? '已生成' : evidence.status === 'confirmed' ? '生成 3D' : '确认数据'} <Icon>↗</Icon></button></div></>}</div>
     </div>
   </div>
 }
@@ -1491,13 +1914,13 @@ function PlatformWorkspace({ mode, backend, platform, platformLogin, platformLog
   </div>
 }
 
-function ParameterPanel({ model, modelValid, updateModel, resetModel }) {
-  if (model.kind === 'bracket') return <BracketParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} />
+function ParameterPanel({ model, modelValid, updateModel, resetModel, drawingJob }) {
+  if (model.kind === 'bracket') return <BracketParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} />
   const fields = [['outerDiameter', '外径', 'Ø', 'mm'], ['length', '总长度', '', 'mm'], ['holeDiameter', '通孔直径', 'Ø', 'mm'], ['keywayWidth', '键槽宽度', '', 'mm'], ['keywayDepth', '键槽深度', '', 'mm'], ['keywayLength', '键槽长度', '', 'mm']]
   return <div className="inspector-content"><div className="selection-title"><span className="feature-icon blue">◒</span><div><b>{model.name}</b><small>参数化实体 · 已锁定</small></div><span className={`valid-chip ${modelValid ? '' : 'invalid'}`}>{modelValid ? '有效' : '待修正'}</span></div><div className="field-group"><div className="field-group-title">基本尺寸 <span>单位：mm</span></div>{fields.slice(0, 3).map(([key, label, prefix, suffix]) => <NumberField key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">键槽特征 <span className="muted">切除</span></div>{fields.slice(3).map(([key, label, prefix, suffix]) => <NumberField key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><button className="reset-link" onClick={resetModel}>↻ 恢复基准参数</button></div>
 }
 
-function BracketParameterPanel({ model, modelValid, updateModel, resetModel }) {
+function BracketParameterPanel({ model, modelValid, updateModel, resetModel, drawingJob }) {
   const groups = [
     { title: '底板尺寸', fields: [['baseLength', '长度'], ['baseWidth', '宽度'], ['baseThickness', '厚度']] },
     { title: '上部实体', fields: [['upperLength', '长度'], ['upperWidth', '全宽'], ['upperHeight', '高度'], ['totalHeight', '总高']] },
@@ -1505,17 +1928,32 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel }) {
   ]
   const numeric = (key) => Number(model[key])
   const relationWarning = numeric('upperLength') > numeric('baseLength') || numeric('upperWidth') > numeric('baseWidth') || numeric('slotLength') > numeric('baseWidth') || numeric('pocketDepth') > numeric('upperHeight') || numeric('notchOpening') < numeric('notchRadius') * 2 || Math.abs(numeric('totalHeight') - numeric('baseThickness') - numeric('upperHeight')) > 1e-6
-  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{model.name}</b><small>图纸识别实体 · 证据已锁定</small></div><span className={`valid-chip ${modelValid ? '' : 'invalid'}`}>{modelValid ? '有效' : '待修正'}</span></div>{groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => <NumberField key={key} label={label} value={model[key]} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} />)}</div>)}<div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>侧向凹槽中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>{relationWarning && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}<div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><div className="evidence-mini"><Icon>✓</Icon><span>所有尺寸均可回溯到上传图纸的视图和校验状态。</span></div><button className="reset-link" onClick={resetModel}>↻ 恢复支架基准参数</button></div>
+  const waitingForAnalysis = Boolean(drawingJob?.file && ['queued', 'analyzing'].includes(drawingJob?.status) && !drawingJob?.evidence)
+  const missingFields = new Set(waitingForAnalysis
+    ? bracketRequiredParameterKeys
+    : Array.isArray(drawingJob?.analysis?.missingFields) ? drawingJob.analysis.missingFields : [])
+  const candidatePending = waitingForAnalysis || Boolean(drawingJob?.evidence && drawingJob.evidence.status !== 'confirmed')
+  const chipLabel = waitingForAnalysis ? '待分析' : candidatePending ? (missingFields.size ? '待补全' : '待确认') : modelValid ? '有效' : '待修正'
+  const fieldLabel = (key, label) => waitingForAnalysis && missingFields.has(key)
+    ? `${label} · 待分析`
+    : missingFields.has(key) ? `${label} · 待补全` : label
+  const candidateMessage = waitingForAnalysis
+    ? ['等待 AI 分析图纸', '分析完成后会在这里显示模型候选值；不会沿用上一张图纸的尺寸。']
+    : [`AI 尚未确定 ${missingFields.size} 项尺寸`, '空白字段需要你根据图纸补全；补齐后点击“确认数据”。']
+  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{waitingForAnalysis ? '上一版本仅保留为预览' : candidatePending ? 'AI 候选数据 · 可编辑确认' : '图纸识别实体 · 证据已锁定'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>{candidatePending && missingFields.size > 0 && <div className="candidate-missing-note"><b>{candidateMessage[0]}</b><span>{candidateMessage[1]}</span>{!waitingForAnalysis && <small>{[...missingFields].slice(0, 5).map((key) => bracketParameterLabels[key] || key).join('、')}{missingFields.size > 5 ? '…' : ''}</small>}</div>}{groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => { const pending = candidatePending && missingFields.has(key); return <NumberField key={key} label={fieldLabel(key, label)} value={pending ? '' : model[key]} pending={pending} disabled={waitingForAnalysis} placeholder={pending ? waitingForAnalysis ? '等待分析' : 'AI 未识别' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} /> })}</div>)}<div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>侧向凹槽中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>{relationWarning && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}<div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)} disabled={waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '候选值可编辑；确认后才会进入生产实体。' : '所有尺寸均可回溯到上传图纸的视图和校验状态。'}</span></div><button className="reset-link" onClick={resetModel} disabled={waitingForAnalysis}>↻ 恢复支架基准参数</button></div>
 }
 
-function NumberField({ label, value, prefix, suffix, onChange }) { return <label className="number-field"><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value} type="number" min="0.1" step="0.1" onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
+function NumberField({ label, value, prefix, suffix, onChange, pending = false, placeholder = '', disabled = false }) { return <label className={`number-field ${pending ? 'candidate-pending' : ''}`}><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value ?? ''} placeholder={placeholder} type="number" min="0.1" step="0.1" disabled={disabled} onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
 function FeaturePanel({ features, selectedFeature, setSelectedFeature }) { return <div className="inspector-content feature-tree-panel"><div className="tree-toolbar"><span>特征历史 <b>{features.length}</b></span><button>＋</button></div><div className="feature-tree">{features.map((feature, index) => <button key={feature.id} className={`feature-row ${selectedFeature === feature.id ? 'selected' : ''}`} onClick={() => setSelectedFeature(feature.id)}><span className="tree-line">{index < features.length - 1 ? '│' : '└'}</span><span className="feature-glyph">{feature.icon}</span><span className="feature-label">{feature.label}<small>{feature.meta}</small></span>{selectedFeature === feature.id && <span className="eye">◉</span>}</button>)}</div><div className="feature-note"><Icon>✦</Icon><span>特征树由 AI 生成，可继续描述来添加圆角、阵列或螺纹。</span></div></div> }
-function CheckPanel({ modelValid, showToast, backend, generation, drawingJob, generateFromDrawing, setActiveMode }) {
+function CheckPanel({ model, modelValid, showToast, backend, generation, drawingJob, generateFromDrawing, acceptDrawingData, setActiveMode }) {
   const metrics = generation?.validation?.metrics || {}
   const kernelReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
   const evidence = drawingJob?.evidence
-  const evidenceParameters = evidence?.parameters || evidence || {}
-  const evidenceUsesFallback = Boolean(evidence && evidence.status !== 'confirmed')
+  const evidenceParameters = evidence?.parameters && Object.keys(evidence.parameters).length
+    ? evidence.parameters
+    : evidence?.candidateParameters && Object.keys(evidence.candidateParameters).length
+      ? evidence.candidateParameters
+      : model || evidence || {}
   const evidenceValue = (key) => evidenceParameters[key] !== undefined && evidenceParameters[key] !== null ? evidenceParameters[key] : '待确认'
   const evidenceRows = evidence ? [
     ['底板', `${evidenceValue('baseLength')} × ${evidenceValue('baseWidth')} × ${evidenceValue('baseThickness')} mm`],
@@ -1524,14 +1962,15 @@ function CheckPanel({ modelValid, showToast, backend, generation, drawingJob, ge
     ['贯穿孔', `2 × Ø${evidenceValue('bossDiameter')} · 中心距 ${evidenceValue('bossCenterDistance')} mm`],
   ] : []
   const evidenceConfirmed = evidence?.status === 'confirmed'
-  const reviewerReady = Boolean(evidenceConfirmed || (drawingJob?.status === 'ready' && generateFromDrawing))
+  const customerReady = Boolean(evidenceConfirmed || (drawingJob?.status === 'ready' && (acceptDrawingData || generateFromDrawing)))
+  const analysis = drawingJob?.analysis || {}
   const checks = [
     { label: '参数完整性', status: modelValid ? '通过' : '待修正' },
     { label: '实体拓扑', status: kernelReady && metrics.topologyAuditPassed !== false ? '通过' : generation ? '待内核校验' : '未运行' },
     { label: '关键尺寸', status: kernelReady && metrics.bboxLength ? '通过' : generation ? '待校验' : '未运行' },
     { label: '制造可行性', status: kernelReady ? '提示' : '仅预览' },
   ]
-  return <div className="inspector-content check-panel">{evidence && <section className={`check-evidence-card ${evidenceConfirmed ? 'confirmed' : 'needs-review'}`} aria-label="图纸证据复核"><div className="check-evidence-heading"><div><span className="eyebrow">DRAWING EVIDENCE</span><b>{evidenceConfirmed ? '尺寸证据已确认' : evidenceUsesFallback ? '候选配方待逐项复核' : '尺寸证据待复核'}</b></div><span className={`confidence ${evidenceConfirmed ? 'ready' : ''}`}>{evidence.confidence !== undefined ? `${Math.round(Number(evidence.confidence) * 100)}%` : '—'}</span></div><div className="check-evidence-rows">{evidenceRows.map(([label, value]) => <div key={label}><span>{evidenceUsesFallback && !evidenceConfirmed ? `候选 · ${label}` : label}</span><b>{value}</b></div>)}</div><p>{evidenceConfirmed ? '来源已锁定；生成实体会继续经过 CadQuery / OCCT 拓扑检查。' : evidenceUsesFallback ? 'OCR 未可靠读到图纸标注，以上只是可编辑候选值；必须由 reviewer 对照原图确认。' : '确认关键尺寸后才能生成可交付实体；没有 reviewer 权限时请先登录平台服务。'}</p><div className="check-evidence-actions"><button type="button" className={evidenceConfirmed ? 'secondary-button' : 'primary-button'} disabled={!reviewerReady || drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (evidenceConfirmed) return showToast('尺寸证据已确认'); generateFromDrawing?.() }}>{evidenceConfirmed ? '已确认' : '确认并生成 3D'} <Icon>↗</Icon></button>{!evidenceConfirmed && <button type="button" className="text-button" onClick={() => setActiveMode?.('平台服务')}>去 PDM / 账号登录</button>}</div></section>}{!evidence && <div className="check-evidence-empty"><span>⌁</span><b>生成图纸模型后，这里会显示尺寸证据。</b><small>系统会把来源视图、置信度和确认状态绑定到当前模型版本。</small></div>}<div className="check-summary"><div className={`check-ring ${modelValid && (kernelReady || !generation) ? 'ok' : 'warn'}`}>{modelValid && (kernelReady || !generation) ? '✓' : '!'}</div><div><b>{kernelReady ? 'OCCT 模型检查通过' : modelValid ? '参数检查通过 · 等待内核' : '需要修正参数'}</b><small>{backend?.engine || '浏览器'} · 最近检查：{generation ? '刚刚' : '尚未运行'}</small></div></div>{checks.map((check) => <div className="check-row" key={check.label}><span>{check.label}</span><span className={`check-status ${check.status === '通过' ? 'pass' : check.status === '提示' ? 'hint' : 'warn'}`}>{check.status}</span></div>)}{generation && <div className="kernel-metrics"><span>包络</span><b>{metrics.boundingLength ?? '—'} × {metrics.boundingWidth ?? '—'} × {metrics.boundingHeight ?? '—'} mm</b><span>体积</span><b>{metrics.volumeMm3 ? `${Number(metrics.volumeMm3).toFixed(3)} mm³` : '—'}</b></div>}<button className="primary-outline" onClick={() => showToast(generation ? '已刷新内核检查报告' : '请先生成一个实体模型')}>重新运行检查 <Icon>↗</Icon></button></div>
+  return <div className="inspector-content check-panel">{evidence && <section className={`check-evidence-card ${evidenceConfirmed ? 'confirmed' : 'needs-review'}`} aria-label="图纸证据确认"><div className="check-evidence-heading"><div><span className="eyebrow">DRAWING EVIDENCE</span><b>{evidenceConfirmed ? '尺寸证据已确认' : 'AI 候选数据待确认'}</b></div><span className={`confidence ${evidenceConfirmed ? 'ready' : ''}`}>{evidence.confidence !== undefined ? `${Math.round(Number(evidence.confidence) * 100)}%` : '—'}</span></div>{analysis.message && <p className="check-analysis-message">{analysis.message}</p>}<div className="check-evidence-rows">{evidenceRows.map(([label, value]) => <div key={label}><span>{evidenceConfirmed ? label : `候选 · ${label}`}</span><b>{value}</b></div>)}</div><p>{evidenceConfirmed ? '来源已锁定；生成实体会继续经过 CadQuery / OCCT 拓扑检查。' : '候选尺寸可在参数面板中逐项编辑；确认数据后，下一步就是生成 3D。'}</p><div className="check-evidence-actions"><button type="button" className={evidenceConfirmed ? 'secondary-button' : 'primary-button'} disabled={!customerReady || drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (evidenceConfirmed) return showToast('尺寸证据已确认'); acceptDrawingData?.() || generateFromDrawing?.() }}>{evidenceConfirmed ? '已确认' : '确认数据'} <Icon>↗</Icon></button></div></section>}{!evidence && <div className="check-evidence-empty"><span>⌁</span><b>完成 AI 分析后，这里会显示尺寸证据。</b><small>系统会把来源视图、置信度和确认状态绑定到当前模型版本。</small></div>}<div className="check-summary"><div className={`check-ring ${modelValid && (kernelReady || !generation) ? 'ok' : 'warn'}`}>{modelValid && (kernelReady || !generation) ? '✓' : '!'}</div><div><b>{kernelReady ? 'OCCT 模型检查通过' : modelValid ? '参数检查通过 · 等待内核' : '需要修正参数'}</b><small>{backend?.engine || '浏览器'} · 最近检查：{generation ? '刚刚' : '尚未运行'}</small></div></div>{checks.map((check) => <div className="check-row" key={check.label}><span>{check.label}</span><span className={`check-status ${check.status === '通过' ? 'pass' : check.status === '提示' ? 'hint' : 'warn'}`}>{check.status}</span></div>)}{generation && <div className="kernel-metrics"><span>包络</span><b>{metrics.boundingLength ?? '—'} × {metrics.boundingWidth ?? '—'} × {metrics.boundingHeight ?? '—'} mm</b><span>体积</span><b>{metrics.volumeMm3 ? `${Number(metrics.volumeMm3).toFixed(3)} mm³` : '—'}</b></div>}<button className="primary-outline" onClick={() => showToast(generation ? '已刷新内核检查报告' : '请先生成一个实体模型')}>重新运行检查 <Icon>↗</Icon></button></div>
 }
 
 const svgPointString = (points) => points.map(([x, y]) => `${Number(x).toFixed(2)},${Number(y).toFixed(2)}`).join(' ')
@@ -1695,7 +2134,7 @@ function LegacyHomeWorkspace({ projects, selectedProject, createProject, setActi
 
 function HomeWorkspace({ projects, selectedProject, setSelectedProject, createProject, setActiveMode, showToast, attachDrawingToConversation }) {
   const inputRef = useRef(null)
-  return <div className="home-workspace"><section className="home-hero"><div className="home-hero-copy"><span className="eyebrow">WELCOME TO JOYNIU NEW CAD</span><h1>一张图纸，开始一个可编辑的 3D 模型。</h1><p>按“上传 → 识别 → 复核 → 生成 → 修改 → 导出”完成设计。AI 会保留每个尺寸的来源与版本。</p><div className="hero-actions"><input ref={inputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="上传图纸生成三维模型" onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><button className="primary-button hero-upload" onClick={() => inputRef.current?.click()}>📎 上传图纸生成 3D <Icon>↗</Icon></button><button className="secondary-button" onClick={() => { setActiveMode('3D 建模'); showToast('已打开设计工作台 · 可直接输入尺寸') }}>从文字开始</button></div><div className="hero-format-note">支持 JPG、PNG、WEBP、PDF、DWG、DXF · 单个文件不超过 20 MB</div></div><div className="hero-orbit" aria-hidden="true"><div className="orbit orbit-1" /><div className="orbit orbit-2" /><div className="hero-cube">N</div></div></section><div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div><div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => { setSelectedProject?.(project.name); setActiveMode('3D 建模'); showToast(`正在打开 ${project.name}`) }}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div><div className="quick-grid"><button onClick={() => { setActiveMode('3D 建模'); showToast('已打开 AI 设计助手') }}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>由当前模型生成视图</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>已有实体后再创建装配</small></div><span>→</span></button></div></div>
+  return <div className="home-workspace"><section className="home-hero"><div className="home-hero-copy"><span className="eyebrow">WELCOME TO JOYNIU NEW CAD</span><h1>一张图纸，开始一个可编辑的 3D 模型。</h1><p>按“上传 → AI 分析 → 确认数据 → 生成 3D → 修改 → 导出”完成设计。AI 会保留每个尺寸的来源与版本。</p><div className="hero-actions"><input ref={inputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="上传图纸开始 AI 分析" onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><button className="primary-button hero-upload" onClick={() => inputRef.current?.click()}>📎 上传图纸开始分析 <Icon>↗</Icon></button><button className="secondary-button" onClick={() => { setActiveMode('3D 建模'); showToast('已打开设计工作台 · 可直接输入尺寸') }}>从文字开始</button></div><div className="hero-format-note">支持 JPG、PNG、WEBP、PDF、DWG、DXF · 单个文件不超过 20 MB</div></div><div className="hero-orbit" aria-hidden="true"><div className="orbit orbit-1" /><div className="orbit orbit-2" /><div className="hero-cube">N</div></div></section><div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div><div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => { setSelectedProject?.(project.name); setActiveMode('3D 建模'); showToast(`正在打开 ${project.name}`) }}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div><div className="quick-grid"><button onClick={() => { setActiveMode('3D 建模'); showToast('已打开 AI 设计助手') }}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>由当前模型生成视图</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>已有实体后再创建装配</small></div><span>→</span></button></div></div>
 }
 
 export default App

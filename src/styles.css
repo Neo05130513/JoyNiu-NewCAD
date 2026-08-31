@@ -139,6 +139,10 @@
 .evidence-row b { color: #b8cbde; font-size: 10px; }
 .evidence-row small { margin-top: 3px; color: #647d98; font-size: 8px; }
 .evidence-row strong { color: #dceafa; font: 10px 'DM Mono'; white-space: nowrap; }
+.evidence-edit-fields { display: flex; flex-wrap: wrap; gap: 4px; min-width: 150px; }
+.evidence-edit-fields label { display: inline-flex; align-items: center; gap: 3px; color: #6f89a3; font-size: 8px; }
+.evidence-edit-fields input { width: 54px; height: 23px; padding: 0 4px; color: #dceafa; border: 1px solid #34516d; border-radius: 3px; background: #12263b; font: 9px 'DM Mono'; }
+.evidence-edit-fields input:focus { outline: 1px solid #6ca9df; border-color: #6ca9df; }
 .evidence-lock { padding: 3px 5px; color: #7092b0; border: 1px solid #2c465f; border-radius: 3px; font-size: 8px; white-space: nowrap; }
 .evidence-warning { display: flex; gap: 8px; align-items: flex-start; padding: 10px; margin-top: 13px; color: #d8a36d; border: 1px solid rgba(201, 137, 73, .3); border-radius: 5px; background: rgba(168, 99, 42, .09); font-size: 9px; line-height: 1.5; }
 .evidence-warning > span:first-child { width: 15px; height: 15px; display: grid; place-items: center; flex: 0 0 15px; color: #2d1c0d; border-radius: 50%; background: #dfa05d; font-weight: 700; }
@@ -1464,4 +1468,55 @@ select:focus-visible {
   .check-evidence-actions { flex-wrap: wrap; }
   .check-evidence-actions .primary-button,
   .check-evidence-actions .secondary-button { flex: 1 1 auto; }
+}
+
+/* v0.3.1: make the AI result read like an actionable analysis sheet rather
+   than a reviewer warning.  The candidate values remain editable in the
+   parameter panel; this summary keeps the model's assumptions and open
+   questions visible next to the 3D viewport. */
+.ai-analysis-summary {
+  display: grid;
+  gap: 6px;
+  padding: 8px 9px;
+  margin-top: 8px;
+  border: 1px solid rgba(91, 139, 181, .38);
+  border-radius: 6px;
+  background: rgba(16, 34, 53, .66);
+}
+.ai-analysis-summary-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ai-analysis-summary-heading b { color: #b8d9f1; font-size: 9px; letter-spacing: .04em; }
+.ai-analysis-summary-heading span { color: #7894ad; font: 8px 'DM Mono', monospace; text-align: right; }
+.ai-analysis-summary p { margin: 0; color: #a8bed2; font-size: 8px; line-height: 1.45; }
+.ai-analysis-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ai-analysis-tags span { max-width: 100%; padding: 3px 5px; color: #8eb7d6; border: 1px solid rgba(87, 135, 174, .35); border-radius: 4px; font-size: 7px; line-height: 1.25; }
+.ai-analysis-tags span.warning { color: #e3b77b; border-color: rgba(190, 137, 66, .4); }
+.check-analysis-message { margin: 7px 0 0; color: #a9c6dc !important; }
+.import-analysis-summary { margin: 9px 0; }
+.evidence-edit-fields { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.evidence-edit-fields label { display: inline-flex; align-items: center; gap: 3px; min-width: 62px; color: #829ab0; font-size: 7px; }
+.evidence-edit-fields label span { white-space: nowrap; }
+.evidence-edit-fields input { width: 56px; min-height: 23px; padding: 0 4px; color: #d3e4f2; border: 1px solid #35536d; border-radius: 4px; background: #101f30; font: 8px 'DM Mono', monospace; }
+.evidence-edit-fields input:focus { outline: 1px solid #76b5e4; border-color: #76b5e4; }
+.candidate-missing-note { display: grid; gap: 3px; padding: 7px 8px; margin: 8px 0 10px; border: 1px solid rgba(208, 145, 67, .48); border-radius: 5px; background: rgba(94, 59, 25, .24); }
+.candidate-missing-note b { color: #f0c27f; font-size: 9px; }
+.candidate-missing-note span,
+.candidate-missing-note small { color: #b99a70; font-size: 8px; line-height: 1.4; }
+.number-field.candidate-pending > span { color: #e4b573; }
+.number-field.candidate-pending > div { border-color: rgba(209, 147, 69, .75); background: rgba(91, 59, 28, .3); }
+.number-field.candidate-pending input { color: #ffe0a8; }
+.number-field.candidate-pending input::placeholder { color: #b9925e; opacity: 1; font-size: 8px; }
+.number-field.candidate-pending input:disabled { color: #7d90a8; cursor: wait; opacity: .8; }
+.number-field.candidate-pending input:disabled::placeholder { color: #7d90a8; }
+@media (max-width: 560px) {
+  .ai-analysis-summary { padding: 7px; }
+  .ai-analysis-summary-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .ai-analysis-summary-heading span { text-align: left; }
+  .evidence-edit-fields { width: 100%; }
+  .evidence-edit-fields label { flex: 1 1 82px; }
+  .evidence-edit-fields input { flex: 1 1 auto; width: auto; min-width: 50px; }
 }

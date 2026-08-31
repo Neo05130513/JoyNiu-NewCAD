@@ -78,6 +78,10 @@ export const api = {
     return request('/ai/conversation', { method: 'POST', body: form, headers: authHeaders(token), timeoutMs: 120_000 })
   },
   confirmDrawing: (drawingId, payload = {}, token) => request(`/drawings/${encodeURIComponent(drawingId)}/confirm`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
+  // Customer-facing acknowledgement of OCR candidates.  Unlike the legacy
+  // reviewer-only confirm endpoint this endpoint accepts the edited model
+  // parameters as overrides and can be called by any authenticated user.
+  acceptDrawing: (drawingId, payload = {}, token) => request(`/drawings/${encodeURIComponent(drawingId)}/accept`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
   validateBracket: (parameters) => request('/brackets/validate', { method: 'POST', body: JSON.stringify(parameters) }),
   generateBracket: (parameters) => request('/brackets/generate', { method: 'POST', body: JSON.stringify(parameters) }),
   artifactUrl: (artifactId, format = 'step') => absoluteUrl(`/api/artifacts/${encodeURIComponent(artifactId)}.${format}`),

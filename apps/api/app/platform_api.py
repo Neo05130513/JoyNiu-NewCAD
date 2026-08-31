@@ -47,7 +47,7 @@ from .cam import (
     CAMService,
     StockDefinition,
 )
-from .ai_proxy import AIFile, AIProxy, AIProxyError, MAX_FILE_BYTES
+from .ai_proxy import AIFile, AIProxy, AIProxyError, MAX_FILE_BYTES, PARAMETER_FIELDS
 from .ocr import DrawingRecognition, OCRService
 from .platform import (
     AccessToken,
@@ -62,6 +62,25 @@ from .platform import (
     Role,
     ValidationError,
 )
+
+
+# The compatibility upload recognizer intentionally returns a canonical
+# bracket recipe so older browser clients can keep rendering a preview.  In
+# the platform conversation path that recipe is only a visual scaffold: it
+# must never be copied into the durable AI candidate or used to satisfy the
+# confirmation gate.  Keep the marker list local to this adapter so the
+# platform OCR record remains evidence-first without changing the legacy
+# response contract.
+_COMPATIBILITY_FALLBACK_ENGINES = frozenset(
+    {"heuristic-review", "tesseract-compatible", "compatibility-recognizer"}
+)
+
+
+def _is_compatibility_fallback(recognition: Any) -> bool:
+    engine = str(getattr(recognition, "engine", "") or "").casefold()
+    recipe = getattr(recognition, "model_recipe", {})
+    source = recipe.get("source", "") if isinstance(recipe, Mapping) else ""
+    return engine in _COMPATIBILITY_FALLBACK_ENGINES or str(source).casefold() == "compatibility-recognizer"
 
 
 @dataclass(slots=True)
@@ -229,6 +248,18 @@ def _anonymous_ai_request_allowed(request: Any) -> bool:
         loopback = host in {"localhost", "testclient"}
     environment = os.environ.get("JOYNIU_ENV", "").strip().casefold()
     return loopback or environment in {"development", "dev", "local", "test"}
+
+
+def _anonymous_drawing_accept_allowed(request: Any) -> bool:
+    """Allow customer acceptance without a token only on local dev hosts."""
+
+    host = str(getattr(getattr(request, "client", None), "host", "") or "").strip().casefold()
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host in {"localhost", "testclient"}
+    environment = os.environ.get("JOYNIU_ENV", "").strip().casefold()
+    return loopback and environment in {"development", "dev", "local"}
 
 
 def _member_identity(entry: Any) -> tuple[str | None, str]:
@@ -580,7 +611,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 files=attachments,
             )
             # The AI adapter may expose a richer compatibility recognition,
-            # but geometry generation and reviewer confirmation must use the
+            # but geometry generation and explicit human confirmation must use the
             # platform OCR service's own DrawingRecognition object. Register
             # one per uploaded file in the same service graph and return that
             # canonical id so ``sourceDrawingId`` can be resumed safely.
@@ -606,7 +637,106 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     # missing rasterizer/parser must not discard an otherwise
                     # valid conversation response; the attachment metadata
                     # and any review flag from the AI proxy remain available.
-                    continue
+                    # If the multimodal model supplied a structured candidate,
+                    # register an explicit AI-only recognition so the customer
+                    # can still accept/edit it through the normal endpoint.
+                    # Empty patches keep the legacy no-recognition response
+                    # for compatibility and correctly ask the user to retry.
+                    ai_patch = getattr(result, "parameter_patch", {})
+                    filtered_patch = {
+                        str(key): value
+                        for key, value in ai_patch.items()
+                        if isinstance(ai_patch, Mapping)
+                        and str(key) in PARAMETER_FIELDS
+                        and value is not None
+                    } if isinstance(ai_patch, Mapping) else {}
+                    if not filtered_patch:
+                        continue
+                    candidate = DrawingRecognition(
+                        id=f"drw_ai_{uuid.uuid4().hex[:16]}",
+                        status="needs_review",
+                        part_type="unknown",
+                        source_filename=attachment.filename,
+                        source_sha256=hashlib.sha256(attachment.data).hexdigest(),
+                        image_width=None,
+                        image_height=None,
+                        confidence=0.0,
+                        dimensions=(),
+                        features=(),
+                        model_recipe={"parameters": {}, "source": "ai-candidate"},
+                        assumptions=("候选字段来自多模态 AI，尚未由 OCR/几何配方确认",),
+                        warnings=("OCR 识别不可用；以下为 AI 候选数据，需人工确认",),
+                        unresolved=("feature_topology",),
+                        ocr_text="",
+                        engine="ai-candidate",
+                        candidate_parameters=filtered_patch,
+                    )
+                # Merge the AI's validated parameterPatch into the canonical
+                # platform recognition candidate.  Keep the result pending;
+                # a patch is a proposal, never an implicit confirmation.  For
+                # a wholly unknown drawing, preserve the durable recipe's
+                # historical empty ``parameters`` alias but expose the AI
+                # proposal as ``candidateParameters`` so the customer can see
+                # and edit every value before accepting it.
+                patch = getattr(result, "parameter_patch", {})
+                candidate_patch: dict[str, Any] = {}
+                if isinstance(patch, Mapping):
+                    candidate_patch.update(
+                        {
+                            str(key): value
+                            for key, value in patch.items()
+                            if str(key) in PARAMETER_FIELDS and value is not None
+                        }
+                    )
+                # A live OCR adapter may have dimensions even when the AI
+                # provider returned no parameter patch. Promote those numeric
+                # fields to the same editable candidate envelope.
+                aliases = {
+                    "base_length": "baseLength", "base_width": "baseWidth", "base_thickness": "baseThickness",
+                    "upper_length": "upperLength", "upper_width": "upperWidth", "upper_height": "upperHeight",
+                    "total_height": "totalHeight", "notch_opening": "notchOpening", "notch_radius": "notchRadius",
+                    "slot_length": "slotLength", "slot_width": "slotWidth", "pocket_depth": "pocketDepth",
+                    "saddle_depth": "saddleDepth", "hole_depth": "holeDepth", "hole_through": "holeThrough",
+                    "boss_diameter": "bossDiameter", "boss_center_distance": "bossCenterDistance", "boss_height": "bossHeight",
+                }
+                if not candidate_patch:
+                    for dimension in candidate.dimensions:
+                        raw_field = str(dimension.field)
+                        field_name = aliases.get(raw_field, raw_field)
+                        # The legacy compatibility recognizer emits a full
+                        # canonical profile with ``sourceText`` set to this
+                        # marker when OCR found no labelled value.  Those
+                        # numbers are a preview scaffold, not AI/OCR
+                        # evidence, so do not promote them to a candidate.
+                        source_text = str(getattr(dimension, "source_text", "") or "")
+                        if source_text.casefold().startswith("canonical-bracket-fallback"):
+                            continue
+                        if field_name in PARAMETER_FIELDS and dimension.value is not None:
+                            candidate_patch[field_name] = dimension.value
+                existing_recipe = candidate.model_recipe.get("parameters", {})
+                compatibility_fallback = _is_compatibility_fallback(candidate)
+                if compatibility_fallback:
+                    # Keep recipe metadata for audit/debugging, but strip the
+                    # synthetic canonical dimensions from the durable
+                    # candidate.  Marking the part unknown forces the strict
+                    # all-required-fields check in OCRService.confirm even
+                    # when a few OCR labels or AI fields are present.
+                    recipe = dict(candidate.model_recipe)
+                    recipe["parameters"] = dict(candidate_patch)
+                    candidate = replace(
+                        candidate,
+                        part_type="unknown",
+                        model_recipe=recipe,
+                        candidate_parameters=dict(candidate_patch),
+                    )
+                elif candidate.part_type != "unknown" or bool(existing_recipe):
+                    recipe = dict(candidate.model_recipe)
+                    merged = dict(existing_recipe) if isinstance(existing_recipe, Mapping) else {}
+                    merged.update(candidate_patch)
+                    recipe["parameters"] = merged
+                    candidate = replace(candidate, model_recipe=recipe, candidate_parameters=dict(merged))
+                elif candidate_patch:
+                    candidate = replace(candidate, candidate_parameters=candidate_patch)
                 services.recognitions[candidate.id] = candidate
                 if registered_drawing is None:
                     registered_drawing = candidate
@@ -1164,8 +1294,62 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 recognition,
                 reviewer_id=actor.id,
                 parameter_overrides=data.get("parameterOverrides", data.get("parameter_overrides", {})),
+                confirmation_type="reviewer",
             )
             services.recognitions[recognition_id] = result
+            return result.to_dict()
+        except PlatformError as exc:
+            raise _domain_http_exception(exc)
+
+    @router.post("/drawings/{drawing_id}/accept")
+    async def accept_drawing(
+        drawing_id: str,
+        request: Request,
+        payload: dict[str, Any] = Body(default={}),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Accept an OCR/AI candidate after an explicit human decision.
+
+        Designers with ``ocr:run`` and reviewers with ``document:review`` may
+        accept using a bearer token.  Tokenless acceptance is deliberately
+        limited to loopback requests in an explicit development environment;
+        it is recorded as a customer confirmation and never grants any other
+        platform permission.
+        """
+
+        actor_id = "anonymous"
+        confirmation_type = "customer"
+        if authorization:
+            actor = _token_user(services, authorization)
+            if services.auth.has_permission(actor, Permission.DOCUMENT_REVIEW):
+                confirmation_type = "reviewer"
+            elif services.auth.has_permission(actor, Permission.OCR_RUN):
+                confirmation_type = "designer"
+            else:
+                raise _domain_http_exception(
+                    AuthorizationError("ocr:run or document:review permission is required")
+                )
+            actor_id = actor.id
+        elif not _anonymous_drawing_accept_allowed(request):
+            raise _domain_http_exception(AuthenticationError("bearer token is required"))
+
+        try:
+            recognition = services.recognitions.get(str(drawing_id))
+            if recognition is None:
+                raise NotFoundError(f"drawing recognition not found: {drawing_id}")
+            data = _require_dict(payload)
+            overrides = data.get("parameterOverrides", data.get("parameter_overrides", {}))
+            if overrides is None:
+                overrides = {}
+            if not isinstance(overrides, Mapping):
+                raise ValidationError("parameterOverrides must be an object")
+            result = services.ocr.confirm(
+                recognition,
+                reviewer_id=actor_id,
+                parameter_overrides=overrides,
+                confirmation_type=confirmation_type,
+            )
+            services.recognitions[recognition.id] = result
             return result.to_dict()
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -1178,10 +1362,11 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         """Run the auditable upload → OCR → OCCT → PDM workflow in one call.
 
         The endpoint is intentionally explicit about ``confirmed``.  A
-        reviewer can approve a recognition in the same request; an unreviewed
-        drawing returns HTTP 409 with its evidence and creates no model
-        versions.  Every accepted blob is stored as an immutable PDM version,
-        so the returned manifest can be inspected after the request finishes.
+        formal reviewer can approve a recognition in the same request; an
+        unconfirmed drawing returns HTTP 409 with its complete AI candidate and
+        the ``/drawings/{id}/accept`` continuation path, and creates no model
+        versions yet. Every accepted blob is stored as an immutable PDM
+        version, so the returned manifest can be inspected after confirmation.
         """
 
         actor = _token_user(services, authorization)
@@ -1222,7 +1407,11 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     return JSONResponse(
                         status_code=409,
                         content={
-                            "message": "drawing evidence requires reviewer confirmation",
+                            "message": "drawing evidence has been analyzed and is waiting for explicit human confirmation",
+                            "next": {
+                                "action": "acceptDrawing",
+                                "path": f"/drawings/{recognition.id}/accept",
+                            },
                             "recognition": recognition.to_dict(),
                         },
                     )

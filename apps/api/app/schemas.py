@@ -220,7 +220,14 @@ class DrawingRecognition(ApiModel):
     dimensions: list[dict[str, Any]] = Field(default_factory=list)
     features: list[dict[str, Any]] = Field(default_factory=list)
     model_recipe: dict[str, Any] = Field(default_factory=dict, alias="modelRecipe")
+    # AI proposals can be shown/edited before a durable recipe is accepted.
+    # Keep this separate from ``parameters`` so an unknown drawing never
+    # masquerades as a production-ready model.
+    candidate_parameters: dict[str, Any] = Field(default_factory=dict, alias="candidateParameters")
     review_required: bool = Field(default=True, alias="reviewRequired")
+    confirmation_type: str | None = Field(None, alias="confirmationType")
+    confirmed_by: str | None = Field(None, alias="confirmedBy")
+    confirmed_at: datetime | None = Field(None, alias="confirmedAt")
 
 
 class DrawingResultSubmission(ApiModel):

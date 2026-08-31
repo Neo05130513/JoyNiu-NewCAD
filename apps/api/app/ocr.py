@@ -9,12 +9,16 @@ engine installed.  Its recipe follows the four-view C interpretation: the
 upper body is full-width, the 30-mm callout is a Y-oriented pocket length, and
 the Ø20 circles are subtractive vertical through holes/side notches.  Unknown
 drawings can be sent to the optional Tesseract adapter; those results remain
-``needs_review`` until a human confirms them.
+``needs_review`` while the AI candidate is being edited. ``needs_review`` is a
+pending-candidate state, not a terminal reviewer-only gate: an explicit
+customer/designer acceptance records the parameter snapshot before geometry
+generation.
 """
 
 from __future__ import annotations
 
 import csv
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
@@ -33,6 +37,18 @@ from .platform import ValidationError
 
 
 _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+
+# These fields describe the minimum supported bracket recipe.  Pydantic's
+# ``BracketParameters`` intentionally has defaults for compatibility with old
+# clients, but an unknown drawing must not inherit those defaults at the
+# customer-confirmation boundary.
+_REQUIRED_BRACKET_CANDIDATE_FIELDS = frozenset(
+    {
+        "baseLength", "baseWidth", "baseThickness", "upperLength", "upperWidth",
+        "upperHeight", "totalHeight", "notchOpening", "notchRadius", "slotLength",
+        "slotWidth", "pocketDepth", "bossDiameter", "bossCenterDistance",
+    }
+)
 # SHA-256 of the acceptance drawing supplied with the product brief.  The
 # registry also stores this value in JSON; keeping the constant here makes it
 # easy for callers to identify the canonical fixture without opening the file.
@@ -182,6 +198,15 @@ class DrawingRecognition:
     engine: str
     fixture_id: str | None = None
     created_at: str = ""
+    # Explicit human/customer acceptance audit fields.  These are optional for
+    # backwards compatibility with persisted/constructed recognition records.
+    confirmation_type: str | None = None
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+    # AI may produce a partial candidate before a durable recipe exists. Keep
+    # it separate from ``model_recipe.parameters`` so clients can display and
+    # edit the proposal without accidentally treating it as production truth.
+    candidate_parameters: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         # Keep the platform evidence envelope compatible with the lightweight
@@ -203,6 +228,7 @@ class DrawingRecognition:
             "features": [item.to_dict() for item in self.features],
             "modelRecipe": self.model_recipe,
             "parameters": dict(parameters) if isinstance(parameters, Mapping) else {},
+            "candidateParameters": dict(self.candidate_parameters),
             "assumptions": list(self.assumptions),
             "warnings": list(self.warnings),
             "unresolved": list(self.unresolved),
@@ -210,6 +236,9 @@ class DrawingRecognition:
             "engine": self.engine,
             "fixtureId": self.fixture_id,
             "createdAt": self.created_at,
+            "confirmationType": self.confirmation_type,
+            "confirmedBy": self.confirmed_by,
+            "confirmedAt": self.confirmed_at,
             "reviewRequired": self.status == "needs_review",
         }
 
@@ -639,30 +668,49 @@ class OCRService:
         *,
         reviewer_id: str,
         parameter_overrides: Mapping[str, Any] | None = None,
+        confirmation_type: str = "reviewer",
+        confirmed_at: str | None = None,
     ) -> DrawingRecognition:
         """Return a confirmed copy after an explicit human confirmation.
 
-        Overrides are recorded in ``model_recipe`` and do not mutate the
-        original recognition object, preserving the evidence audit trail.
+        ``reviewer_id`` is the durable actor id for compatibility; callers may
+        identify it as a customer, designer or formal reviewer through
+        ``confirmation_type``. Overrides are recorded in ``model_recipe`` and
+        do not mutate the original recognition object, preserving the evidence
+        audit trail.
         """
 
         if not reviewer_id.strip():
             raise ValidationError("reviewer_id is required to confirm a drawing")
-        if recognition.part_type == "unknown":
-            raise ValidationError("unknown drawing cannot be confirmed without a part recipe")
         recipe = dict(recognition.model_recipe)
         raw_parameters = recipe.get("parameters", {})
         if not isinstance(raw_parameters, Mapping):
             raise ValidationError("drawing model recipe parameters must be an object")
+        # A pending AI analysis can carry partial fields outside the durable
+        # recipe.  Treat them as the starting candidate for confirmation while
+        # preserving the distinction in the response/audit envelope.
+        if not raw_parameters and recognition.candidate_parameters:
+            raw_parameters = recognition.candidate_parameters
         overrides = parameter_overrides or {}
         if not isinstance(overrides, Mapping):
             raise ValidationError("parameter_overrides must be an object")
+        # Unknown/low-confidence candidates are accepted only when the caller
+        # supplies an explicit parameter candidate.  BracketParameters then
+        # provides the strict schema and geometry gate below.
+        was_unknown = recognition.part_type == "unknown"
+        # An AI conversation may already have merged a candidate patch into
+        # the recognition recipe.  Accept can therefore omit overrides only
+        # when a non-empty candidate is present; a completely unknown drawing
+        # still requires explicit human parameter input.
+        if was_unknown and not overrides and not raw_parameters:
+            raise ValidationError("unknown drawing requires parameterOverrides before confirmation")
         # Do not silently drop misspelled reviewer overrides.  Pydantic's
         # compatibility models intentionally ignore unknown fields for input
         # forwards-compatibility, but confirmation is an authorization
         # boundary: an operator must know every requested value was actually
         # applied to the recipe.
-        if recognition.part_type == "bracket":
+        effective_part_type = "bracket" if was_unknown else recognition.part_type
+        if effective_part_type == "bracket":
             try:
                 from .schemas import BracketParameters
 
@@ -681,7 +729,11 @@ class OCRService:
                     "bossCenterDistance", "bossHeight",
                     "material", "units",
                 }
-            unknown = sorted(str(key) for key in overrides if str(key) not in allowed)
+            unknown = sorted(
+                str(key)
+                for key in set(raw_parameters).union(overrides)
+                if str(key) not in allowed
+            )
             if unknown:
                 raise ValidationError(
                     "unknown parameter override(s): " + ", ".join(unknown)
@@ -689,11 +741,26 @@ class OCRService:
         parameters = dict(raw_parameters)
         parameters.update(dict(overrides))
 
+        if was_unknown:
+            aliases = {
+                "base_length": "baseLength", "base_width": "baseWidth", "base_thickness": "baseThickness",
+                "upper_length": "upperLength", "upper_width": "upperWidth", "upper_height": "upperHeight",
+                "total_height": "totalHeight", "notch_opening": "notchOpening", "notch_radius": "notchRadius",
+                "slot_length": "slotLength", "slot_width": "slotWidth", "pocket_depth": "pocketDepth",
+                "boss_diameter": "bossDiameter", "boss_center_distance": "bossCenterDistance",
+            }
+            supplied = {aliases.get(str(key), str(key)) for key, value in parameters.items() if value is not None}
+            missing = sorted(_REQUIRED_BRACKET_CANDIDATE_FIELDS - supplied)
+            if missing:
+                raise ValidationError(
+                    "unknown drawing candidate is incomplete; provide: " + ", ".join(missing)
+                )
+
         # Bracket confirmations are the hand-off into the geometry kernel.  Do
         # the same schema and non-throwing geometry validation here as the
         # generation endpoint, so a reviewer cannot accidentally approve a
         # malformed recipe and leave a later request to fail with a 500.
-        if recognition.part_type == "bracket":
+        if effective_part_type == "bracket":
             try:
                 from .geometry import validate_bracket
                 from .schemas import BracketParameters
@@ -707,13 +774,27 @@ class OCRService:
             parameters = validated_parameters.model_dump(by_alias=True)
         recipe["parameters"] = parameters
         recipe["confirmed_by"] = reviewer_id
+        recipe["confirmation_type"] = str(confirmation_type or "reviewer")
+        recipe["confirmed_at"] = confirmed_at or datetime.now(timezone.utc).isoformat()
+        # Keep camelCase aliases in the durable recipe for browser/PDM
+        # consumers while retaining the snake_case keys used by older workers.
+        recipe["confirmedBy"] = reviewer_id
+        recipe["confirmationType"] = recipe["confirmation_type"]
+        recipe["confirmedAt"] = recipe["confirmed_at"]
         # A confirmation never manufactures missing evidence; callers can still
         # inspect warnings/unresolved fields before submitting it for modeling.
-        unresolved = tuple(recognition.unresolved)
+        # Explicit parameter overrides resolve the unknown candidate.  Known
+        # recognitions retain unresolved evidence so the audit envelope still
+        # exposes what the recognizer could not infer.
+        unresolved = () if was_unknown else tuple(recognition.unresolved)
         return DrawingRecognition(
             id=recognition.id,
-            status="confirmed" if not unresolved else "needs_review",
-            part_type=recognition.part_type,
+            # The explicit human action is the authorization boundary.  Keep
+            # unresolved evidence in the audit envelope for known candidates,
+            # but do not require a reviewer role or a second confirmation once
+            # the candidate has been accepted.
+            status="confirmed",
+            part_type=effective_part_type,
             source_filename=recognition.source_filename,
             source_sha256=recognition.source_sha256,
             image_width=recognition.image_width,
@@ -729,6 +810,10 @@ class OCRService:
             engine=recognition.engine,
             fixture_id=recognition.fixture_id,
             created_at=recognition.created_at,
+            confirmation_type=str(confirmation_type or "reviewer"),
+            confirmed_by=reviewer_id,
+            confirmed_at=confirmed_at or recipe["confirmed_at"],
+            candidate_parameters=dict(parameters),
         )
 
 
@@ -798,6 +883,7 @@ def recognize_drawing_bytes(
                 engine=result.engine,
                 fixture_id=result.fixture_id,
                 created_at=result.created_at,
+                candidate_parameters=dict(params),
             )
         else:
             result = service.confirm(result, reviewer_id="client-hint", parameter_overrides=overrides)

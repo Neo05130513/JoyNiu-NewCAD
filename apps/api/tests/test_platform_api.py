@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import replace
 import hashlib
 
 import pytest
@@ -305,6 +306,79 @@ def test_designer_upload_reviewer_confirm_then_resume_by_recognition_id() -> Non
         },
     )
     assert mismatched.status_code == 409, mismatched.text
+
+
+def test_unknown_candidate_customer_accept_then_designer_generates() -> None:
+    """Unknown OCR stays pending until explicit customer acceptance."""
+
+    services = build_platform_services(":memory:", auth_secret="u" * 32)
+    designer = services.auth.create_user(
+        "candidate-designer@example.com", "a-very-long-password", "Designer", roles=["designer"]
+    )
+    viewer = services.auth.create_user(
+        "candidate-viewer@example.com", "a-very-long-password", "Viewer", roles=["viewer"]
+    )
+    app, client = _client_for(services)
+    designer_auth = _auth_for(services, designer)
+    viewer_auth = _auth_for(services, viewer)
+    encoded = base64.b64encode(b"unrecognised candidate").decode()
+    analyzed = client.post(
+        "/api/v1/ocr/analyze",
+        headers=designer_auth,
+        json={"imageBase64": encoded, "filename": "unknown.png"},
+    )
+    assert analyzed.status_code == 200, analyzed.text
+    drawing_id = analyzed.json()["id"]
+    # A partial AI candidate must not inherit BracketParameters' compatibility
+    # defaults at the confirmation boundary. The customer can still complete
+    # the remaining fields explicitly in the next request.
+    services.recognitions[drawing_id] = replace(
+        services.recognitions[drawing_id], candidate_parameters={"baseLength": 100}
+    )
+    partial = client.post(
+        f"/api/v1/drawings/{drawing_id}/accept",
+        headers=designer_auth,
+        json={},
+    )
+    assert partial.status_code == 422, partial.text
+    assert "incomplete" in partial.text
+    # A viewer cannot accept, and tokenless requests are not local-dev by
+    # default even when the test client itself uses a loopback-like host.
+    assert client.post(f"/api/v1/drawings/{drawing_id}/accept", headers=viewer_auth, json={}).status_code == 403
+    assert client.post(f"/api/v1/drawings/{drawing_id}/accept", json={}).status_code == 401
+
+    overrides = {
+        "baseLength": 100, "baseWidth": 50, "baseThickness": 10,
+        "upperLength": 70, "upperWidth": 50, "upperHeight": 30,
+        "totalHeight": 40, "notchOpening": 40, "notchRadius": 15,
+        "slotLength": 30, "slotWidth": 10, "pocketDepth": 10,
+        "saddleDepth": 50, "holeDepth": 40, "holeThrough": True,
+        "bossDiameter": 20, "bossCenterDistance": 70,
+    }
+    accepted = client.post(
+        f"/api/v1/drawings/{drawing_id}/accept",
+        headers=designer_auth,
+        json={"parameterOverrides": overrides},
+    )
+    assert accepted.status_code == 200, accepted.text
+    body = accepted.json()
+    assert body["status"] == "confirmed"
+    assert body["confirmationType"] == "designer"
+    assert body["confirmedBy"] == designer.id
+    assert body["confirmedAt"]
+
+    generated = client.post(
+        "/api/v1/workflows/drawing-to-model",
+        headers=designer_auth,
+        json={
+            "recognitionId": drawing_id,
+            "imageBase64": encoded,
+            "formats": ["glb"],
+            "requireCadQuery": False,
+        },
+    )
+    assert generated.status_code == 201, generated.text
+    assert generated.json()["recognition"]["status"] == "confirmed"
 
 
 def test_pdm_and_project_linked_cam_are_isolated_between_users() -> None:

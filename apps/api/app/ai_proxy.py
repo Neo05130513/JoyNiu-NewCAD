@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import math
 import os
@@ -261,10 +262,12 @@ def _safe_response_id(value: Any) -> str:
     return value
 
 
-def _validated_patch(raw: Any) -> dict[str, Any]:
+def _validated_patch(raw: Any, *, tolerate_invalid: bool = False) -> dict[str, Any]:
     if raw is None:
         return {}
     if not isinstance(raw, Mapping):
+        if tolerate_invalid:
+            return {}
         raise AIProxyError("AI provider returned an invalid parameter patch")
     result: dict[str, Any] = {}
     for raw_key, value in raw.items():
@@ -273,24 +276,40 @@ def _validated_patch(raw: Any) -> dict[str, Any]:
             parts = key.split("_")
             key = parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
         if key not in PARAMETER_FIELDS:
+            if tolerate_invalid:
+                # Vision models occasionally use a descriptive synonym such
+                # as ``overall_length``.  It is safer to omit that value than
+                # to guess which CAD datum it represents; the message and
+                # question list still explain what the customer must confirm.
+                continue
             raise AIProxyError("AI provider returned an unsupported parameter")
         if value is None:
             continue
         kind = PARAMETER_FIELDS[key]
         if kind == "number":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
+                if tolerate_invalid:
+                    continue
                 raise AIProxyError("AI provider returned an invalid numeric parameter")
             value = float(value)
             if not math.isfinite(value) or value <= 0 or value > 1_000_000:
+                if tolerate_invalid:
+                    continue
                 raise AIProxyError("AI provider returned an out-of-range parameter")
             value = int(value) if value.is_integer() else value
         elif kind == "boolean":
             if not isinstance(value, bool):
+                if tolerate_invalid:
+                    continue
                 raise AIProxyError("AI provider returned an invalid boolean parameter")
         elif kind == "string":
             if not isinstance(value, str) or len(value) > 80:
+                if tolerate_invalid:
+                    continue
                 raise AIProxyError("AI provider returned an invalid text parameter")
             if key == "units" and value.casefold() != "mm":
+                if tolerate_invalid:
+                    continue
                 raise AIProxyError("AI provider returned an unsupported unit")
         result[key] = value
     return result
@@ -341,7 +360,11 @@ def _json_from_text(raw_text: str) -> Mapping[str, Any]:
     return parsed
 
 
-def _parse_result(payload: Mapping[str, Any]) -> AIConversationResult:
+def _parse_result(
+    payload: Mapping[str, Any],
+    *,
+    tolerate_patch_errors: bool = False,
+) -> AIConversationResult:
     response_id = _safe_response_id(payload.get("id"))
     raw_text = _output_text(payload)
     if not raw_text:
@@ -362,7 +385,7 @@ def _parse_result(payload: Mapping[str, Any]) -> AIConversationResult:
     return AIConversationResult(
         response_id=response_id,
         message=message,
-        parameter_patch=_validated_patch(raw_patch),
+        parameter_patch=_validated_patch(raw_patch, tolerate_invalid=tolerate_patch_errors),
         needs_review=bool(parsed.get("needs_review", parsed.get("needsReview", False))),
         questions=tuple(item[:500] for item in raw_questions[:20]),
     )
@@ -402,7 +425,7 @@ def _recognize_attachment(item: AIFile) -> dict[str, Any] | None:
 def _recognition_patch(drawing: Mapping[str, Any] | None) -> dict[str, Any]:
     if not drawing or drawing.get("status") != "confirmed":
         return {}
-    raw = drawing.get("parameters")
+    raw = drawing.get("parameters") or drawing.get("candidateParameters")
     if not isinstance(raw, Mapping):
         return {}
     return _validated_patch(raw)
@@ -573,8 +596,86 @@ def _text_parameter_patch(message: str, model_state: Mapping[str, Any] | None) -
     return patch
 
 
+def _provider_image_bytes(item: AIFile) -> tuple[bytes, str]:
+    """Return a relay-friendly image payload without changing audit bytes.
+
+    Some OpenAI-compatible relays accept a PNG data URL but leave the request
+    pending while their vision adapter decodes it.  A high-quality RGB JPEG is
+    materially smaller and is handled consistently by those adapters.  The
+    original upload is still hashed/stored by the platform; this conversion is
+    only for the transient provider request.  Invalid or unsupported images
+    fall back to their original bytes so the caller receives the provider's
+    normal, bounded error path.
+    """
+
+    mime = (item.content_type or "").casefold()
+    if not mime.startswith("image/"):
+        return item.data, mime or "application/octet-stream"
+    try:
+        # Pillow is optional in the domain package.  Keep the gateway usable on
+        # minimal hosts and let the remote endpoint handle the original bytes
+        # when the image decoder is not installed.
+        from PIL import Image  # type: ignore
+
+        with Image.open(io.BytesIO(item.data)) as image:
+            # Engineering drawings are generally opaque; flatten alpha onto a
+            # white canvas so transparent PNG/DWG previews do not become black.
+            if image.mode in {"RGBA", "LA", "P"}:
+                rgba = image.convert("RGBA")
+                background = Image.new("RGB", rgba.size, "white")
+                background.paste(rgba, mask=rgba.getchannel("A"))
+                image = background
+            else:
+                image = image.convert("RGB")
+            # Downsample only the transient provider copy.  ``thumbnail``
+            # preserves aspect ratio and leaves already-small drawings alone.
+            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+            image.thumbnail((_image_max_dimension(), _image_max_dimension()), resampling)
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=92, optimize=True, progressive=True)
+            converted = output.getvalue()
+        if converted:
+            return converted, "image/jpeg"
+    except Exception:
+        # Do not turn a provider compatibility optimisation into an upload
+        # failure.  The original content remains available for a retry.
+        pass
+    return item.data, mime or "application/octet-stream"
+
+
+def _image_detail() -> str:
+    """Select the provider vision detail level.
+
+    GPTX's high-detail path can spend more than the bounded request timeout on
+    a screenshot, while its low-detail path still preserves the full JPEG
+    dimensions and returns the structured candidate promptly.  Deployments
+    that use a relay with a reliable high-detail adapter can opt in through
+    ``JOYNIU_AI_IMAGE_DETAIL``.
+    """
+
+    value = os.environ.get("JOYNIU_AI_IMAGE_DETAIL", "low").strip().casefold()
+    return value if value in {"low", "high", "auto"} else "low"
+
+
+def _image_max_dimension() -> int:
+    """Return the largest side sent to the vision relay.
+
+    Keeping the original upload untouched while sending a bounded preview
+    avoids relay timeouts on very large screenshots and leaves enough pixels
+    for ordinary engineering-drawing annotations.  Deployments with a relay
+    that supports tiled/high-resolution inputs can raise this value.
+    """
+
+    try:
+        value = int(os.environ.get("JOYNIU_AI_IMAGE_MAX_DIMENSION", "1200"))
+    except (TypeError, ValueError):
+        value = 1200
+    return max(256, min(4096, value))
+
+
 def _attachment_content(item: AIFile) -> tuple[dict[str, Any], dict[str, Any]]:
-    encoded = base64.b64encode(item.data).decode("ascii")
+    provider_bytes, provider_mime = _provider_image_bytes(item)
+    encoded = base64.b64encode(provider_bytes).decode("ascii")
     mime = item.content_type or "application/octet-stream"
     metadata = {
         "filename": Path(item.filename).name[:160] or "drawing",
@@ -583,7 +684,11 @@ def _attachment_content(item: AIFile) -> tuple[dict[str, Any], dict[str, Any]]:
         "sha256": hashlib.sha256(item.data).hexdigest(),
     }
     if mime.startswith("image/"):
-        return metadata, {"type": "input_image", "image_url": f"data:{mime};base64,{encoded}", "detail": "high"}
+        return metadata, {
+            "type": "input_image",
+            "image_url": f"data:{provider_mime};base64,{encoded}",
+            "detail": _image_detail(),
+        }
     return metadata, {
         "type": "input_file",
         "filename": metadata["filename"],
@@ -600,13 +705,54 @@ def _provider_body(
     include_schema: bool = True,
 ) -> dict[str, Any]:
     content: list[dict[str, Any]] = []
+    has_attachments = bool(files)
     if message:
         content.append({"type": "input_text", "text": message})
     if model_state:
         serialized = json.dumps(dict(model_state), ensure_ascii=False, separators=(",", ":"))
         if len(serialized) > 100_000:
             raise AIProxyError("model state is too large")
-        content.append({"type": "input_text", "text": f"Current model state (JSON):\n{serialized}"})
+        content.append({
+            "type": "input_text",
+            "text": (
+                "Current editable model state (JSON). Treat these values as a "
+                "preview scaffold only: when a drawing is attached, copy a value "
+                "into parameter_patch only if the drawing or the user's text "
+                "justifies it; leave unsupported fields null.\n"
+                f"{serialized}"
+            ),
+        })
+    if has_attachments:
+        # GPTX's vision adapter is more reliable when the multimodal
+        # instruction travels in the user content.  In particular, sending a
+        # large top-level ``instructions`` string together with a strict
+        # nullable schema can leave the relay request pending even though a
+        # normal text request succeeds.  Keep this prompt compact and ask for
+        # the same validated JSON envelope; ``_parse_result`` applies the
+        # server-side allowlist after the response arrives.
+        # Keep the key guide short enough for the relay's vision path while
+        # still making the supported bracket semantics unambiguous.  The
+        # server-side allowlist below remains the final authority.
+        fields = (
+            "baseLength=底板长,baseWidth=底板宽,baseThickness=底板厚,"
+            "upperLength=上部长,upperWidth=上部全宽,upperHeight=上部高,"
+            "totalHeight=总高,notchOpening=鞍槽开口,notchRadius=鞍槽半径,"
+            "slotLength=浅槽沿Y长,slotWidth=浅槽宽,pocketDepth=浅槽深,"
+            "bossDiameter=圆孔直径,bossCenterDistance=圆孔中心距,units=单位"
+        )
+        content.insert(
+            0,
+            {
+                "type": "input_text",
+                "text": (
+                    "请分析附加工程图，检查所有视图、标注和特征关系。"
+                    "只返回 JSON（不要 Markdown）：message、parameter_patch、needs_review、questions。"
+                    f"parameter_patch 字段含义：{fields}。"
+                    "只填图纸明确证明的候选值，未知省略或 null，绝不猜测；"
+                    "识别不完整时仍返回已识别值并设 needs_review=true，候选必须人工确认。"
+                ),
+            },
+        )
     for item in files:
         if len(item.data) > MAX_FILE_BYTES:
             raise AIProxyError("drawing file is too large")
@@ -615,20 +761,24 @@ def _provider_body(
     body: dict[str, Any] = {
         "model": _model(),
         "reasoning": {"effort": _reasoning_effort()},
+        # Bound vision output so a relay cannot spend minutes narrating the
+        # image instead of returning the small candidate envelope we need.
+        "max_output_tokens": 1200 if has_attachments else 1200,
         "store": os.environ.get("JOYNIU_AI_STORE_RESPONSES", "1") not in {"0", "false", "no"},
-        "instructions": (
-            "You are JoyNiu NewCAD's parameter editor. Interpret the user's text and attached "
-            "engineering drawing, then return only requested changes in the JSON schema. "
-            "parameter_patch contains only dimensions justified by the conversation or drawing; "
-            "leave all other fields null. Never invent missing dimensions. Set needs_review true "
-            "and ask a concise question when a drawing is ambiguous. All dimensions are millimetres "
-            "unless the user explicitly states another unit. For the registered acceptance bracket, "
-            "the upper body spans the full 50 mm Y width, 30 mm is the rectangular pocket length, "
-            "R15 is a Y-through saddle cut, and Ø20 circles are subtractive Z-through cuts, not bosses."
-        ),
         "input": [{"role": "user", "content": content}],
     }
-    if include_schema:
+    if not has_attachments:
+        body["instructions"] = (
+            "You are JoyNiu NewCAD's parameter editor. Interpret the user's text and return a "
+            "validated structured parameter patch. Only change values justified by the conversation; "
+            "never invent dimensions. Candidate values from a drawing are not final until a human "
+            "confirms them. All dimensions are millimetres unless the user explicitly states another unit."
+        )
+    # The GPTX vision route currently handles a concise JSON contract more
+    # reliably than a large strict schema. Text-only turns retain strict
+    # structured outputs; attachment turns are still validated immediately by
+    # ``_parse_result`` and the allowlist above.
+    if include_schema and not has_attachments:
         body["text"] = {
             "format": {
                 "type": "json_schema",
@@ -691,7 +841,11 @@ def _safe_provider_info(mode: str, configured: bool) -> dict[str, Any]:
 class AIProxy:
     """Small Responses API client, injectable in tests."""
 
-    def __init__(self, *, timeout_seconds: float = 120.0):
+    def __init__(self, *, timeout_seconds: float = 60.0):
+        # Keep an unavailable relay from holding the customer's workbench in
+        # a spinner indefinitely.  Vision requests can legitimately take
+        # several dozen seconds on a relay, so allow one bounded minute before
+        # returning the editable local candidate envelope.
         self.timeout_seconds = timeout_seconds
 
     @property
@@ -779,7 +933,15 @@ class AIProxy:
                         )
                     else:
                         raise
-                remote_result = _parse_result(payload)
+                # A vision model may include descriptive, non-CAD keys (for
+                # example ``overall_length``) alongside the allow-listed
+                # fields.  Drop those keys for attachment turns so the useful
+                # candidate values and questions still reach the customer;
+                # text-only turns keep the strict rejection behavior.
+                remote_result = _parse_result(
+                    payload,
+                    tolerate_patch_errors=bool(files_tuple),
+                )
             except AIProxyError as exc:
                 remote_error = exc
 
@@ -837,9 +999,9 @@ class AIProxy:
             return AIConversationResult(
                 response_id=f"local_{uuid4().hex[:16]}",
                 message=(
-                    "已收到图纸，但当前无法完成可信参数化识别；识别结果需要人工确认后才会生成实体。"
+                    "已收到图纸；AI 暂未形成可信的完整拓扑，已返回可编辑候选数据。请在工作台确认/补全各项参数后生成实体。"
                     if remote_error is None
-                    else "已收到图纸，但当前中转站不可用；识别结果需要人工确认后才会生成实体。"
+                    else "已收到图纸，但当前中转站不可用；已保留可编辑候选数据。请在工作台确认/补全各项参数后生成实体。"
                 ),
                 parameter_patch={},
                 needs_review=True,

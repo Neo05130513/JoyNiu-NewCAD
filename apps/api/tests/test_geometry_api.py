@@ -37,6 +37,22 @@ BRACKET = {
     "bossDiameter": 20,
     "bossCenterDistance": 70,
 }
+FULL_DRAWING_CANDIDATE = {
+    "baseLength": 100,
+    "baseWidth": 50,
+    "baseThickness": 10,
+    "upperLength": 70,
+    "upperWidth": 50,
+    "upperHeight": 30,
+    "totalHeight": 40,
+    "notchOpening": 40,
+    "notchRadius": 15,
+    "slotLength": 30,
+    "slotWidth": 10,
+    "pocketDepth": 10,
+    "bossDiameter": 20,
+    "bossCenterDistance": 70,
+}
 
 # 1x1 transparent PNG; enough to exercise multipart and offline recognition.
 PNG = base64.b64decode(
@@ -288,10 +304,17 @@ def test_untrusted_hints_require_reviewer_confirmation_before_generation(monkeyp
         json={"parameterOverrides": {"notchRadiu": 15}},
     )
     assert typo.status_code == 422, typo.text
-    confirmed = CLIENT.post(
+    incomplete = CLIENT.post(
         f"/api/drawings/{drawing['id']}/confirm",
         headers={"Authorization": f"Bearer {token}"},
         json={},
+    )
+    assert incomplete.status_code == 422, incomplete.text
+    assert "missingFields" in incomplete.text
+    confirmed = CLIENT.post(
+        f"/api/drawings/{drawing['id']}/confirm",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"parameterOverrides": FULL_DRAWING_CANDIDATE},
     )
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["status"] == "confirmed"
@@ -300,6 +323,46 @@ def test_untrusted_hints_require_reviewer_confirmation_before_generation(monkeyp
         json={"sourceDrawingId": drawing["id"], "parameters": BRACKET, "formats": ["glb"]},
     )
     assert generated.status_code == 200, generated.text
+
+
+def test_legacy_accept_supports_customer_loopback_and_role_permissions(monkeypatch: pytest.MonkeyPatch) -> None:
+    upload = CLIENT.post(
+        "/api/drawings/recognize",
+        files={"file": ("customer.png", PNG, "image/png")},
+    )
+    assert upload.status_code == 200, upload.text
+    drawing_id = upload.json()["id"]
+    services = build_platform_services(":memory:", auth_secret="legacy-accept" * 4)
+    designer = services.auth.create_user("legacy-designer@example.com", "a-very-long-password", "Designer", roles=["designer"])
+    viewer = services.auth.create_user("legacy-viewer@example.com", "a-very-long-password", "Viewer", roles=["viewer"])
+    monkeypatch.setattr("app.main.platform_services", services)
+    viewer_token = services.auth.issue_token(viewer).token
+    assert CLIENT.post(
+        f"/api/drawings/{drawing_id}/accept",
+        headers={"Authorization": f"Bearer {viewer_token}"},
+        json={},
+    ).status_code == 403
+    monkeypatch.setenv("JOYNIU_ENV", "local")
+    incomplete = CLIENT.post(f"/api/drawings/{drawing_id}/accept", json={})
+    assert incomplete.status_code == 422, incomplete.text
+    assert "missingFields" in incomplete.text
+    accepted = CLIENT.post(
+        f"/api/drawings/{drawing_id}/accept",
+        json={"parameterOverrides": FULL_DRAWING_CANDIDATE},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["confirmationType"] == "customer"
+    assert accepted.json()["confirmedBy"] == "anonymous"
+    token = services.auth.issue_token(designer).token
+    # Acceptance is idempotent for an already-confirmed candidate and remains
+    # available to a designer with OCR_RUN.
+    repeated = CLIENT.post(
+        f"/api/drawings/{drawing_id}/accept",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"parameterOverrides": {"baseLength": 100}},
+    )
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["confirmationType"] == "designer"
 
 
 def test_generate_rejects_invalid_geometry() -> None:

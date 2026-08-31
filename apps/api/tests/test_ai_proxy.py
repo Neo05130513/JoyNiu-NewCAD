@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
 
 import pytest
 
@@ -70,6 +72,22 @@ def test_proxy_sends_responses_schema_reasoning_and_previous_id(monkeypatch):
     # The credential is only an Authorization header and is not put in the
     # model input, structured result, or any client-facing field.
     assert "test-provider-key" not in json.dumps(captured["body"])
+
+
+def test_provider_image_normalization_keeps_original_audit_metadata():
+    """Vision relays receive JPEG while the uploaded PNG identity is unchanged."""
+    from app.ai_proxy import _attachment_content
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    metadata, attachment = _attachment_content(AIFile("drawing.png", "image/png", png))
+    assert metadata["contentType"] == "image/png"
+    assert metadata["sizeBytes"] == len(png)
+    assert metadata["sha256"] == hashlib.sha256(png).hexdigest()
+    assert attachment["type"] == "input_image"
+    assert attachment["image_url"].startswith("data:image/jpeg;base64,")
 
 
 def test_proxy_reads_key_file_without_requiring_environment(monkeypatch, tmp_path):
@@ -166,6 +184,46 @@ def test_unknown_drawing_returns_review_envelope_without_provider(monkeypatch):
     assert result.needs_review is True
     assert result.parameter_patch == {}
     assert result.drawing["id"] == "compat_unknown"
+
+
+def test_platform_conversation_does_not_promote_compatibility_scaffold(monkeypatch):
+    """Legacy canonical preview values stay out of the AI candidate envelope."""
+    from app.recognition import canonical_bracket_parameters
+
+    services = build_platform_services(":memory:", auth_secret="c" * 32)
+    canonical = canonical_bracket_parameters().model_dump(by_alias=True)
+    services.ai.converse = lambda *args, **kwargs: AIConversationResult(
+        response_id="local_compat",
+        message="候选待确认",
+        parameter_patch={},
+        needs_review=True,
+        questions=("请确认视图与尺寸",),
+        drawing={
+            "id": "legacy-compat",
+            "status": "needs_review",
+            "partType": "bracket",
+            "engine": "tesseract-compatible",
+            "parameters": canonical,
+            "modelRecipe": {"parameters": canonical, "source": "compatibility-recognizer"},
+        },
+        provider={"mode": "local-fallback"},
+    )
+    monkeypatch.setenv("JOYNIU_AI_ALLOW_ANONYMOUS", "1")
+    monkeypatch.setenv("JOYNIU_ENV", "development")
+    app = FastAPI()
+    app.include_router(create_platform_router(services), prefix="/api/v1")
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/ai/conversation",
+        data={"message": "解析图纸"},
+        files={"file": ("unknown.png", b"not-a-real-image", "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    drawing = response.json()["drawingRecognition"]
+    assert drawing["status"] == "needs_review"
+    assert drawing["partType"] == "unknown"
+    assert drawing["parameters"] == {}
+    assert drawing["candidateParameters"] == {}
 
 
 def test_anonymous_ai_requires_loopback_or_development_environment(monkeypatch):
