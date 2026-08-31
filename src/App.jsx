@@ -66,7 +66,10 @@ const bracketParameterLabels = {
   upperLength: '上部长度', upperWidth: '上部全宽', upperHeight: '上部高度',
   totalHeight: '总高度', notchOpening: '鞍槽开口', notchRadius: '鞍槽半径',
   slotLength: '浅槽长度', slotWidth: '浅槽宽度', pocketDepth: '浅槽深度',
-  bossDiameter: '侧向凹槽直径', bossCenterDistance: '凹槽中心距',
+  // Legacy API names are kept in the payload, but the customer-facing label
+  // describes the actual subtractive feature in this drawing: two vertical
+  // through holes that appear as side semicircular notches.
+  bossDiameter: '贯穿孔直径', bossCenterDistance: '贯穿孔中心距',
 }
 const recognitionParameterAliases = {
   base_length: 'baseLength', base_width: 'baseWidth', base_thickness: 'baseThickness',
@@ -301,7 +304,7 @@ function getBracketFeatures(model) {
     { id: 'upper', icon: '▰', label: `上部实体 · ${value('upperLength', 70)} × ${value('upperWidth', 50)} × ${value('upperHeight', 30)}`, meta: '实体' },
     { id: 'notch', icon: '∪', label: `R${value('notchRadius', 15)} 横向鞍槽 · 开口 ${value('notchOpening', 40)}`, meta: '切除 · 贯穿 Y' },
     { id: 'pockets', icon: '▤', label: `矩形浅槽 × 2 · ${value('slotWidth', 10)} × ${value('slotLength', 30)} · 深 ${value('pocketDepth', 10)}`, meta: '切除' },
-    { id: 'holes', icon: '◌', label: `侧向 Ø${value('bossDiameter', 20)} 贯穿凹槽 × 2 · 中心距 ${value('bossCenterDistance', 70)}`, meta: '切除 · 贯穿 Z' },
+    { id: 'holes', icon: '◌', label: `Ø${value('bossDiameter', 20)} 贯穿孔 × 2 · 中心距 ${value('bossCenterDistance', 70)}`, meta: '切除 · 贯穿 Z · 侧边显示为半圆缺口' },
     { id: 'edge', icon: '◇', label: '边缘处理 · 保留锐边', meta: '细节' },
   ]
 }
@@ -1818,8 +1821,8 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
     ['总高度', [['totalHeight', '高度']], sourceFor('totalHeight', '主视')],
     ['U 型缺口', [['notchOpening', '开口'], ['notchRadius', '半径 R']], sourceFor('notchOpening', '主视')],
     ['矩形浅槽', [['slotWidth', '宽'], ['slotLength', '长'], ['pocketDepth', '深']], sourceFor('slotLength', '俯视 / 右视')],
-    ['侧向贯穿凹槽', [['bossDiameter', '直径 Ø']], sourceFor('bossDiameter', '俯视 / 主视')],
-    ['凹槽中心距', [['bossCenterDistance', '中心距']], sourceFor('bossCenterDistance', '俯视投影')],
+    ['贯穿孔 / 侧边半圆缺口', [['bossDiameter', '直径 Ø']], sourceFor('bossDiameter', '俯视 / 主视')],
+    ['贯穿孔中心距', [['bossCenterDistance', '中心距']], sourceFor('bossCenterDistance', '俯视投影')],
   ]
   const evidenceWarning = evidence?.warnings?.length
     ? evidence.warnings.join('；')
@@ -1937,7 +1940,7 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel, dra
   const groups = [
     { title: '底板尺寸', fields: [['baseLength', '长度'], ['baseWidth', '宽度'], ['baseThickness', '厚度']] },
     { title: '上部实体', fields: [['upperLength', '长度'], ['upperWidth', '全宽'], ['upperHeight', '高度'], ['totalHeight', '总高']] },
-    { title: '切除特征', fields: [['notchOpening', '鞍槽开口'], ['notchRadius', '鞍槽半径'], ['slotLength', '浅槽长度 Y'], ['slotWidth', '浅槽宽度 X'], ['pocketDepth', '浅槽深度'], ['bossDiameter', '侧向凹槽 Ø'], ['bossCenterDistance', '凹槽中心距']] },
+    { title: '切除特征', fields: [['notchOpening', '鞍槽开口'], ['notchRadius', '鞍槽半径'], ['slotLength', '浅槽长度 Y'], ['slotWidth', '浅槽宽度 X'], ['pocketDepth', '浅槽深度'], ['bossDiameter', '贯穿孔 Ø'], ['bossCenterDistance', '贯穿孔中心距']] },
   ]
   const numeric = (key) => Number(model[key])
   const relationWarning = numeric('upperLength') > numeric('baseLength') || numeric('upperWidth') > numeric('baseWidth') || numeric('slotLength') > numeric('baseWidth') || numeric('pocketDepth') > numeric('upperHeight') || numeric('notchOpening') < numeric('notchRadius') * 2 || Math.abs(numeric('totalHeight') - numeric('baseThickness') - numeric('upperHeight')) > 1e-6
@@ -1964,7 +1967,7 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel, dra
       ? ['需要重新选择图纸文件', '刷新后浏览器只保留文件名；请重新选择同一文件以继续 AI 分析，不会沿用上一张图纸的尺寸。']
       : ['等待 AI 分析图纸', '分析完成后会在这里显示模型候选值；不会沿用上一张图纸的尺寸。']
     : [`AI 尚未确定 ${missingFields.size} 项尺寸`, '空白字段需要你根据图纸补全；补齐后点击“确认数据”。']
-  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{waitingForAnalysis ? '上一版本仅保留为预览' : candidatePending ? 'AI 候选数据 · 可编辑确认' : '图纸识别实体 · 证据已锁定'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>{candidatePending && missingFields.size > 0 && <div className="candidate-missing-note"><b>{candidateMessage[0]}</b><span>{candidateMessage[1]}</span>{!waitingForAnalysis && <small>{[...missingFields].slice(0, 5).map((key) => bracketParameterLabels[key] || key).join('、')}{missingFields.size > 5 ? '…' : ''}</small>}</div>}{groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => { const pending = candidatePending && missingFields.has(key); return <NumberField key={key} label={fieldLabel(key, label)} value={pending ? '' : model[key]} pending={pending} disabled={waitingForAnalysis} placeholder={pending ? waitingForAnalysis ? '等待分析' : 'AI 未识别' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} /> })}</div>)}<div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>侧向凹槽中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>{relationWarning && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}<div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)} disabled={waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '候选值可编辑；确认后才会进入生产实体。' : '所有尺寸均可回溯到上传图纸的视图和校验状态。'}</span></div><button className="reset-link" onClick={resetModel} disabled={waitingForAnalysis}>↻ 恢复支架基准参数</button></div>
+  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{waitingForAnalysis ? '上一版本仅保留为预览' : candidatePending ? 'AI 候选数据 · 可编辑确认' : '图纸识别实体 · 证据已锁定'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>{candidatePending && missingFields.size > 0 && <div className="candidate-missing-note"><b>{candidateMessage[0]}</b><span>{candidateMessage[1]}</span>{!waitingForAnalysis && <small>{[...missingFields].slice(0, 5).map((key) => bracketParameterLabels[key] || key).join('、')}{missingFields.size > 5 ? '…' : ''}</small>}</div>}{groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => { const pending = candidatePending && missingFields.has(key); return <NumberField key={key} label={fieldLabel(key, label)} value={pending ? '' : model[key]} pending={pending} disabled={waitingForAnalysis} placeholder={pending ? waitingForAnalysis ? '等待分析' : 'AI 未识别' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} /> })}</div>)}<div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>贯穿孔中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>{relationWarning && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}<div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)} disabled={waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '候选值可编辑；确认后才会进入生产实体。' : '所有尺寸均可回溯到上传图纸的视图和校验状态。'}</span></div><button className="reset-link" onClick={resetModel} disabled={waitingForAnalysis}>↻ 恢复支架基准参数</button></div>
 }
 
 function NumberField({ label, value, prefix, suffix, onChange, pending = false, placeholder = '', disabled = false }) { return <label className={`number-field ${pending ? 'candidate-pending' : ''}`}><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value ?? ''} placeholder={placeholder} type="number" min="0.1" step="0.1" disabled={disabled} onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
