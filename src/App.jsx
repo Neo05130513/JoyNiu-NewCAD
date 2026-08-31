@@ -1235,13 +1235,26 @@ function App() {
     try {
       const result = await api.recognizeDrawing(file)
       if (drawingRequestRef.current !== requestToken) return
-      const parameters = parametersFromRecognition(result)
-      if (!parameters) throw new Error('识别服务未返回可建模参数')
-      if (result.validation && result.validation.valid === false) throw new Error('图纸尺寸存在几何冲突，请先复核证据')
-      const candidate = { ...result, status: 'pending' }
+      // Recognition is an analysis result, not a guarantee that a complete
+      // recipe exists.  The compatibility OCR endpoint intentionally returns
+      // an empty candidate for an unknown drawing; keep that result visible
+      // and let the customer fill the supported fields instead of throwing
+      // into an error state with no path to confirmation.  A scaffold keeps
+      // the preview renderer alive, while `candidateParameters` remains the
+      // only source allowed to satisfy the explicit confirmation gate.
+      const candidate = { ...sanitiseRecognitionForCandidate(result), status: 'pending' }
       const candidateParameters = rawParametersFromRecognition(candidate) || {}
+      const parameters = parametersFromRecognition(candidate) || {
+        ...bracketModel,
+        ...candidateParameters,
+        kind: 'bracket',
+        name: 'AI 候选 · 待确认',
+      }
       const missingFields = bracketRequiredParameterKeys.filter((key) => !(Number(candidateParameters[key]) > 0))
       const candidateFields = recognitionCandidateFields(candidate)
+      const validationWarning = result.validation && result.validation.valid === false
+        ? '识别出的候选尺寸存在几何约束冲突，请修正后再确认。'
+        : ''
       setDrawingJob({
         file,
         previewUrl,
@@ -1264,14 +1277,14 @@ function App() {
           needsInput: missingFields.length > 0,
         },
         error: '',
-        warning: candidate.warnings?.join('；') || '',
+        warning: [candidate.warnings?.join('；'), validationWarning].filter(Boolean).join('；'),
       })
       // Show the candidate recipe immediately so every recognized value is
       // editable before the customer accepts it; no geometry is generated.
-      setModel((current) => ({ ...current, ...parameters, kind: 'bracket', name: parameters.name || '安装支架 · AI 识别', updatedAt: '刚刚' }))
+      setModel((current) => ({ ...current, ...parameters, ...candidateParameters, kind: 'bracket', name: parameters.name || (Object.keys(candidateParameters).length ? '安装支架 · AI 候选' : 'AI 候选 · 待确认'), updatedAt: '刚刚' }))
       setActivePanel('参数')
       setBackend((current) => ({ ...current, status: current.status === 'checking' || current.status === 'offline' ? 'connected' : current.status, engine: result.validation?.engine || current.engine, error: '' }))
-      showToast(`图纸识别完成 · ${Math.round(Number(result.confidence || 0) * 100)}% 置信度`)
+      showToast(`图纸分析完成 · ${Math.round(Number(result.confidence || 0) * 100)}% 置信度${missingFields.length ? ` · 待补全 ${missingFields.length} 项` : ' · 候选待确认'}`)
     } catch (error) {
       if (drawingRequestRef.current !== requestToken) return
       let digest = ''
