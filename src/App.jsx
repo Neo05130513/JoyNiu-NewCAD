@@ -1928,7 +1928,16 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel, dra
   ]
   const numeric = (key) => Number(model[key])
   const relationWarning = numeric('upperLength') > numeric('baseLength') || numeric('upperWidth') > numeric('baseWidth') || numeric('slotLength') > numeric('baseWidth') || numeric('pocketDepth') > numeric('upperHeight') || numeric('notchOpening') < numeric('notchRadius') * 2 || Math.abs(numeric('totalHeight') - numeric('baseThickness') - numeric('upperHeight')) > 1e-6
-  const waitingForAnalysis = Boolean(drawingJob?.file && ['queued', 'analyzing'].includes(drawingJob?.status) && !drawingJob?.evidence)
+  // The browser intentionally persists only file metadata, not the source
+  // bytes.  After a refresh an in-flight upload therefore has `file === null`
+  // while `fileMeta` and the queued/analyzing status remain.  Treat that
+  // state as pending analysis too; otherwise the persisted model's old
+  // dimensions become editable and can be mistaken for the new drawing's AI
+  // candidate.  The main upload action remains available so the customer can
+  // re-select the source file and resume analysis.
+  const pendingFile = Boolean(drawingJob?.file || drawingJob?.fileMeta?.name)
+  const waitingForAnalysis = Boolean(pendingFile && ['queued', 'analyzing'].includes(drawingJob?.status) && !drawingJob?.evidence)
+  const persistedOnly = waitingForAnalysis && !drawingJob?.file
   const missingFields = new Set(waitingForAnalysis
     ? bracketRequiredParameterKeys
     : Array.isArray(drawingJob?.analysis?.missingFields) ? drawingJob.analysis.missingFields : [])
@@ -1938,7 +1947,9 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel, dra
     ? `${label} · 待分析`
     : missingFields.has(key) ? `${label} · 待补全` : label
   const candidateMessage = waitingForAnalysis
-    ? ['等待 AI 分析图纸', '分析完成后会在这里显示模型候选值；不会沿用上一张图纸的尺寸。']
+    ? persistedOnly
+      ? ['需要重新选择图纸文件', '刷新后浏览器只保留文件名；请重新选择同一文件以继续 AI 分析，不会沿用上一张图纸的尺寸。']
+      : ['等待 AI 分析图纸', '分析完成后会在这里显示模型候选值；不会沿用上一张图纸的尺寸。']
     : [`AI 尚未确定 ${missingFields.size} 项尺寸`, '空白字段需要你根据图纸补全；补齐后点击“确认数据”。']
   return <div className="inspector-content"><div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{waitingForAnalysis ? '上一版本仅保留为预览' : candidatePending ? 'AI 候选数据 · 可编辑确认' : '图纸识别实体 · 证据已锁定'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>{candidatePending && missingFields.size > 0 && <div className="candidate-missing-note"><b>{candidateMessage[0]}</b><span>{candidateMessage[1]}</span>{!waitingForAnalysis && <small>{[...missingFields].slice(0, 5).map((key) => bracketParameterLabels[key] || key).join('、')}{missingFields.size > 5 ? '…' : ''}</small>}</div>}{groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => { const pending = candidatePending && missingFields.has(key); return <NumberField key={key} label={fieldLabel(key, label)} value={pending ? '' : model[key]} pending={pending} disabled={waitingForAnalysis} placeholder={pending ? waitingForAnalysis ? '等待分析' : 'AI 未识别' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} /> })}</div>)}<div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>侧向凹槽中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>{relationWarning && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}<div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)} disabled={waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '候选值可编辑；确认后才会进入生产实体。' : '所有尺寸均可回溯到上传图纸的视图和校验状态。'}</span></div><button className="reset-link" onClick={resetModel} disabled={waitingForAnalysis}>↻ 恢复支架基准参数</button></div>
 }
