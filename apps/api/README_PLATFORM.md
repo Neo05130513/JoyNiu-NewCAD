@@ -118,12 +118,17 @@ the returned `drawingRecognition.id` can therefore be passed directly to
 `/brackets/generate` or to the reviewer confirmation route without a 404.
 
 The supplied acceptance image is hash-calibrated and can take a deterministic
-local path before the remote call. Unknown images and native CAD files remain
-`needs_review` unless a reviewer confirms their evidence. PDF/DXF/DWG are
-accepted and forwarded, but this release does not include a complete DWG
-entity converter or multi-page PDF view alignment; install a deployment-side
-converter/parser and add a reviewed recipe before treating those formats as
-production geometry.
+local path before the remote call. Unknown images and native CAD files use the
+compatibility status `needs_review` while the AI candidate is being edited;
+that status is not a reviewer-only stop. The returned
+`drawingRecognition.id` can be sent to `POST /drawings/{id}/accept` with the
+customer/designer's edited `parameterOverrides`, after which the normal
+geometry endpoint can generate the production entity. The formal reviewer
+route remains available for release workflows. PDF/DXF/DWG are accepted and
+forwarded, but this release does not include a complete DWG entity converter
+or multi-page PDF view alignment; install a deployment-side converter/parser
+and confirm the resulting recipe before treating those formats as production
+geometry.
 
 ## Drawing acceptance fixture
 

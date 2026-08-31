@@ -76,8 +76,12 @@ calibrated to:
 OCR is attempted when Pillow + Tesseract are installed. If they are not, the
 response explicitly says that a calibrated/reviewable profile was used. A
 vision service can submit its own result through POST /api/drawings/results
-using the same parameter schema; that compatibility route always remains
-`needs_review` until an authenticated reviewer confirms it.
+using the same parameter schema; that compatibility route remains
+`needs_review` as an auditable candidate until an explicit human confirmation.
+Customer-facing clients should call `/api/v1/drawings/{id}/accept` with the
+edited candidate parameters; the formal reviewer confirmation route is kept
+for release workflows and is not required for a customer to continue to
+geometry generation.
 
 For the platform workflow, use the authenticated evidence endpoints:
 
@@ -88,10 +92,12 @@ curl -X POST http://localhost:8010/api/v1/ocr/analyze \
   -H 'content-type: application/json' \
   -d '{"filename":"bracket.jpg","imageBase64":"..."}'
 
-# reviewer: confirm the returned recognitionId
-curl -X POST http://localhost:8010/api/v1/ocr/<recognitionId>/confirm \
-  -H "Authorization: Bearer $REVIEWER_TOKEN" \
-  -H 'content-type: application/json' -d '{}'
+# customer/designer: accept the AI candidate after editing the fields shown
+# in the workbench (send all required fields for an unknown drawing)
+curl -X POST http://localhost:8010/api/v1/drawings/<recognitionId>/accept \
+  -H "Authorization: Bearer $DESIGNER_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"parameterOverrides":{"baseLength":100,"baseWidth":50,"baseThickness":10,"upperLength":70,"upperWidth":50,"upperHeight":30,"totalHeight":40,"notchOpening":40,"notchRadius":15,"slotLength":30,"slotWidth":10,"pocketDepth":10,"bossDiameter":20,"bossCenterDistance":70}}'
 ~~~
 
 ### 2. Validate dimensions
@@ -169,7 +175,9 @@ validation report with every released file for traceability.
 
 The built-in Tesseract adapter is a real local OCR provider, while the supplied
 acceptance sheet uses a SHA-verified calibration fixture for deterministic CI.
-Unknown drawings stay in `needs_review` until a reviewer maps their dimensions
-and topology to a supported recipe. CAM's deterministic pre-check and generic
-postprocessor are workflow gates/design drafts, not machine-specific material
-removal simulation or certified production NC.
+Unknown drawings stay in the compatibility state `needs_review` while the AI
+candidate is pending, but the customer/designer can map or correct the fields
+directly in the workbench and continue through `/drawings/{id}/accept`. CAM's
+deterministic pre-check and generic postprocessor are workflow gates/design
+drafts, not machine-specific material removal simulation or certified
+production NC.
