@@ -350,12 +350,14 @@ function applyZoom(runtime, zoom) {
   runtime.controls.update()
 }
 
-export default function ThreeDViewer({ model, generation, view = 'isometric', section = false, zoom = 1, onZoomChange, resetNonce = 0 }) {
+export default function ThreeDViewer({ model, generation, view = 'isometric', section = false, zoom = 1, onZoomChange, onProductionGlbLoadError, resetNonce = 0 }) {
   const hostRef = useRef(null)
   const runtimeRef = useRef(null)
   const viewRef = useRef(view)
   const zoomRef = useRef(zoom)
   const sectionRef = useRef(section)
+  const productionGlbLoadErrorRef = useRef(onProductionGlbLoadError)
+  const reportedGlbFailuresRef = useRef(new Set())
   const [ready, setReady] = useState(false)
   const [status, setStatus] = useState({ phase: 'initializing', source: '', message: '' })
 
@@ -365,9 +367,16 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
   viewRef.current = view
   zoomRef.current = zoom
   sectionRef.current = section
+  productionGlbLoadErrorRef.current = onProductionGlbLoadError
 
   const glbArtifact = generation?.stale ? null : generation?.artifacts?.find((item) => String(item.format || '').toLowerCase() === 'glb')
   const glbUrl = artifactUrl(glbArtifact)
+  const productionBracketGlb = Boolean(
+    model?.kind === 'bracket'
+    && !generation?.stale
+    && generation?.validation?.productionReady === true
+    && glbArtifact,
+  )
   const modelSignature = useMemo(() => JSON.stringify({
     kind: model?.kind,
     baseLength: model?.baseLength,
@@ -616,6 +625,20 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
       // Fall back visibly and keep the error in the status line for diagnosis.
       const detail = error?.message || 'GLB 加载失败'
       attach(makeFallback(model), '参数化 WebGL fallback', `真实 GLB 加载失败（${detail}），已切换到可交互参数预览。`)
+      const statusCode = Number(error?.target?.status || error?.response?.status || error?.status)
+      const missingArtifact = statusCode === 404 || /responded with (?:a status of )?404|\b404\s*(?::|Not Found)/i.test(detail)
+      if (productionBracketGlb && missingArtifact) {
+        const failureKey = `${generation?.requestId || 'unknown'}:${glbArtifact?.id || glbUrl}`
+        if (!reportedGlbFailuresRef.current.has(failureKey)) {
+          reportedGlbFailuresRef.current.add(failureKey)
+          productionGlbLoadErrorRef.current?.({
+            requestId: generation?.requestId || '',
+            artifactId: glbArtifact?.id || '',
+            artifactUrl: glbUrl,
+            message: detail,
+          })
+        }
+      }
     })
     return () => { cancelled = true }
     // The generation object can contain transient metadata; the GLB URL and

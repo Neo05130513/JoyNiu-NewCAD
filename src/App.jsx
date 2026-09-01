@@ -402,6 +402,15 @@ function Icon({ children, className = '' }) {
   return <span className={`icon ${className}`}>{children}</span>
 }
 
+function productionArtifactsAvailable(generation) {
+  return Boolean(
+    generation?.validation?.productionReady
+    && !generation?.stale
+    && generation?.artifactStatus !== 'unavailable'
+    && generation?.artifactStatus !== 'recovering',
+  )
+}
+
 function App() {
   const [activeMode, setActiveMode] = useState(() => {
     try {
@@ -465,6 +474,11 @@ function App() {
   const drawingTimerRef = useRef(null)
   const drawingRequestRef = useRef(0)
   const aiRequestRef = useRef(0)
+  const artifactRecoveryRef = useRef({ inFlight: false, attemptedParameterSignatures: new Set() })
+  const modelRef = useRef(model)
+  const generationRef = useRef(generation)
+  const drawingJobRef = useRef(drawingJob)
+  const chatAttachmentsRef = useRef(chatAttachments)
   // Keep only opaque ids between account switches.  Workflow payloads are
   // reloaded through the API under the newly authenticated user's project ACL;
   // no bearer token or NC text is persisted in browser storage.
@@ -473,6 +487,11 @@ function App() {
   const [assemblyChecked, setAssemblyChecked] = useState(false)
   const [libraryQuery, setLibraryQuery] = useState('')
   const [libraryGroup, setLibraryGroup] = useState('全部')
+
+  modelRef.current = model
+  generationRef.current = generation
+  drawingJobRef.current = drawingJob
+  chatAttachmentsRef.current = chatAttachments
 
   useEffect(() => localStorage.setItem('joyniu-model', JSON.stringify(model)), [model])
   useEffect(() => localStorage.setItem('joyniu-projects', JSON.stringify(projects)), [projects])
@@ -608,6 +627,104 @@ function App() {
     setGeneration({ ...generated, stale: false })
     setBackend((current) => ({ ...current, status: current.status === 'checking' ? 'connected' : current.status, engine: generated.engine || step.engine, productionReady: Boolean(step.productionReady), error: '' }))
     return generated
+  }
+  const recoverExpiredProductionGlb = async (failure = {}) => {
+    const currentGeneration = generationRef.current
+    const currentModel = modelRef.current
+    const currentDrawingJob = drawingJobRef.current
+    const sourceRequestId = failure.requestId || currentGeneration?.requestId || ''
+    const parameters = modelParametersForApi(currentModel)
+    const generationParameters = currentGeneration?.parameters || {}
+    const generationDoesNotMatchModel = bracketRequiredParameterKeys.some((key) => (
+      Number(generationParameters[key]) !== Number(parameters[key])
+    ))
+    if (!currentGeneration || (sourceRequestId && currentGeneration.requestId !== sourceRequestId)) return
+
+    // The old FastAPI process no longer owns this artifact. Mark it
+    // unavailable before evaluating whether automatic regeneration is safe,
+    // so even an inconsistent/pending restored session cannot keep presenting
+    // the fallback mesh as a production file.
+    setGeneration((current) => current?.requestId === currentGeneration.requestId
+      ? { ...current, artifactStatus: 'unavailable', artifactRecoveryError: failure.message || 'GLB artifact 已失效' }
+      : current)
+
+    if (
+      currentModel?.kind !== 'bracket'
+      || currentGeneration.stale
+      || currentGeneration.validation?.productionReady !== true
+      || currentGeneration.pendingDrawing
+      || generationDoesNotMatchModel
+      || chatAttachmentsRef.current.length > 0
+      || (currentDrawingJob?.evidence && currentDrawingJob.evidence.status !== 'confirmed')
+    ) return
+
+    // Never turn an offline/fallback response into a successful production
+    // recovery. A later reload against a healthy API can attempt again.
+    if (backend.status === 'offline' || backend.status === 'degraded') {
+      showToast('旧 GLB 已失效；CadQuery/OCCT 离线，当前仅显示参数预览')
+      return
+    }
+
+    const parameterSignature = JSON.stringify(parameters)
+    const recovery = artifactRecoveryRef.current
+    if (recovery.inFlight || recovery.attemptedParameterSignatures.has(parameterSignature)) return
+    recovery.inFlight = true
+    recovery.attemptedParameterSignatures.add(parameterSignature)
+    setGeneration((current) => current?.requestId === currentGeneration.requestId
+      ? { ...current, artifactStatus: 'recovering', artifactRecoveryError: '' }
+      : current)
+    showToast('旧 GLB 已失效，正在按当前参数重建 STEP / GLB…')
+
+    try {
+      // Do not reuse sourceDrawingId here. Its confirmation belongs to the old
+      // process-local recognition record; current validated parameters are the
+      // complete recovery source.
+      const generated = await api.generateBracket({
+        parameters,
+        formats: ['step', 'glb'],
+        requireCadQuery: true,
+      })
+      const step = generated.artifacts?.find((item) => item.format === 'step')
+      const glb = generated.artifacts?.find((item) => item.format === 'glb')
+      if (
+        generated.validation?.valid !== true
+        || generated.validation?.productionReady !== true
+        || generated.engine !== 'cadquery-occt'
+        || step?.engine !== 'cadquery-occt'
+        || step?.productionReady !== true
+        || !glb
+      ) {
+        throw new Error('OCCT 未返回通过校验的 STEP 与 GLB')
+      }
+      if (
+        generationRef.current?.requestId !== currentGeneration.requestId
+        || generationRef.current?.artifactStatus !== 'recovering'
+        || generationRef.current?.stale
+        || generationRef.current?.pendingDrawing
+        || JSON.stringify(modelParametersForApi(modelRef.current)) !== parameterSignature
+        || chatAttachmentsRef.current.length > 0
+        || (drawingJobRef.current?.evidence && drawingJobRef.current.evidence.status !== 'confirmed')
+      ) return
+      const recovered = {
+        ...generated,
+        stale: false,
+        artifactStatus: 'available',
+        recoveredFromRequestId: currentGeneration.requestId,
+      }
+      setGeneration(recovered)
+      setDrawingJob((current) => current?.generation?.requestId === currentGeneration.requestId
+        ? { ...current, status: 'generated', generation: recovered }
+        : current)
+      setBackend((current) => ({ ...current, status: 'connected', engine: generated.engine || step.engine, productionReady: true, error: '' }))
+      showToast('STEP / GLB 已按当前参数自动恢复')
+    } catch (error) {
+      if (generationRef.current?.requestId === currentGeneration.requestId) {
+        setGeneration((current) => ({ ...current, artifactStatus: 'unavailable', artifactRecoveryError: error.message }))
+        showToast(`自动恢复失败：${error.message}；当前仅显示参数预览`)
+      }
+    } finally {
+      recovery.inFlight = false
+    }
   }
   const rebuildCurrentModel = async () => {
     if (!modelValid) return showToast('请先修正参数，再重建实体')
@@ -903,7 +1020,8 @@ function App() {
     if (!modelValid) return showToast('请先补齐有效参数，再导出')
     if (['step', 'glb'].includes(format)) {
       let currentGeneration = generation
-      let artifact = !currentGeneration?.stale ? currentGeneration?.artifacts?.find((item) => item.format === format) : null
+      if (currentGeneration?.artifactStatus === 'recovering') return showToast('生产文件正在自动恢复，请稍候再导出')
+      let artifact = productionArtifactsAvailable(currentGeneration) ? currentGeneration?.artifacts?.find((item) => item.format === format) : null
       if (!artifact && model.kind === 'bracket' && backend.status !== 'offline') {
         showToast(`正在通过 CadQuery/OCCT 生成 ${format.toUpperCase()}…`)
         try {
@@ -1553,7 +1671,7 @@ function App() {
 
         <main className="main-area">
           <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 本地草稿 · {model.updatedAt || '刚刚'}</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData }} />}
+          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData }} />}
           {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} model={model} updateDrawingEvidence={updateDrawingEvidence} showToast={showToast} backend={backend} />}
           {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
           {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
@@ -1590,11 +1708,11 @@ function workflowSnapshot({ drawingJob, generation, chatAttachments, isGeneratin
 }
 
 function ModelWorkspace(props) {
-  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData } = props
+  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData } = props
   const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
   const [exportOpen, setExportOpen] = useState(false)
-  const productionReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
+  const productionReady = productionArtifactsAvailable(generation)
   const topology = generation?.validation?.metrics || {}
   const aiStatus = aiConversation?.status
   const providerReady = Boolean(aiStatus?.configured || aiStatus?.mode === 'verified-local')
@@ -1724,7 +1842,7 @@ function ModelWorkspace(props) {
 
     <section className="viewport-column">
       <div className="viewport-toolbar"><div className="toolbar-group"><button className={view === 'isometric' ? 'selected' : ''} onClick={() => setView('isometric')}>等轴测</button><button className={view === 'front' ? 'selected' : ''} onClick={() => setView('front')}>前视</button><button className={view === 'top' ? 'selected' : ''} onClick={() => setView('top')}>俯视</button></div><div className="toolbar-group"><button onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button onClick={() => { setZoom(1); setView('isometric'); setViewResetNonce((value) => value + 1); showToast('视图已重置') }}>重置视图</button></div></div>
-      <div className="viewport"><div className="viewport-grid" /><div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div><ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} resetNonce={viewResetNonce} /><div className={`model-context-badge ${productionReady ? 'production' : ''}`}><span className={`status-dot ${generation ? 'ready' : ''}`} />{pendingDrawing ? '上一版本预览 · 新图纸处理中' : generation ? (productionReady ? '已生成实体 · OCCT 校验通过' : '已生成可交互 3D 预览') : '示例模型 · 上传图纸后替换'}</div><div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div><div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div><div className="zoom-control"><button aria-label="放大" onClick={() => setZoom((value) => Math.min(1.35, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button aria-label="缩小" onClick={() => setZoom((value) => Math.max(.7, value - .1))}>−</button></div></div>
+      <div className="viewport"><div className="viewport-grid" /><div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div><ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} onProductionGlbLoadError={recoverExpiredProductionGlb} resetNonce={viewResetNonce} /><div className={`model-context-badge ${productionReady ? 'production' : ''}`}><span className={`status-dot ${generation ? 'ready' : ''}`} />{pendingDrawing ? '上一版本预览 · 新图纸处理中' : generation ? (generation.artifactStatus === 'recovering' ? '旧文件已失效 · 正在恢复生产实体' : productionReady ? '已生成实体 · OCCT 校验通过' : '已生成可交互 3D 预览') : '示例模型 · 上传图纸后替换'}</div><div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div><div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div><div className="zoom-control"><button aria-label="放大" onClick={() => setZoom((value) => Math.min(1.35, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button aria-label="缩小" onClick={() => setZoom((value) => Math.max(.7, value - .1))}>−</button></div></div>
       <div className="viewport-footer"><span><i className="live-dot" /> {generation ? '模型版本已更新' : '等待图纸或文字指令'} · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : generation?.stale ? 'preview' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : generation?.stale ? '参数已变更' : '示例预览'}</span><span>单位 <b>mm</b></span><span>材质 <b>{model.material}</b></span></div>
     </section>
 
@@ -1744,7 +1862,7 @@ function LegacyModelWorkspace(props) {
   const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform } = props
   const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
-  const productionReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
+  const productionReady = productionArtifactsAvailable(generation)
   const topology = generation?.validation?.metrics || {}
   const aiStatus = aiConversation?.status
   const providerReady = Boolean(aiStatus?.configured || aiStatus?.mode === 'verified-local')
@@ -1978,7 +2096,7 @@ function NumberField({ label, value, prefix, suffix, onChange, pending = false, 
 function FeaturePanel({ features, selectedFeature, setSelectedFeature }) { return <div className="inspector-content feature-tree-panel"><div className="tree-toolbar"><span>特征历史 <b>{features.length}</b></span><button>＋</button></div><div className="feature-tree">{features.map((feature, index) => <button key={feature.id} className={`feature-row ${selectedFeature === feature.id ? 'selected' : ''}`} onClick={() => setSelectedFeature(feature.id)}><span className="tree-line">{index < features.length - 1 ? '│' : '└'}</span><span className="feature-glyph">{feature.icon}</span><span className="feature-label">{feature.label}<small>{feature.meta}</small></span>{selectedFeature === feature.id && <span className="eye">◉</span>}</button>)}</div><div className="feature-note"><Icon>✦</Icon><span>特征树由 AI 生成，可继续描述来添加圆角、阵列或螺纹。</span></div></div> }
 function CheckPanel({ model, modelValid, showToast, backend, generation, drawingJob, generateFromDrawing, acceptDrawingData, setActiveMode }) {
   const metrics = generation?.validation?.metrics || {}
-  const kernelReady = Boolean(generation?.validation?.productionReady && !generation?.stale)
+  const kernelReady = productionArtifactsAvailable(generation)
   const evidence = drawingJob?.evidence
   const evidenceParameters = evidence?.parameters && Object.keys(evidence.parameters).length
     ? evidence.parameters
