@@ -1029,7 +1029,9 @@ function App() {
         const drawingCandidateFields = new Set(recognitionCandidateFields(source))
         const aiCandidateFields = new Set(Object.keys(resultPatch).filter((key) => bracketParameterKeys.includes(key)))
         const sourceEngine = String(source.engine || '').toLowerCase()
+        const verifiedDrawingSource = sourceEngine.includes('deterministic') || sourceEngine.includes('verified')
         const candidateSources = Object.fromEntries(Object.keys(candidateParameters).map((key) => {
+          if (aiCandidateFields.has(key) && !verifiedDrawingSource) return [key, 'ai']
           if (drawingCandidateFields.has(key)) return [key, sourceEngine.includes('ai-candidate') ? 'ai' : 'drawing']
           if (aiCandidateFields.has(key)) return [key, 'ai']
           return [key, 'template_default']
