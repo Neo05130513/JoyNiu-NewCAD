@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import time
 import urllib.error
 
 import pytest
@@ -240,6 +241,236 @@ def test_proxy_parses_responses_sse_stream(monkeypatch):
     assert result.response_id == "resp_stream_1"
     assert result.parameter_patch == {"baseLength": 125}
     assert result.provider["streaming"] is True
+
+
+def test_proxy_stream_emits_message_before_terminal_event_arrives(monkeypatch):
+    structured = '{"message":"实时回调","parameter_patch":{},"needs_review":false,"questions":[]}'
+    first_delta = '{"message":"实时'
+    second_delta = structured[len(first_delta) :]
+    stream_lines = iter(
+        (
+            b"event: response.output_text.delta\n",
+            f'data: {json.dumps({"type": "response.output_text.delta", "delta": first_delta}, ensure_ascii=False)}\n'.encode(),
+            b"\n",
+            b"event: response.output_text.delta\n",
+            f'data: {json.dumps({"type": "response.output_text.delta", "delta": second_delta}, ensure_ascii=False)}\n'.encode(),
+            b"\n",
+            b"event: response.completed\n",
+            f'data: {json.dumps({"type": "response.completed", "response": {"id": "resp_slow", "status": "completed", "output_text": structured}}, ensure_ascii=False)}\n'.encode(),
+            b"\n",
+        )
+    )
+    timeline = {"updates": []}
+
+    class _SlowStream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            time.sleep(0.01)
+            line = next(stream_lines, b"")
+            if b'"type": "response.completed"' in line:
+                timeline["terminal_arrived"] = time.monotonic()
+            return line
+
+    def on_update(text):
+        timeline["updates"].append((text, time.monotonic()))
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", lambda _request, timeout: _SlowStream())
+    result = AIProxy(timeout_seconds=7).converse("继续", on_message_update=on_update)
+
+    assert result.response_id == "resp_slow"
+    assert timeline["updates"][0][0] == "实时"
+    assert timeline["updates"][0][1] < timeline["terminal_arrived"]
+
+
+def test_proxy_stream_combines_surrogate_pair_before_sse_serialization(monkeypatch):
+    structured = r'{"message":"\ud83d\ude00 已完成","parameter_patch":{},"needs_review":false,"questions":[]}'
+    stream = (
+        "event: response.output_text.delta\n"
+        f'data: {json.dumps({"type": "response.output_text.delta", "delta": structured}, ensure_ascii=False)}\n\n'
+        "event: response.completed\n"
+        f'data: {json.dumps({"type": "response.completed", "response": {"id": "resp_emoji", "status": "completed", "output_text": structured}}, ensure_ascii=False)}\n\n'
+    ).encode()
+
+    class _EmojiStream:
+        def __init__(self):
+            self.lines = iter(stream.splitlines(keepends=True))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            return next(self.lines, b"")
+
+    updates = []
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", lambda _request, timeout: _EmojiStream())
+    result = AIProxy(timeout_seconds=7).converse("继续", on_message_update=updates.append)
+
+    assert result.message == "😀 已完成"
+    assert updates[0] == "😀 已完成"
+    assert json.dumps({"text": updates[0]}, ensure_ascii=False).encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("event_type", "status"),
+    (("response.failed", "failed"), ("response.incomplete", "incomplete")),
+)
+def test_proxy_rejects_non_completed_stream_with_parseable_patch(monkeypatch, event_type, status):
+    structured = '{"message":"不可靠结果","parameter_patch":{"baseLength":999},"needs_review":false,"questions":[]}'
+    response = {
+        "id": f"resp_{status}",
+        "status": status,
+        "output_text": structured,
+    }
+    if status == "incomplete":
+        response["incomplete_details"] = {"reason": "max_output_tokens"}
+    stream = (
+        f"event: {event_type}\n"
+        f'data: {json.dumps({"type": event_type, "response": response}, ensure_ascii=False)}\n\n'
+    ).encode()
+
+    class _TerminalStream:
+        def __init__(self):
+            self.lines = iter(stream.splitlines(keepends=True))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            return next(self.lines, b"")
+
+    calls = 0
+
+    def fake_urlopen(_request, timeout):
+        nonlocal calls
+        calls += 1
+        return _TerminalStream()
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(AIProxyError):
+        AIProxy(timeout_seconds=7).converse("应用这个修改")
+
+    assert calls == 2
+
+
+def test_proxy_replays_explicit_history_without_provider_storage(monkeypatch):
+    captured = {}
+    updates = []
+    statuses = []
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode())
+        return _Response(
+            {
+                "id": "resp_history",
+                "output_text": '{"message":"我记得上一轮，已改为120","parameter_patch":{"baseLength":120},"needs_review":false,"questions":[]}',
+            }
+        )
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setenv("JOYNIU_AI_STORE_RESPONSES", "1")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = AIProxy(timeout_seconds=7).converse(
+        "把它改成 120 mm",
+        previous_response_id="resp_previous",
+        model_state={"kind": "bracket", "baseLength": 100},
+        history=(
+            {"role": "user", "text": "当前底板多长？"},
+            {"role": "assistant", "text": "当前底板长度是 100 mm。"},
+        ),
+        on_message_update=updates.append,
+        on_status=statuses.append,
+    )
+
+    assert captured["body"]["input"][0] == {"role": "user", "content": "当前底板多长？"}
+    assert captured["body"]["input"][1] == {"role": "assistant", "content": "当前底板长度是 100 mm。"}
+    assert captured["body"]["input"][2]["role"] == "user"
+    assert "previous_response_id" not in captured["body"]
+    assert result.parameter_patch == {"baseLength": 120}
+    assert updates[-1] == "我记得上一轮，已改为120"
+    assert statuses == ["正在连接远程大模型…"]
+
+
+def test_remote_result_is_never_overlaid_by_local_text_parser(monkeypatch):
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda request, timeout: _Response(
+            {
+                "id": "resp_model_only",
+                "output_text": '{"message":"请先确认目标字段","parameter_patch":{},"needs_review":true,"questions":["要修改哪个长度？"]}',
+            }
+        ),
+    )
+
+    result = AIProxy().converse(
+        "把长度改成 120 mm",
+        model_state={"kind": "bracket", "baseLength": 100},
+    )
+
+    assert result.parameter_patch == {}
+    assert result.message == "请先确认目标字段"
+
+
+def test_remote_failure_does_not_apply_local_text_fallback(monkeypatch):
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda request, timeout: _Response({"id": "resp_empty", "output": []}),
+    )
+
+    with pytest.raises(AIProxyError):
+        AIProxy().converse(
+            "把底板长度改成 120 mm",
+            model_state={"kind": "bracket", "baseLength": 100},
+        )
+
+
+def test_proxy_stream_accepts_back_to_back_data_lines_and_exposes_only_message(monkeypatch):
+    structured = '{"message":"正在连续回答","parameter_patch":{},"needs_review":false,"questions":[]}'
+    events = [
+        {"type": "response.output_text.delta", "response_id": "resp_compact", "delta": structured[:24]},
+        {"type": "response.output_text.delta", "response_id": "resp_compact", "delta": structured[24:]},
+        {"type": "response.output_text.done", "response_id": "resp_compact", "text": structured},
+    ]
+    stream = "".join(f"data: {json.dumps(item, ensure_ascii=False)}\n" for item in events).encode()
+
+    class _CompactStream:
+        def __init__(self, body):
+            self.lines = iter(body.splitlines(keepends=True))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            return next(self.lines, b"")
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", lambda _request, timeout: _CompactStream(stream))
+    updates = []
+    result = AIProxy(timeout_seconds=7).converse("继续", on_message_update=updates.append)
+
+    assert result.response_id == "resp_compact"
+    assert result.message == "正在连续回答"
+    assert updates[-1] == "正在连续回答"
+    assert all("parameter_patch" not in update for update in updates)
 
 
 def test_drawing_retry_uses_original_image_high_then_low_and_only_remote_patch(monkeypatch):
@@ -748,6 +979,74 @@ def test_ai_route_passes_file_and_turn_state_to_injected_proxy():
     assert fake.calls[0][2]["baseLength"] == 100
     assert fake.calls[0][3][0].filename == "drawing.pdf"
     assert fake.calls[0][3][0].data == b"%PDF-test"
+
+
+def test_ai_stream_route_emits_live_updates_and_terminal_validated_result(monkeypatch):
+    services = build_platform_services(":memory:", auth_secret="h" * 32)
+
+    class FakeStreamingAI:
+        allow_anonymous = True
+
+        def __init__(self):
+            self.history = None
+
+        def status(self):
+            return {"mode": "remote", "model": "gpt-5.6-sol", "streaming": True, "configured": True}
+
+        def converse(
+            self,
+            message,
+            *,
+            previous_response_id,
+            model_state,
+            files,
+            history,
+            on_message_update,
+            on_status,
+        ):
+            assert message == "把它改成 120 mm"
+            assert model_state["baseLength"] == 100
+            assert files == []
+            self.history = history
+            on_status("正在连接远程大模型…")
+            on_message_update("我记得")
+            on_message_update("我记得上一轮，现在改为 120 mm。")
+            return AIConversationResult(
+                "resp_stream_route",
+                "我记得上一轮，现在改为 120 mm。",
+                {"baseLength": 120},
+                False,
+                (),
+                provider=self.status(),
+            )
+
+    fake = FakeStreamingAI()
+    services.ai = fake
+    monkeypatch.setenv("JOYNIU_AI_ALLOW_ANONYMOUS", "1")
+    monkeypatch.setenv("JOYNIU_ENV", "development")
+    response = _client_for(services).post(
+        "/api/v1/ai/conversation/stream",
+        data={
+            "message": "把它改成 120 mm",
+            "model_state_json": json.dumps({"kind": "bracket", "baseLength": 100}),
+            "history_json": json.dumps(
+                [
+                    {"role": "user", "text": "当前底板多长？"},
+                    {"role": "assistant", "text": "当前是 100 mm。"},
+                ],
+                ensure_ascii=False,
+            ),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: turn.started" in response.text
+    assert response.text.count("event: assistant.delta") == 2
+    assert "event: turn.result" in response.text
+    assert '"baseLength":120' in response.text
+    assert "event: turn.done" in response.text
+    assert fake.history[0]["text"] == "当前底板多长？"
 
 
 def test_ai_route_drops_unregistered_compatibility_recognition(monkeypatch):

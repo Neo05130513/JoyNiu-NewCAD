@@ -510,6 +510,131 @@ def _validate_members_payload(raw: Any) -> list[Any]:
     return result
 
 
+async def _finalize_ai_conversation_result(
+    services: PlatformServices,
+    result: Any,
+    attachments: list[AIFile],
+) -> Any:
+    """Register review evidence after a validated model turn.
+
+    This mirrors the JSON compatibility route for the browser SSE path. OCR
+    remains audit-only: only the remote model's allow-listed patch is copied
+    into the editable candidate record.
+    """
+
+    registered_drawing = None
+    canonical_attachments: list[dict[str, Any]] = []
+    for attachment in attachments:
+        canonical_attachments.append(
+            {
+                "filename": attachment.filename,
+                "contentType": attachment.content_type,
+                "sizeBytes": len(attachment.data),
+                "sha256": hashlib.sha256(attachment.data).hexdigest(),
+            }
+        )
+        try:
+            candidate = await asyncio.to_thread(
+                services.ocr.analyze,
+                attachment.data,
+                filename=attachment.filename,
+            )
+        except Exception:
+            ai_patch = getattr(result, "parameter_patch", {})
+            filtered_patch = {
+                str(key): value
+                for key, value in ai_patch.items()
+                if isinstance(ai_patch, Mapping)
+                and str(key) in PARAMETER_FIELDS
+                and value is not None
+            } if isinstance(ai_patch, Mapping) else {}
+            if not filtered_patch:
+                continue
+            candidate = DrawingRecognition(
+                id=f"drw_ai_{uuid.uuid4().hex[:16]}",
+                status="needs_review",
+                part_type="unknown",
+                source_filename=attachment.filename,
+                source_sha256=hashlib.sha256(attachment.data).hexdigest(),
+                image_width=None,
+                image_height=None,
+                confidence=0.0,
+                dimensions=(),
+                features=(),
+                model_recipe={"parameters": {}, "source": "ai-candidate"},
+                assumptions=("候选字段来自多模态 AI，尚未由 OCR/几何配方确认",),
+                warnings=("OCR 识别不可用；以下为 AI 候选数据，需人工确认",),
+                unresolved=("feature_topology",),
+                ocr_text="",
+                engine="ai-candidate",
+                candidate_parameters=filtered_patch,
+            )
+        patch = getattr(result, "parameter_patch", {})
+        candidate_patch: dict[str, Any] = {}
+        if isinstance(patch, Mapping):
+            candidate_patch.update(
+                {
+                    str(key): value
+                    for key, value in patch.items()
+                    if str(key) in PARAMETER_FIELDS and value is not None
+                }
+            )
+        evidence_engine = candidate.engine
+        recipe = dict(candidate.model_recipe)
+        recipe["parameters"] = {}
+        recipe["source"] = "ai-multimodal-candidate" if candidate_patch else "ai-multimodal-no-result"
+        recipe["evidenceEngine"] = evidence_engine
+        candidate = replace(
+            candidate,
+            status="needs_review",
+            part_type="unknown",
+            engine="ai-candidate" if candidate_patch else "ai-no-candidate",
+            model_recipe=recipe,
+            candidate_parameters=dict(candidate_patch),
+            assumptions=tuple(candidate.assumptions) + (
+                "工作台候选参数仅来自远程多模态模型；本地 OCR/几何结果只作为人工复核证据。",
+            ),
+        )
+        services.recognitions[candidate.id] = candidate
+        if registered_drawing is None:
+            registered_drawing = candidate
+    if registered_drawing is not None:
+        result = replace(result, drawing=registered_drawing.to_dict())
+    elif attachments and getattr(result, "drawing", None) is not None:
+        result = replace(result, drawing=None, needs_review=True)
+    if canonical_attachments:
+        result = replace(result, attachments=tuple(canonical_attachments))
+    return result
+
+
+def _parse_ai_history(raw: str | None) -> list[dict[str, str]]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("history must be valid JSON") from exc
+    if not isinstance(parsed, list):
+        raise ValidationError("history must be a JSON array")
+    history: list[dict[str, str]] = []
+    for item in parsed:
+        if not isinstance(item, Mapping):
+            raise ValidationError("history contains an invalid message")
+        role = str(item.get("role", "")).casefold()
+        text = item.get("text", item.get("content", ""))
+        if role not in {"user", "assistant"} or not isinstance(text, str):
+            raise ValidationError("history contains an invalid message")
+        if text.strip():
+            history.append({"role": role, "text": text})
+    return history
+
+
+def _sse_event(name: str, payload: Mapping[str, Any]) -> str:
+    # ASCII escaping keeps even a temporarily incomplete Unicode surrogate
+    # safe on the wire; the browser's JSON decoder restores normal text.
+    return f"event: {name}\ndata: {json.dumps(dict(payload), ensure_ascii=True, separators=(',', ':'))}\n\n"
+
+
 def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     """Return an ``APIRouter`` with auth, PDM, OCR and CAM endpoints.
 
@@ -521,7 +646,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
 
     try:
         from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFile
-        from fastapi.responses import JSONResponse, PlainTextResponse
+        from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
     except ImportError as exc:  # pragma: no cover - exercised in dependency-free CI
         raise RuntimeError(
             "FastAPI is optional for the domain services; install apps/api requirements to create routes"
@@ -547,6 +672,8 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         previous_response_id_alias: str | None = Form(default=None, alias="previousResponseId"),
         model_state_json: str | None = Form(default=None),
         model_state_alias: str | None = Form(default=None, alias="modelState"),
+        history_json: str | None = Form(default=None),
+        history_alias: str | None = Form(default=None, alias="history"),
         file: UploadFile | None = File(default=None),
         files: list[UploadFile] | None = File(default=None),
         authorization: str | None = Header(default=None),
@@ -573,6 +700,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             model_state: Mapping[str, Any] | None = None
             effective_previous_response_id = previous_response_id or previous_response_id_alias
             effective_model_state = model_state_json or model_state_alias
+            history = _parse_ai_history(history_json or history_alias)
             if effective_model_state:
                 try:
                     parsed_state = json.loads(effective_model_state)
@@ -603,13 +731,16 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 attachments.append(AIFile(filename=filename, content_type=content_type, data=data))
             if not message.strip() and not attachments:
                 raise ValidationError("message or drawing file is required")
-            result = await asyncio.to_thread(
-                services.ai.converse,
-                message,
-                previous_response_id=effective_previous_response_id,
-                model_state=model_state,
-                files=attachments,
-            )
+            converse_kwargs: dict[str, Any] = {
+                "previous_response_id": effective_previous_response_id,
+                "model_state": model_state,
+                "files": attachments,
+            }
+            # Preserve compatibility with injected legacy adapters that do not
+            # yet accept history when the caller did not supply any.
+            if history:
+                converse_kwargs["history"] = history
+            result = await asyncio.to_thread(services.ai.converse, message, **converse_kwargs)
             # The AI adapter may expose a richer compatibility recognition,
             # but geometry generation and explicit human confirmation must use the
             # platform OCR service's own DrawingRecognition object. Register
@@ -722,6 +853,133 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         except (PlatformError, AIProxyError) as exc:
             raise _domain_http_exception(exc)
 
+    @router.post("/ai/conversation/stream")
+    async def ai_conversation_stream(
+        request: Request,
+        message: str = Form(default=""),
+        previous_response_id: str | None = Form(default=None),
+        previous_response_id_alias: str | None = Form(default=None, alias="previousResponseId"),
+        model_state_json: str | None = Form(default=None),
+        model_state_alias: str | None = Form(default=None, alias="modelState"),
+        history_json: str | None = Form(default=None),
+        history_alias: str | None = Form(default=None, alias="history"),
+        file: UploadFile | None = File(default=None),
+        files: list[UploadFile] | None = File(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        """Stream one interactive CAD copilot turn to the browser.
+
+        Natural-language message updates may arrive incrementally, while the
+        allow-listed parameter patch is emitted only once in the terminal
+        ``result`` event after complete server-side validation.
+        """
+
+        try:
+            if authorization:
+                actor = _token_user(services, authorization)
+                services.auth.require(actor, Permission.AI_CHAT)
+            elif not services.ai.allow_anonymous or not _anonymous_ai_request_allowed(request):
+                raise AuthenticationError("bearer token is required")
+
+            effective_previous_response_id = previous_response_id or previous_response_id_alias
+            effective_model_state = model_state_json or model_state_alias
+            model_state: Mapping[str, Any] | None = None
+            if effective_model_state:
+                try:
+                    parsed_state = json.loads(effective_model_state)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationError("modelState must be valid JSON") from exc
+                if not isinstance(parsed_state, Mapping):
+                    raise ValidationError("modelState must be a JSON object")
+                model_state = dict(parsed_state)
+            history = _parse_ai_history(history_json or history_alias)
+
+            attachments: list[AIFile] = []
+            incoming_files = list(files or [])
+            if file is not None:
+                incoming_files.insert(0, file)
+            if len(incoming_files) > 4:
+                raise ValidationError("too many drawing files (maximum 4)")
+            for upload in incoming_files:
+                filename = Path(upload.filename or "drawing").name
+                suffix = Path(filename).suffix.casefold()
+                content_type = (upload.content_type or "application/octet-stream").casefold()
+                allowed_suffixes = {".pdf", ".dxf", ".dwg"}
+                image_suffixes = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+                if not content_type.startswith("image/") and suffix not in allowed_suffixes | image_suffixes:
+                    raise ValidationError("supported AI drawing files are images, PDF, DXF, and DWG")
+                data = await upload.read(MAX_FILE_BYTES + 1)
+                if len(data) > MAX_FILE_BYTES:
+                    raise ValidationError("drawing file is too large")
+                if not data:
+                    raise ValidationError("drawing file is empty")
+                attachments.append(AIFile(filename=filename, content_type=content_type, data=data))
+            if not message.strip() and not attachments:
+                raise ValidationError("message or drawing file is required")
+        except (PlatformError, AIProxyError) as exc:
+            raise _domain_http_exception(exc)
+
+        event_queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def publish_from_worker(event_name: str, payload: dict[str, Any]) -> None:
+            loop.call_soon_threadsafe(event_queue.put_nowait, (event_name, payload))
+
+        def on_message_update(text: str) -> None:
+            publish_from_worker("assistant.delta", {"text": text, "replace": True})
+
+        def on_status(status_text: str) -> None:
+            publish_from_worker("turn.status", {"message": status_text})
+
+        async def run_turn() -> None:
+            try:
+                result = await asyncio.to_thread(
+                    services.ai.converse,
+                    message,
+                    previous_response_id=effective_previous_response_id,
+                    model_state=model_state,
+                    files=attachments,
+                    history=history,
+                    on_message_update=on_message_update,
+                    on_status=on_status,
+                )
+                await event_queue.put(("turn.status", {"message": "正在整理 CAD 候选与图纸证据…"}))
+                result = await _finalize_ai_conversation_result(services, result, attachments)
+                await event_queue.put(("turn.result", result.to_dict()))
+            except asyncio.CancelledError:
+                raise
+            except (PlatformError, AIProxyError) as exc:
+                http_error = _domain_http_exception(exc)
+                await event_queue.put(("turn.error", {"message": str(http_error.detail), "status": http_error.status_code}))
+            except Exception:
+                await event_queue.put(("turn.error", {"message": "AI 对话处理失败", "status": 500}))
+
+        worker = asyncio.create_task(run_turn())
+
+        async def event_stream():
+            provider = services.ai.status()
+            yield _sse_event("turn.started", {"provider": provider, "streaming": True})
+            try:
+                while True:
+                    event_name, payload = await event_queue.get()
+                    yield _sse_event(event_name, payload)
+                    if event_name in {"turn.result", "turn.error"}:
+                        yield _sse_event("turn.done", {"ok": event_name == "turn.result"})
+                        break
+            finally:
+                if not worker.done():
+                    worker.cancel()
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     @router.post("/ai/chat")
     async def ai_chat_alias(
         request: Request,
@@ -730,6 +988,8 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         previous_response_id_alias: str | None = Form(default=None, alias="previousResponseId"),
         model_state_json: str | None = Form(default=None),
         model_state_alias: str | None = Form(default=None, alias="modelState"),
+        history_json: str | None = Form(default=None),
+        history_alias: str | None = Form(default=None, alias="history"),
         file: UploadFile | None = File(default=None),
         files: list[UploadFile] | None = File(default=None),
         authorization: str | None = Header(default=None),
@@ -742,6 +1002,8 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             previous_response_id_alias=previous_response_id_alias,
             model_state_json=model_state_json,
             model_state_alias=model_state_alias,
+            history_json=history_json,
+            history_alias=history_alias,
             file=file,
             files=files,
             authorization=authorization,

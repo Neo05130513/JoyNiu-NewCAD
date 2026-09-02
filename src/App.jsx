@@ -87,6 +87,38 @@ const recognitionParameterAliases = {
   boss_diameter: 'bossDiameter', boss_center_distance: 'bossCenterDistance', boss_height: 'bossHeight',
 }
 
+let chatSequence = 0
+const chatId = (prefix = 'msg') => {
+  chatSequence += 1
+  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().slice(0, 8)
+    : `${Date.now().toString(36)}-${chatSequence}`
+  return `${prefix}-${random}`
+}
+const chatAbortError = () => Object.assign(new Error('AI turn cancelled'), { name: 'AbortError' })
+const chatMessage = (role, text, extra = {}) => ({ id: chatId(role), role, text, status: 'complete', ...extra })
+const normalizeChatMessage = (message) => ({
+  id: message?.id || chatId(message?.role || 'msg'),
+  role: message?.role === 'user' ? 'user' : 'ai',
+  text: String(message?.text || ''),
+  status: message?.status || 'complete',
+  ...(Array.isArray(message?.attachments) ? { attachments: message.attachments } : {}),
+  ...(message?.candidate ? { candidate: message.candidate } : {}),
+})
+const conversationHistory = (items) => {
+  const completedTurnIds = new Set(items
+    .filter((item) => item?.role === 'ai' && item?.turnId && (item?.status || 'complete') === 'complete')
+    .map((item) => item.turnId))
+  return items
+    .filter((item) => (
+      ['user', 'ai'].includes(item?.role)
+      && (item?.status || 'complete') === 'complete'
+      && (!item?.turnId || completedTurnIds.has(item.turnId))
+      && String(item?.text || '').trim()
+    ))
+    .map((item) => ({ role: item.role === 'ai' ? 'assistant' : 'user', text: String(item.text) }))
+}
+
 // Return only fields genuinely supplied by the recognizer/AI.  The rendering
 // model may fill safe defaults so the viewport stays usable, but those defaults
 // must never count as drawing evidence or silently pass the customer confirm
@@ -528,17 +560,17 @@ function App() {
     try { return JSON.parse(localStorage.getItem('joyniu-generation')) || null } catch { return null }
   })
   const [platform, setPlatform] = useState(() => emptyPlatformState())
-  const [aiConversation, setAiConversation] = useState({ previousResponseId: '', status: null, error: '' })
+  const [aiConversation, setAiConversation] = useState({ conversationId: chatId('conversation'), previousResponseId: '', status: null, error: '', turnStatus: 'idle', statusMessage: '' })
   const [chatAttachments, setChatAttachments] = useState([])
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState(() => {
     const welcome = [
-      { role: 'ai', text: '欢迎来到设计工作台。上传一张图纸，或用一句话描述零件，我会把它变成可编辑的参数化模型。' },
-      { role: 'ai', text: '每一步都会保留尺寸来源、确认状态和模型版本；生成后可以继续对话修改，再导出交付文件。' },
+      chatMessage('ai', '欢迎来到设计工作台。上传一张图纸，或直接告诉我你想设计、检查或修改什么。'),
+      chatMessage('ai', '这是一个连续对话：我会记住本次聊天和当前模型；图纸候选仍由你确认后才生成生产实体。'),
     ]
     try {
       const stored = JSON.parse(localStorage.getItem('joyniu-messages'))
-      return Array.isArray(stored) && stored.length && (localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation')) ? stored : welcome
+      return Array.isArray(stored) && stored.length && (localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation')) ? stored.map(normalizeChatMessage) : welcome
     } catch { return welcome }
   })
   const [isGenerating, setIsGenerating] = useState(false)
@@ -550,6 +582,7 @@ function App() {
   const drawingTimerRef = useRef(null)
   const drawingRequestRef = useRef(0)
   const aiRequestRef = useRef(0)
+  const chatAbortRef = useRef(null)
   const artifactRecoveryRef = useRef({ inFlight: false, attemptedParameterSignatures: new Set() })
   const modelRef = useRef(model)
   const generationRef = useRef(generation)
@@ -573,7 +606,7 @@ function App() {
   useEffect(() => localStorage.setItem('joyniu-projects', JSON.stringify(projects)), [projects])
   useEffect(() => localStorage.setItem('joyniu-files', JSON.stringify(files)), [files])
   useEffect(() => localStorage.setItem('joyniu-selected-project', selectedProject), [selectedProject])
-  useEffect(() => localStorage.setItem('joyniu-messages', JSON.stringify(messages.slice(-40))), [messages])
+  useEffect(() => localStorage.setItem('joyniu-messages', JSON.stringify(messages)), [messages])
   useEffect(() => {
     const { file, previewUrl, ...persisted } = drawingJob || {}
     if (persisted?.status === 'idle' && !persisted?.evidence) {
@@ -617,12 +650,17 @@ function App() {
   useEffect(() => () => {
     if (drawingTimerRef.current) window.clearTimeout(drawingTimerRef.current)
     if (drawingUrlRef.current) URL.revokeObjectURL(drawingUrlRef.current)
+    chatAbortRef.current?.abort()
   }, [])
 
   const showToast = (text) => setToast(text)
   const updateModel = (key, value) => {
     const nextValue = key === 'material' ? value : value === '' ? '' : Number(value)
-    setModel((prev) => ({ ...prev, [key]: nextValue, updatedAt: '刚刚' }))
+    setModel((prev) => {
+      const updated = { ...prev, [key]: nextValue, updatedAt: '刚刚' }
+      modelRef.current = updated
+      return updated
+    })
     setGeneration((current) => current ? { ...current, stale: true } : current)
     // Edits made in the main parameter inspector are the human-confirmation
     // input for an AI drawing candidate. Keep them in the evidence envelope
@@ -691,7 +729,7 @@ function App() {
     validation: { valid: true, productionReady: false, engine: 'browser-preview', metrics: { boundingLength: 100, boundingWidth: 50, boundingHeight: 40, solidCount: 1, faceCount: 24, notchBottomZ: 25 } },
     warnings: ['FastAPI 不可用；当前使用验收夹具浏览器预览，不能导出生产 STEP。'],
   })
-  const generateAiArtifact = async (next, sourceDrawingId = '') => {
+  const generateAiArtifact = async (next, sourceDrawingId = '', options = {}) => {
     if (next?.kind !== 'bracket' || backend.status === 'offline') return null
     const generated = await api.generateBracket({
       parameters: modelParametersForApi(next),
@@ -702,7 +740,8 @@ function App() {
       // transient `checking` status cannot silently produce a faceted
       // fallback and leave the workbench looking complete.
       requireCadQuery: backend.status !== 'offline',
-    })
+    }, options.signal)
+    if (options.signal?.aborted || (options.commitGuard && !options.commitGuard())) return null
     const step = generated.artifacts?.find((item) => item.format === 'step')
     if (!step || generated.validation?.valid !== true) throw new Error('实体校验未通过，未生成可交付文件')
     if (backend.status !== 'offline' && !step.productionReady) throw new Error('OCCT 实体或 STEP 拓扑校验未达到生产交付条件')
@@ -809,6 +848,7 @@ function App() {
     }
   }
   const rebuildCurrentModel = async () => {
+    if (generation?.pendingDrawing || (drawingJob?.evidence && drawingJob.evidence.status !== 'confirmed')) return showToast('请先确认 AI 候选数据，再重建生产实体')
     if (!modelValid) return showToast('请先修正参数，再重建实体')
     if (model.kind !== 'bracket') return showToast('当前轴类模型可直接继续编辑；生产实体重建将在对应内核接入后开放')
     setIsGenerating(true)
@@ -831,14 +871,30 @@ function App() {
     if (!userText && !files.length) return false
     const requestId = aiRequestRef.current + 1
     aiRequestRef.current = requestId
+    const turnId = chatId('turn')
+    const assistantMessageId = chatId('assistant')
     const baseModel = model
+    const baseModelSignature = JSON.stringify(modelParametersForApi(baseModel))
+    const baseDrawingJob = drawingJob
+    const baseGeneration = generation
+    const history = conversationHistory(messages)
     const attachmentNames = files.map((file) => file.name)
-    setMessages((prev) => [...prev, { role: 'user', text: userText || attachmentNames.join('、'), attachments: attachmentNames }])
+    setMessages((prev) => [
+      ...prev,
+      chatMessage('user', userText || attachmentNames.join('、'), { turnId, attachments: attachmentNames }),
+      chatMessage('ai', '', { id: assistantMessageId, turnId, status: 'streaming', statusText: files.length ? '正在读取图纸…' : '正在思考…' }),
+    ])
+    const controller = new AbortController()
+    chatAbortRef.current?.abort()
+    chatAbortRef.current = controller
+    const turnStillCurrent = () => requestId === aiRequestRef.current && !controller.signal.aborted
     setIsGenerating(true)
+    setAiConversation((current) => ({ ...current, error: '', turnStatus: 'submitting', statusMessage: files.length ? '正在读取图纸…' : '正在连接远程大模型…', activeTurnId: turnId }))
     let recognition = null
     let recognitionError = null
     let result = null
     let aiError = null
+    let appliedModelSignature = ''
     try {
       // Keep an unresolved drawing review requirement across chat turns. The
       // attachment chip is cleared after each request, but the evidence card
@@ -854,16 +910,20 @@ function App() {
       // The first exact drawing is hash-calibrated and returns confirmed
       // evidence; arbitrary drawings remain reviewable.
       if (files[0]) {
+        setAiConversation((current) => ({ ...current, turnStatus: 'submitting', statusMessage: '正在登记图纸并准备视觉分析…' }))
+        setGeneration((current) => current ? { ...current, stale: true, pendingDrawing: true } : current)
         setDrawingJob((current) => ({ ...current, file: files[0], status: 'analyzing', evidence: null, customerAccepted: false, humanConfirmed: false, analysis: null, candidateFields: [], humanEditedFields: [], questions: [], error: '', warning: '' }))
         try {
-          recognition = await api.recognizeDrawing(files[0])
+          recognition = await api.recognizeDrawing(files[0], controller.signal)
         } catch (error) {
+          if (error?.name === 'AbortError') throw error
           recognitionError = error
           try {
             const digest = await sha256File(files[0])
             if (digest === acceptanceDrawingSha256) recognition = browserFixtureRecognition(files[0], digest)
           } catch { /* no browser crypto in older contexts */ }
         }
+        if (!turnStillCurrent()) throw chatAbortError()
         if (recognition) {
           // Recognition is analysis only. Even a calibrated fixture must pass
           // through the explicit customer confirmation step before generation.
@@ -872,11 +932,32 @@ function App() {
         }
       }
       try {
-        result = await api.aiConversation(userText, files, baseModel, aiConversation.previousResponseId, platform.token)
+        result = await api.aiConversationStream(
+          userText,
+          files,
+          baseModel,
+          history,
+          aiConversation.previousResponseId,
+          platform.token,
+          (eventName, payload) => {
+            if (!turnStillCurrent()) return
+            if (eventName === 'turn.started') {
+              setAiConversation((current) => ({ ...current, status: payload?.provider || current.status, turnStatus: 'streaming', statusMessage: 'AI 正在回复…' }))
+            } else if (eventName === 'turn.status') {
+              setAiConversation((current) => ({ ...current, turnStatus: 'streaming', statusMessage: payload?.message || 'AI 正在回复…' }))
+              setMessages((current) => current.map((item) => item.id === assistantMessageId ? { ...item, statusText: payload?.message || item.statusText } : item))
+            } else if (eventName === 'assistant.delta') {
+              setMessages((current) => current.map((item) => item.id === assistantMessageId ? { ...item, text: String(payload?.text || ''), status: 'streaming', statusText: '' } : item))
+            }
+          },
+          controller.signal,
+        )
       } catch (error) {
+        if (error?.name === 'AbortError') throw error
         aiError = error
       }
-      if (requestId !== aiRequestRef.current) return false
+      if (!turnStillCurrent()) throw chatAbortError()
+      if (aiError && !result) throw aiError
       if (recognition && result?.questions?.length) {
         setDrawingJob((current) => ({ ...current, questions: result.questions }))
       }
@@ -921,6 +1002,12 @@ function App() {
         }))
       }
       const resultPatch = result?.parameterPatch || {}
+      const candidate = Object.entries(resultPatch).map(([field, value]) => ({
+        field,
+        label: bracketParameterLabels[field] || field,
+        from: baseModel?.[field],
+        to: value,
+      }))
       const aiDrawingPatch = Object.fromEntries(Object.entries(resultPatch)
         .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== ''))
       // On upload turns, only the multimodal model's parameterPatch may seed
@@ -933,6 +1020,26 @@ function App() {
         : parametersFromRecognition(drawing)
       if (files.length > 0 && !drawing) {
         setDrawingJob((current) => ({ ...current, status: 'error', error: aiError?.message || recognitionError?.message || 'AI 未返回可用尺寸候选', warning: '' }))
+      }
+      const patchChanged = Boolean(result?.parameterPatch && Object.keys(result.parameterPatch).length) || Boolean(recognizedParameters)
+      const modelChangedDuringTurn = JSON.stringify(modelParametersForApi(modelRef.current)) !== baseModelSignature
+      if (patchChanged && modelChangedDuringTurn) {
+        const provider = result?.provider || aiConversation.status || null
+        setMessages((current) => current.map((item) => item.id === assistantMessageId
+          ? { ...item, text: `${result?.message || 'AI 已返回修改建议。'}\n检测到你在回复期间编辑了当前模型，因此本轮建议未自动覆盖你的修改。`, status: 'complete', statusText: '', candidate }
+          : item))
+        setAiConversation((current) => ({
+          ...current,
+          previousResponseId: result?.provider?.mode === 'remote' ? (result.responseId || current.previousResponseId) : current.previousResponseId,
+          status: provider || current.status,
+          error: '',
+          turnStatus: 'completed',
+          statusMessage: '',
+          activeTurnId: '',
+        }))
+        if (files.length > 0) setActivePanel('参数')
+        showToast('当前模型已被你编辑 · AI 建议未自动覆盖')
+        return false
       }
       const patchKeys = Object.keys(resultPatch)
       const patchLooksBracket = patchKeys.some((key) => ['baseLength', 'baseWidth', 'upperLength', 'notchRadius', 'slotLength', 'pocketDepth', 'bossDiameter'].includes(key))
@@ -953,26 +1060,17 @@ function App() {
             : files.length > 0
               ? { ...bracketModel, kind: 'bracket', name: 'AI 候选 · 待确认' }
               : { ...baseModel }
-      let next = applyAiPatch(seed, resultPatch)
-      if (files.length === 0 && !result && !recognizedParameters && !Object.keys(result?.parameterPatch || {}).length) {
-        // The local grammar is deliberately the last fallback, so an offline
-        // or unauthorized provider cannot leave the chat looking successful
-        // while dropping the customer's explicit edit.
-        // Seed the local grammar with the inferred part kind. This prevents a
-        // shaft prompt from being interpreted as bracket dimensions when the
-        // previous model happened to be a bracket (and vice versa).
-        next = { ...parsePrompt(userText, seed), updatedAt: '刚刚' }
-      }
-      setModel(next)
+      const next = patchChanged ? applyAiPatch(seed, resultPatch) : baseModel
       if (files.length > 0) setActivePanel('参数')
-      const fallbackChanged = files.length === 0 && !result && (
-        next.kind !== baseModel.kind
-        || JSON.stringify(modelParametersForApi(next)) !== JSON.stringify(modelParametersForApi(baseModel))
-      )
-      const patchChanged = Boolean(result?.parameterPatch && Object.keys(result.parameterPatch).length) || Boolean(recognizedParameters) || fallbackChanged
-      if (patchChanged) setGeneration((current) => current ? { ...current, stale: true } : current)
+      if (patchChanged) {
+        appliedModelSignature = JSON.stringify(modelParametersForApi(next))
+        modelRef.current = next
+        setModel(next)
+        setGeneration((current) => current ? { ...current, stale: true } : current)
+      }
 
       let generated = null
+      let modelConflictAfterApply = false
       // Any uploaded drawing that is not backed by a confirmed recognition
       // remains review-gated.  This also covers a transient failure of the
       // separate recognition request: a remote model must not turn an
@@ -990,9 +1088,16 @@ function App() {
         && backend.status !== 'offline'
       if (canAutoGenerate) {
         try {
-          generated = await generateAiArtifact(next, drawing?.status === 'confirmed' ? drawing.id : '')
-          if (generated) setDrawingJob((current) => ({ ...current, status: 'generated', generation: generated, evidence: drawing || current.evidence }))
+          const expectedModelSignature = JSON.stringify(modelParametersForApi(next))
+          generated = await generateAiArtifact(next, drawing?.status === 'confirmed' ? drawing.id : '', {
+            signal: controller.signal,
+            commitGuard: () => turnStillCurrent() && JSON.stringify(modelParametersForApi(modelRef.current)) === expectedModelSignature,
+          })
+          if (!turnStillCurrent()) throw chatAbortError()
+          modelConflictAfterApply = JSON.stringify(modelParametersForApi(modelRef.current)) !== expectedModelSignature
+          if (generated && !modelConflictAfterApply) setDrawingJob((current) => ({ ...current, status: 'generated', generation: generated, evidence: drawing || current.evidence }))
         } catch (error) {
+          if (error?.name === 'AbortError') throw error
           aiError = aiError || error
         }
       }
@@ -1002,6 +1107,8 @@ function App() {
         previousResponseId: result?.provider?.mode === 'remote' ? (result.responseId || current.previousResponseId) : current.previousResponseId,
         status: provider || current.status,
         error: aiError ? aiError.message : '',
+        turnStatus: 'finalizing',
+        statusMessage: '正在校验 CAD 修改…',
       }))
       const fallbackNote = aiError && !result
         ? files.length > 0
@@ -1099,13 +1206,18 @@ function App() {
           }
         })
       }
-      const responseText = `${result?.message || localText}${generated?.validation?.productionReady ? ' 已生成并通过 OCCT 拓扑检查。' : generated ? ' 已生成可交互 GLB 预览。' : ''}${review}${fallbackNote}`
-      setMessages((prev) => [...prev, { role: 'ai', text: responseText }])
+      const conflictNote = modelConflictAfterApply ? '\n你在实体生成期间又编辑了模型；旧生成结果已丢弃，当前参数未被覆盖。' : ''
+      const responseText = `${result?.message || localText}${generated?.validation?.productionReady ? ' 已生成并通过 OCCT 拓扑检查。' : generated ? ' 已生成可交互 GLB 预览。' : ''}${review}${fallbackNote}${conflictNote}`
+      setMessages((prev) => prev.map((item) => item.id === assistantMessageId
+        ? { ...item, text: responseText, status: 'complete', statusText: '', candidate }
+        : item))
       const keepAttachmentForRetry = files.length > 0 && result?.provider?.mode === 'local-fallback'
       setChatAttachments(keepAttachmentForRetry ? files : [])
-      if (generated?.validation?.productionReady) showToast('AI 修改已应用 · OCCT STEP / GLB 已生成')
+      setAiConversation((current) => ({ ...current, turnStatus: 'completed', statusMessage: '', activeTurnId: '' }))
+      if (modelConflictAfterApply) showToast('检测到新的人工编辑 · 已丢弃旧生成结果')
+      else if (generated?.validation?.productionReady) showToast('AI 修改已应用 · OCCT STEP / GLB 已生成')
       else if (generated) showToast('AI 修改已应用 · 三维实体已更新')
-      else if (aiError) showToast('已应用本地参数；AI 服务稍后可重试')
+      else if (aiError) showToast('AI 参数已保留；实体服务稍后可重试')
       else if (keepAttachmentForRetry) showToast('远程 AI 本次已降级 · 原图已保留，可再次分析')
       else showToast('AI 参数化修改已应用')
       return true
@@ -1114,20 +1226,66 @@ function App() {
       // leaving the workbench in a permanent "生成中" state. API failures
       // that have a safe local patch are handled above; this branch is the
       // final guard for genuinely unhandled errors.
-      if (requestId === aiRequestRef.current) {
+      if (error?.name === 'AbortError' && requestId === aiRequestRef.current) {
+        const currentModelSignature = JSON.stringify(modelParametersForApi(modelRef.current))
+        const mayRestoreTurnState = currentModelSignature === baseModelSignature || currentModelSignature === appliedModelSignature
+        if (mayRestoreTurnState) {
+          modelRef.current = baseModel
+          setModel(baseModel)
+          setGeneration(baseGeneration)
+          if (files.length) setDrawingJob(baseDrawingJob)
+        }
+        setMessages((prev) => prev.map((item) => item.id === assistantMessageId
+          ? { ...item, text: item.text || '已停止等待本轮回复。', status: 'cancelled', statusText: '已停止' }
+          : item))
+        setAiConversation((current) => ({ ...current, turnStatus: 'cancelled', statusMessage: '', activeTurnId: '', error: '' }))
+        if (files.length) setChatAttachments(files)
+      } else if (requestId === aiRequestRef.current) {
         const message = error?.message || 'AI 对话处理失败'
-        setAiConversation((current) => ({ ...current, error: message }))
-        setMessages((prev) => [...prev, { role: 'ai', text: `本次对话未完成：${message}` }])
+        if (files.length) {
+          setDrawingJob(baseDrawingJob)
+          setGeneration(baseGeneration)
+        }
+        setAiConversation((current) => ({ ...current, error: message, turnStatus: 'error', statusMessage: '', activeTurnId: '' }))
+        setMessages((prev) => prev.map((item) => item.id === assistantMessageId
+          ? { ...item, text: `本次对话未完成：${message}`, status: 'error', statusText: '' }
+          : item))
+        if (files.length) setChatAttachments(files)
         showToast(`AI 对话失败：${message}`)
       }
       return false
     } finally {
-      if (requestId === aiRequestRef.current) setIsGenerating(false)
+      if (requestId === aiRequestRef.current) {
+        setIsGenerating(false)
+        if (chatAbortRef.current === controller) chatAbortRef.current = null
+      }
     }
   }
   const runGenerate = async () => {
     if (!prompt.trim() && !chatAttachments.length) return showToast('请先描述设计或上传一份图纸')
-    await sendAiConversation(prompt, chatAttachments)
+    const submittedPrompt = prompt
+    const submittedAttachments = [...chatAttachments]
+    setPrompt('')
+    setChatAttachments([])
+    await sendAiConversation(submittedPrompt, submittedAttachments)
+  }
+  const stopAiConversation = () => {
+    if (!chatAbortRef.current) return
+    chatAbortRef.current.abort()
+    showToast('已停止等待本轮 AI 回复')
+  }
+  const startNewConversation = () => {
+    chatAbortRef.current?.abort()
+    aiRequestRef.current += 1
+    chatAbortRef.current = null
+    setIsGenerating(false)
+    setPrompt('')
+    setChatAttachments([])
+    setMessages([
+      chatMessage('ai', '已开始新对话。当前 CAD 模型和已生成实体仍然保留，你可以继续提问、修改，或附加一张新图纸。'),
+    ])
+    setAiConversation((current) => ({ ...current, conversationId: chatId('conversation'), previousResponseId: '', error: '', turnStatus: 'idle', statusMessage: '', activeTurnId: '' }))
+    showToast('已开始新对话 · 当前模型未清空')
   }
 
   const resetModel = () => { setModel(model.kind === 'bracket' ? bracketModel : defaultModel); setGeneration(null); showToast(model.kind === 'bracket' ? '已恢复支架基准参数' : '已恢复基准参数') }
@@ -1138,6 +1296,9 @@ function App() {
     showToast('项目已创建并加入最近项目')
   }
   const exportFile = async (format) => {
+    if (generation?.pendingDrawing || ['queued', 'analyzing'].includes(drawingJob?.status) || (drawingJob?.evidence && drawingJob.evidence.status !== 'confirmed')) {
+      return showToast('当前图纸候选尚未确认，不能生成或导出交付文件')
+    }
     if (!modelValid) return showToast('请先补齐有效参数，再导出')
     if (['step', 'glb'].includes(format)) {
       let currentGeneration = generation
@@ -1146,7 +1307,13 @@ function App() {
       if (!artifact && model.kind === 'bracket' && backend.status !== 'offline') {
         showToast(`正在通过 CadQuery/OCCT 生成 ${format.toUpperCase()}…`)
         try {
-          currentGeneration = await api.generateBracket({ parameters: Object.fromEntries(bracketParameterKeys.filter((key) => model[key] !== undefined).map((key) => [key, model[key]])), formats: [format], requireCadQuery: backend.status !== 'offline' })
+          const confirmedDrawing = drawingJob?.evidence?.status === 'confirmed' ? drawingJob.evidence : null
+          currentGeneration = await api.generateBracket({
+            parameters: Object.fromEntries(bracketParameterKeys.filter((key) => model[key] !== undefined).map((key) => [key, model[key]])),
+            formats: [format],
+            ...(confirmedDrawing?.id && !String(confirmedDrawing.id).startsWith('offline_') ? { sourceDrawingId: confirmedDrawing.id, confirmed: true } : {}),
+            requireCadQuery: backend.status !== 'offline',
+          })
           setGeneration(currentGeneration)
           artifact = currentGeneration.artifacts?.find((item) => item.format === format)
         } catch (error) {
@@ -1753,29 +1920,10 @@ function App() {
     // canonical backend path.
     setActiveMode('3D 建模')
     setChatAttachments(selectedFiles)
-    setGeneration((current) => current ? { ...current, stale: true, pendingDrawing: true } : current)
-    // A newly queued file is a new evidence context. Clear the previous
-    // drawing's confirmation/candidate immediately so its dimensions cannot
-    // be mistaken for the file that is waiting to be analysed. The previous
-    // solid remains visible as a labelled stale preview until the new result
-    // is generated.
-    setDrawingJob((current) => ({
-      ...current,
-      file: selectedFiles[0],
-      previewUrl: '',
-      status: 'queued',
-      evidence: null,
-      customerAccepted: false,
-      humanConfirmed: false,
-      analysis: null,
-      candidateFields: [],
-      humanEditedFields: [],
-      questions: [],
-      error: '',
-      warning: '',
-    }))
-    setPrompt((current) => current.trim() || '请解析这份图纸并提取候选参数')
-    showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已添加 · 点击“开始 AI 分析”继续`)
+    // Merely selecting an attachment must not invalidate the current CAD
+    // entity or confirmed evidence.  A new drawing context begins only when
+    // the customer actually sends this chat turn.
+    showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已附加到下一条消息`)
   }
   return (
     <div className="app-shell">
@@ -1802,7 +1950,7 @@ function App() {
 
         <main className="main-area">
           <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 本地草稿 · {model.updatedAt || '刚刚'}</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData }} />}
+          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData }} />}
           {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} model={model} updateDrawingEvidence={updateDrawingEvidence} showToast={showToast} backend={backend} />}
           {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
           {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
@@ -1838,8 +1986,47 @@ function workflowSnapshot({ drawingJob, generation, chatAttachments, isGeneratin
   return { current: 'upload', label: '上传图纸或开始描述' }
 }
 
+function ChatMessageList({ messages, onOpenCandidate }) {
+  const listRef = useRef(null)
+  const followLatestRef = useRef(true)
+  const latestMessage = messages[messages.length - 1]
+  useEffect(() => {
+    const node = listRef.current
+    if (!node || !followLatestRef.current) return
+    node.scrollTop = node.scrollHeight
+  }, [messages.length, latestMessage?.text, latestMessage?.statusText, latestMessage?.status])
+
+  const trackScroll = () => {
+    const node = listRef.current
+    if (!node) return
+    followLatestRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 56
+  }
+
+  return <div className="message-list" role="log" aria-live="polite" aria-relevant="additions text" ref={listRef} onScroll={trackScroll}>
+    {messages.map((message, index) => {
+      const candidate = Array.isArray(message.candidate) ? message.candidate : []
+      const streamingEmpty = message.status === 'streaming' && !message.text
+      return <div key={message.id || `${message.role}-${index}`} className={`message ${message.role} ${message.status || 'complete'}`} data-message-status={message.status || 'complete'}>
+        <div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div>
+        <div className="message-content">
+          <div className={`message-bubble ${streamingEmpty ? 'typing' : ''}`}>
+            {streamingEmpty ? <><i /><i /><i /></> : <span className="message-text">{message.text}</span>}
+            {message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}
+          </div>
+          {message.statusText && <span className="message-status">{message.statusText}</span>}
+          {candidate.length > 0 && message.status === 'complete' && <div className="chat-candidate-card">
+            <div><b>CAD 修改建议</b><span>{candidate.length} 项参数</span></div>
+            {candidate.slice(0, 4).map((item) => <span key={item.field}><b>{item.label}</b><em>{item.from ?? '—'} → {item.to}</em></span>)}
+            <button type="button" onClick={onOpenCandidate}>查看参数与确认状态</button>
+          </div>}
+        </div>
+      </div>
+    })}
+  </div>
+}
+
 function ModelWorkspace(props) {
-  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData } = props
+  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData } = props
   const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
   const [exportOpen, setExportOpen] = useState(false)
@@ -1863,7 +2050,7 @@ function ModelWorkspace(props) {
   // Any unconfirmed recognition is a candidate, even when the provider did
   // return numeric values. A customer must not mistake a plausible OCR guess
   // for a locked drawing dimension.
-  const pendingDrawing = Boolean(chatAttachments.length || generation?.pendingDrawing)
+  const pendingDrawing = Boolean(generation?.pendingDrawing)
   const workflow = workflowSnapshot({ drawingJob, generation, chatAttachments, isGenerating })
   const hasSource = Boolean(drawingJob?.file || chatAttachments.length)
   const primaryLabel = !hasSource && !generation
@@ -1971,16 +2158,16 @@ function ModelWorkspace(props) {
     </section>}
 
     <section className="ai-column panel-card">
-      <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>AI 设计助手</h2><p className="panel-subtitle">上传图纸，或直接描述你要修改的尺寸</p></div><button className="more-button" aria-label="AI 历史记录" title="AI 历史记录" onClick={() => showToast('AI 历史记录将在当前项目内保留')}>•••</button></div>
-      <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
-      <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{providerLabel}</small></div>
-      {!providerConfigured && !platform?.token && <div className="ai-auth-hint">当前可用本地尺寸解析；通用视觉对话由服务端中转站提供。</div>}
-      {providerDegraded && <div className="ai-error-banner">远程大模型已分别用高清与兼容视觉模式分析，但本次未返回可靠参数；原图仍保留，且没有使用 OCR 或模板值代填。</div>}
+      <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>AI 设计助手</h2><p className="panel-subtitle">像聊天一样分析图纸、追问并修改模型</p></div><button type="button" className="chat-new-button" aria-label="开始新对话" title="保留当前模型并清空聊天上下文" onClick={startNewConversation}>＋ 新对话</button></div>
+      <div className="ai-mode-pill"><span className="sparkle">✦</span><b>连续对话 · 参数化 CAD</b><span className="chat-memory-indicator">记忆当前会话</span></div>
+      <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{isGenerating ? (aiConversation?.statusMessage || 'AI 正在回复…') : providerLabel}</small></div>
+      {!providerConfigured && !platform?.token && <div className="ai-auth-hint">远程大模型尚未配置；配置中转站后即可开始对话和图纸分析。</div>}
+      {providerDegraded && <div className="chat-turn-notice">上一轮没有取得远程模型候选；你可以继续说明要求，或用已保留的原图重新发送。</div>}
       {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
       {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；上传后按“AI 分析 → 确认数据 → 生成 3D”推进。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
-      <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
-      {chatAttachments.length > 0 && <div className="queued-drawing"><div><b>待处理图纸</b><span>可先补充意图，再开始识别</span></div><div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div></div>}
-      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么，或修改哪个尺寸…" aria-label="AI 设计指令" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="上传图纸" title="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>上传图纸</span></button><span>主图 1 张 · 可附加参考图 · 单个不超过 20 MB</span><button type="button" className="run-button" disabled={isGenerating || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>{isGenerating ? '处理中…' : chatAttachments.length ? providerDegraded ? '重新尝试 AI 分析' : '开始 AI 分析' : '发送修改'}<Icon>↑</Icon></button></div></div>
+      <ChatMessageList messages={messages} onOpenCandidate={() => setActivePanel('参数')} />
+      {chatAttachments.length > 0 && <div className="queued-drawing"><div><b>随下一条消息发送</b><span>可以先补充你希望 AI 重点检查的内容</span></div><div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div></div>}
+      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="给 AI 发消息，继续追问或修改尺寸…" aria-label="给 AI 发送消息" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!isGenerating) runGenerate(); else showToast('当前回复仍在生成，可先停止后再发送') } }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" disabled={isGenerating} onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="给本条消息添加图纸" title="添加图纸" disabled={isGenerating} onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>添加图纸</span></button><span>Enter 发送 · Shift+Enter 换行</span>{isGenerating ? <button type="button" className="run-button stop-button" aria-label="停止等待 AI 回复" onClick={stopAiConversation}><Icon>■</Icon> 停止</button> : <button type="button" className="run-button" aria-label="发送给 AI" disabled={!prompt.trim() && !chatAttachments.length} onClick={runGenerate}>发送 <Icon>↑</Icon></button>}</div></div>
       <div className="suggestions"><span>快速开始：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button><button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button></div>
     </section>
 

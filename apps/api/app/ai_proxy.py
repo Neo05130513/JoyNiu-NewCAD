@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 from uuid import uuid4
 
 
@@ -384,13 +384,16 @@ def _parse_result(
     *,
     tolerate_patch_errors: bool = False,
 ) -> AIConversationResult:
+    status = str(payload.get("status") or "").strip().casefold()
+    if status == "incomplete":
+        details = payload.get("incomplete_details")
+        reason = details.get("reason") if isinstance(details, Mapping) else "unknown"
+        raise AIProviderIncompleteError(str(reason or "unknown"))
+    if status and status != "completed":
+        raise AIProxyError("AI provider returned a non-completed response")
     response_id = _safe_response_id(payload.get("id"))
     raw_text = _output_text(payload)
     if not raw_text:
-        if payload.get("status") == "incomplete":
-            details = payload.get("incomplete_details")
-            reason = details.get("reason") if isinstance(details, Mapping) else "unknown"
-            raise AIProviderIncompleteError(str(reason or "unknown"))
         raise AIProxyError("AI provider returned no structured result")
     parsed = _json_from_text(raw_text)
     message = parsed.get("message", parsed.get("assistant_message", ""))
@@ -757,6 +760,7 @@ def _provider_body(
     files: tuple[AIFile, ...],
     previous_response_id: str | None,
     *,
+    history: tuple[dict[str, str], ...] = (),
     include_schema: bool = True,
     force_store: bool | None = None,
     image_detail: str | None = None,
@@ -815,6 +819,15 @@ def _provider_body(
         content.append(attachment)
     configured_store = os.environ.get("JOYNIU_AI_STORE_RESPONSES", "0").casefold() not in {"0", "false", "no"}
     store_response = configured_store if force_store is None else bool(force_store)
+    # Replay the visible conversation explicitly.  The relay is configured
+    # with ``store=false`` by default, so a previous response id alone cannot
+    # be treated as durable chat memory.  Easy input messages are accepted by
+    # the Responses protocol for both user and assistant roles.
+    conversation_input: list[dict[str, Any]] = [
+        {"role": item["role"], "content": item["text"]}
+        for item in history
+    ]
+    conversation_input.append({"role": "user", "content": content})
     body: dict[str, Any] = {
         "model": _model(),
         "reasoning": {"effort": _reasoning_effort()},
@@ -826,7 +839,7 @@ def _provider_body(
         # server-sent event stream so long high-effort vision turns keep
         # producing progress instead of appearing as one non-streaming call.
         "stream": True,
-        "input": [{"role": "user", "content": content}],
+        "input": conversation_input,
     }
     if not has_attachments:
         body["instructions"] = (
@@ -863,7 +876,71 @@ def _json_mapping(raw: bytes, *, error_message: str) -> Mapping[str, Any]:
     return payload
 
 
-def _stream_payload(response: Any) -> Mapping[str, Any]:
+def _partial_message_text(raw_text: str) -> str:
+    """Extract the currently available ``message`` JSON string.
+
+    Structured Responses arrive a few characters at a time.  The browser
+    should see the natural-language assistant message, never the surrounding
+    JSON envelope or an unvalidated parameter patch.  This small decoder is
+    intentionally tolerant of an unfinished escape at the end of a delta.
+    """
+
+    match = re.search(r'"(?:message|assistant_message)"\s*:\s*"', str(raw_text or ""))
+    if match is None:
+        return ""
+    source = str(raw_text)[match.end() :]
+    decoded: list[str] = []
+    index = 0
+    escapes = {"\"": "\"", "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+    while index < len(source):
+        char = source[index]
+        if char == '"':
+            break
+        if char != "\\":
+            decoded.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(source):
+            break
+        escaped = source[index + 1]
+        if escaped == "u":
+            codepoint = source[index + 2 : index + 6]
+            if len(codepoint) < 4 or not re.fullmatch(r"[0-9A-Fa-f]{4}", codepoint):
+                break
+            value = int(codepoint, 16)
+            if 0xD800 <= value <= 0xDBFF:
+                # JSON represents non-BMP characters as a UTF-16 surrogate
+                # pair.  Wait for an unfinished low half, and never expose a
+                # lone surrogate that Starlette cannot encode as UTF-8.
+                if len(source) < index + 12:
+                    break
+                low_prefix = source[index + 6 : index + 8]
+                low_text = source[index + 8 : index + 12]
+                if low_prefix == "\\u" and re.fullmatch(r"[0-9A-Fa-f]{4}", low_text):
+                    low = int(low_text, 16)
+                    if 0xDC00 <= low <= 0xDFFF:
+                        decoded.append(chr(0x10000 + ((value - 0xD800) << 10) + (low - 0xDC00)))
+                        index += 12
+                        continue
+                decoded.append("\N{REPLACEMENT CHARACTER}")
+                index += 6
+                continue
+            if 0xDC00 <= value <= 0xDFFF:
+                decoded.append("\N{REPLACEMENT CHARACTER}")
+                index += 6
+                continue
+            decoded.append(chr(value))
+            index += 6
+            continue
+        decoded.append(escapes.get(escaped, escaped))
+        index += 2
+    return "".join(decoded)
+
+
+def _stream_payload(
+    response: Any,
+    on_message_update: Callable[[str], None] | None = None,
+) -> Mapping[str, Any]:
     """Consume a Responses SSE stream and return its completed response.
 
     GPTX is Responses-compatible, but a few compatible test/local gateways
@@ -872,38 +949,23 @@ def _stream_payload(response: Any) -> Mapping[str, Any]:
     back to non-streaming.
     """
 
-    if hasattr(response, "readline"):
-        raw_lines: list[bytes] = []
-        while True:
-            line = response.readline()
-            if not line:
-                break
-            raw_lines.append(line)
-    else:  # small injectable response doubles used by tests
-        raw_lines = response.read().splitlines(keepends=True)
-
-    raw_body = b"".join(raw_lines).strip()
-    if not raw_body:
-        raise AIProxyError("AI provider returned an empty streaming response")
-    # Compatibility path for relays that honour the request but aggregate the
-    # final Responses object into a single JSON body.
-    if raw_body.startswith((b"{", b"[")):
-        return _json_mapping(raw_body, error_message="AI provider returned invalid JSON")
-
     completed: Mapping[str, Any] | None = None
     response_id = ""
     deltas: list[str] = []
     done_text = ""
     data_lines: list[str] = []
+    emitted_message = ""
 
-    def consume_event() -> None:
-        nonlocal completed, response_id, done_text, data_lines
+    def consume_event() -> bool:
+        nonlocal completed, response_id, done_text, data_lines, emitted_message
         if not data_lines:
-            return
+            return False
         raw_data = "\n".join(data_lines).strip()
         data_lines = []
-        if not raw_data or raw_data == "[DONE]":
-            return
+        if not raw_data:
+            return False
+        if raw_data == "[DONE]":
+            return True
         event = _json_mapping(
             raw_data.encode("utf-8"),
             error_message="AI provider returned an invalid streaming event",
@@ -914,47 +976,135 @@ def _stream_payload(response: Any) -> Mapping[str, Any]:
             candidate_id = event_response.get("id")
             if isinstance(candidate_id, str):
                 response_id = candidate_id
+        direct_response_id = event.get("response_id")
+        if isinstance(direct_response_id, str):
+            response_id = direct_response_id
         if event_type in {"response.completed", "response.failed", "response.incomplete"}:
-            if isinstance(event_response, Mapping):
-                completed = event_response
-            return
+            if not isinstance(event_response, Mapping):
+                raise AIProxyError("AI provider returned an invalid terminal streaming event")
+            # A non-completed signal in either the event type or payload wins.
+            # It must never smuggle a parseable output_text through as a
+            # completed CAD patch when a compatible relay contradicts itself.
+            event_status = event_type.removeprefix("response.")
+            payload_status = str(event_response.get("status") or "").strip().casefold()
+            terminal_status = event_status if event_status != "completed" else payload_status or event_status
+            completed = {**event_response, "status": terminal_status}
+            return True
         if event_type == "error":
             raise AIProxyError("AI provider streaming response failed")
         if event_type == "response.output_text.delta":
             delta = event.get("delta")
             if isinstance(delta, str):
                 deltas.append(delta)
+                visible = _partial_message_text("".join(deltas))
+                if on_message_update is not None and visible != emitted_message:
+                    emitted_message = visible
+                    on_message_update(visible)
         elif event_type == "response.output_text.done":
             text = event.get("text")
             if isinstance(text, str):
                 done_text = text
+                visible = _partial_message_text(done_text)
+                if on_message_update is not None and visible != emitted_message:
+                    emitted_message = visible
+                    on_message_update(visible)
+        return False
 
-    for raw_line in raw_lines:
+    def consume_line(raw_line: bytes) -> bool:
         try:
             line = raw_line.decode("utf-8").rstrip("\r\n")
         except UnicodeDecodeError as exc:
             raise AIProxyError("AI provider returned an invalid streaming event") from exc
         if not line:
-            consume_event()
-            continue
+            return consume_event()
         if line.startswith(":") or line.startswith("event:") or line.startswith("id:"):
-            continue
+            return False
         if line.startswith("data:"):
-            data_lines.append(line[5:].lstrip())
-    consume_event()
+            next_data = line[5:].lstrip()
+            if next_data.strip() == "[DONE]":
+                if data_lines and consume_event():
+                    return True
+                return True
+            # A few compatible relays omit the blank SSE separator and emit
+            # one complete JSON object per ``data:`` line.  Flush a previously
+            # complete object before accepting the next line while preserving
+            # legitimate multi-line JSON events.
+            if data_lines:
+                try:
+                    json.loads("\n".join(data_lines))
+                except ValueError:
+                    pass
+                else:
+                    if consume_event():
+                        return True
+            data_lines.append(next_data)
+        return False
+
+    if hasattr(response, "readline"):
+        first_line = response.readline()
+        if not first_line:
+            raise AIProxyError("AI provider returned an empty streaming response")
+        # Compatibility path for relays that ignore ``stream=true`` and return
+        # one ordinary Responses JSON document.  Actual SSE always begins with
+        # an event/comment/data field, so buffering is confined to this path.
+        if first_line.lstrip().startswith((b"{", b"[")):
+            if hasattr(response, "read"):
+                remainder = response.read()
+            else:
+                parts: list[bytes] = []
+                while True:
+                    part = response.readline()
+                    if not part:
+                        break
+                    parts.append(part)
+                remainder = b"".join(parts)
+            return _json_mapping(
+                (first_line + remainder).strip(),
+                error_message="AI provider returned invalid JSON",
+            )
+
+        terminal = consume_line(first_line)
+        while not terminal:
+            raw_line = response.readline()
+            if not raw_line:
+                break
+            terminal = consume_line(raw_line)
+        if not terminal and data_lines:
+            consume_event()
+    else:  # small injectable response doubles used by tests
+        raw_body = response.read().strip()
+        if not raw_body:
+            raise AIProxyError("AI provider returned an empty streaming response")
+        if raw_body.startswith((b"{", b"[")):
+            return _json_mapping(raw_body, error_message="AI provider returned invalid JSON")
+        terminal = False
+        for raw_line in raw_body.splitlines(keepends=True):
+            terminal = consume_line(raw_line)
+            if terminal:
+                break
+        if not terminal and data_lines:
+            consume_event()
 
     if completed is not None:
         return completed
     output_text = done_text or "".join(deltas)
-    if response_id and output_text:
+    if output_text:
         # Some compatible relays omit ``response.completed`` but provide all
         # text events followed by [DONE].  Reconstruct only the minimum normal
         # response envelope consumed by the existing strict parser.
-        return {"id": response_id, "status": "completed", "output_text": output_text}
+        return {
+            "id": response_id or f"resp_stream_{uuid4().hex[:16]}",
+            "status": "completed",
+            "output_text": output_text,
+        }
     raise AIProxyError("AI provider returned no completed streaming response")
 
 
-def _call_provider(body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]:
+def _call_provider(
+    body: Mapping[str, Any],
+    timeout: float,
+    on_message_update: Callable[[str], None] | None = None,
+) -> Mapping[str, Any]:
     raw_body = json.dumps(dict(body), ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         f"{_base_url()}/responses",
@@ -968,7 +1118,7 @@ def _call_provider(body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            return _stream_payload(response)
+            return _stream_payload(response, on_message_update=on_message_update)
     except urllib.error.HTTPError as exc:
         raise AIProviderHTTPError(exc.code) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -992,6 +1142,27 @@ def _provider_error_is_retryable(error: AIProxyError) -> bool:
     if isinstance(error, AIProviderIncompleteError):
         return True
     return str(error).startswith("AI provider returned")
+
+
+def _validated_history(history: Iterable[Mapping[str, Any]]) -> tuple[dict[str, str], ...]:
+    """Reduce browser chat history to safe user/assistant text messages.
+
+    No application token or character cap is applied.  Unsupported message
+    kinds, attachment metadata and UI-only status records are ignored rather
+    than becoming model instructions.
+    """
+
+    result: list[dict[str, str]] = []
+    for item in history:
+        if not isinstance(item, Mapping):
+            raise AIProxyError("conversation history contains an invalid message")
+        role = str(item.get("role", "")).casefold()
+        text = item.get("text", item.get("content", ""))
+        if role not in {"user", "assistant"} or not isinstance(text, str):
+            raise AIProxyError("conversation history contains an invalid message")
+        if text.strip():
+            result.append({"role": role, "text": text})
+    return tuple(result)
 
 
 def _safe_provider_info(mode: str, configured: bool) -> dict[str, Any]:
@@ -1036,9 +1207,13 @@ class AIProxy:
         previous_response_id: str | None = None,
         model_state: Mapping[str, Any] | None = None,
         files: Iterable[AIFile] = (),
+        history: Iterable[Mapping[str, Any]] = (),
+        on_message_update: Callable[[str], None] | None = None,
+        on_status: Callable[[str], None] | None = None,
     ) -> AIConversationResult:
         message = str(message or "").strip()
         files_tuple = tuple(files)
+        history_tuple = _validated_history(history)
         if not message and not files_tuple:
             raise AIProxyError("message or drawing file is required")
         if len(files_tuple) > MAX_FILE_COUNT:
@@ -1048,7 +1223,9 @@ class AIProxy:
                 raise AIProxyError("drawing file is too large")
         if previous_response_id and not _RESPONSE_ID_RE.fullmatch(previous_response_id):
             raise AIProxyError("invalid previous response id")
-        provider_previous_id = None if (previous_response_id or "").startswith("local_") else previous_response_id
+        # Explicit replay is authoritative and works with ``store=false``.
+        # Combining it with a stored predecessor would duplicate every turn.
+        provider_previous_id = None if history_tuple or (previous_response_id or "").startswith("local_") else previous_response_id
 
         drawing: dict[str, Any] | None = None
         attachment_meta: list[dict[str, Any]] = []
@@ -1062,7 +1239,6 @@ class AIProxy:
                 metadata["recognitionEngine"] = recognized.get("engine")
             attachment_meta.append(metadata)
 
-        local_patch = _text_parameter_patch(message, model_state)
         configured = _provider_configured()
 
         remote_error: AIProxyError | None = None
@@ -1080,16 +1256,23 @@ class AIProxy:
             )
             for attempt_index, (include_schema, attempt_previous_id, force_store, image_detail) in enumerate(attempt_specs):
                 try:
+                    if on_status is not None:
+                        on_status("正在连接远程大模型…" if attempt_index == 0 else "正在使用兼容视觉模式重试…")
                     body = _provider_body(
                         message,
                         model_state,
                         files_tuple,
                         attempt_previous_id,
+                        history=history_tuple,
                         include_schema=include_schema,
                         force_store=force_store,
                         image_detail=image_detail,
                     )
-                    payload = _call_provider(body, self.timeout_seconds)
+                    payload = _call_provider(
+                        body,
+                        self.timeout_seconds,
+                        on_message_update=on_message_update,
+                    )
                     # A vision model may include descriptive, non-CAD keys
                     # (for example ``overall_length``) alongside allow-listed
                     # fields. Drop those keys for attachment turns so useful
@@ -1098,6 +1281,8 @@ class AIProxy:
                         payload,
                         tolerate_patch_errors=bool(files_tuple),
                     )
+                    if on_message_update is not None:
+                        on_message_update(remote_result.message)
                     remote_error = None
                     break
                 except AIProxyError as exc:
@@ -1110,8 +1295,6 @@ class AIProxy:
             # parameter source.  Local OCR/calibration remains visible as
             # audit metadata but cannot replace or override model values.
             patch = dict(remote_result.parameter_patch)
-            if not files_tuple:
-                patch.update(local_patch)
             needs_review = remote_result.needs_review or bool(files_tuple)
             return AIConversationResult(
                 response_id=remote_result.response_id,
@@ -1121,23 +1304,6 @@ class AIProxy:
                 questions=remote_result.questions,
                 drawing=drawing,
                 provider=_safe_provider_info("remote", True),
-                attachments=tuple(attachment_meta),
-            )
-
-        if local_patch and not files_tuple:
-            patch = dict(local_patch)
-            local_message = "已用本地参数语法应用明确尺寸；可继续重试 AI 服务以获得更丰富的解释。"
-            review = False
-            if remote_error:
-                local_message += "（远程 AI 已自动重试，但本次未返回可靠结果；本地明确尺寸已保留。）"
-            return AIConversationResult(
-                response_id=f"local_{uuid4().hex[:16]}",
-                message=local_message,
-                parameter_patch=patch,
-                needs_review=review,
-                questions=(),
-                drawing=drawing,
-                provider=_safe_provider_info("local-fallback", configured),
                 attachments=tuple(attachment_meta),
             )
 
@@ -1163,7 +1329,7 @@ class AIProxy:
 
         if remote_error is not None:
             raise remote_error
-        raise AIProviderNotConfigured("AI provider is not configured and no deterministic patch was found")
+        raise AIProviderNotConfigured("AI provider is not configured")
 
 
 __all__ = [

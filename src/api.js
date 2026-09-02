@@ -12,15 +12,20 @@ async function request(path, options = {}) {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs || 45_000)
   const { timeoutMs: _timeoutMs, ...fetchOptions } = options
+  const externalSignal = fetchOptions.signal
+  const forwardAbort = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) forwardAbort()
+  else externalSignal?.addEventListener('abort', forwardAbort, { once: true })
   let response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...fetchOptions,
-      signal: fetchOptions.signal || controller.signal,
+      signal: controller.signal,
       headers: { Accept: 'application/json', ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(fetchOptions.headers || {}) },
     })
   } finally {
     window.clearTimeout(timeout)
+    externalSignal?.removeEventListener('abort', forwardAbort)
   }
   const contentType = response.headers.get('content-type') || ''
   const payload = contentType.includes('application/json') ? await response.json() : await response.text()
@@ -32,6 +37,68 @@ async function request(path, options = {}) {
     throw error
   }
   return payload
+}
+
+async function streamRequest(path, options = {}, onEvent = () => {}) {
+  const { timeoutMs: _timeoutMs, ...fetchOptions } = options
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...fetchOptions,
+    headers: {
+      Accept: 'text/event-stream',
+      ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(fetchOptions.headers || {}),
+    },
+  })
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') || ''
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text()
+    const detail = typeof payload === 'string' ? payload : payload?.detail || payload?.message
+    const error = new Error(detail || `API ${response.status}`)
+    error.status = response.status
+    error.payload = payload
+    throw error
+  }
+  if (!response.body) throw new Error('浏览器未提供流式响应体')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalResult = null
+
+  const consumeBlock = (block) => {
+    let eventName = 'message'
+    const dataLines = []
+    block.split(/\r?\n/).forEach((line) => {
+      if (line.startsWith('event:')) eventName = line.slice(6).trim()
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+    })
+    if (!dataLines.length) return
+    let payload
+    try { payload = JSON.parse(dataLines.join('\n')) } catch { throw new Error('AI 流返回了无效事件') }
+    onEvent(eventName, payload)
+    if (eventName === 'turn.result') finalResult = payload
+    if (eventName === 'turn.error') {
+      const error = new Error(payload?.message || 'AI 对话处理失败')
+      error.status = payload?.status
+      throw error
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+      const blocks = buffer.split(/\r?\n\r?\n/)
+      buffer = blocks.pop() || ''
+      blocks.forEach(consumeBlock)
+      if (done) break
+    }
+    if (buffer.trim()) consumeBlock(buffer)
+  } finally {
+    reader.releaseLock()
+  }
+  if (!finalResult) throw new Error('AI 流在返回最终结果前结束')
+  return finalResult
 }
 
 function authHeaders(token) {
@@ -66,7 +133,7 @@ function normalizeFilesInput(input) {
 
 export const api = {
   health: () => request('/health'),
-  recognizeDrawing: (file) => { const form = new FormData(); form.append('file', file); return request('/drawings/recognize', { method: 'POST', body: form }) },
+  recognizeDrawing: (file, signal) => { const form = new FormData(); form.append('file', file); return request('/drawings/recognize', { method: 'POST', body: form, signal }) },
   aiStatus: () => request('/ai/status'),
   aiConversation: (message, fileOrFiles, modelState = {}, previousResponseId = '', token) => {
     const form = new FormData()
@@ -77,13 +144,28 @@ export const api = {
     files.forEach((file, index) => form.append(index === 0 ? 'file' : 'files', file))
     return request('/ai/conversation', { method: 'POST', body: form, headers: authHeaders(token), timeoutMs: 120_000 })
   },
+  aiConversationStream: (message, fileOrFiles, modelState = {}, history = [], previousResponseId = '', token, onEvent, signal) => {
+    const form = new FormData()
+    if (message) form.append('message', message)
+    form.append('model_state_json', JSON.stringify(modelState || {}))
+    form.append('history_json', JSON.stringify(history || []))
+    if (previousResponseId) form.append('previous_response_id', previousResponseId)
+    const files = normalizeFilesInput(fileOrFiles)
+    files.forEach((file, index) => form.append(index === 0 ? 'file' : 'files', file))
+    return streamRequest('/ai/conversation/stream', {
+      method: 'POST',
+      body: form,
+      headers: authHeaders(token),
+      signal,
+    }, onEvent)
+  },
   confirmDrawing: (drawingId, payload = {}, token) => request(`/drawings/${encodeURIComponent(drawingId)}/confirm`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
   // Customer-facing acknowledgement of OCR candidates.  Unlike the legacy
   // reviewer-only confirm endpoint this endpoint accepts the edited model
   // parameters as overrides and can be called by any authenticated user.
   acceptDrawing: (drawingId, payload = {}, token) => request(`/drawings/${encodeURIComponent(drawingId)}/accept`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
   validateBracket: (parameters) => request('/brackets/validate', { method: 'POST', body: JSON.stringify(parameters) }),
-  generateBracket: (parameters) => request('/brackets/generate', { method: 'POST', body: JSON.stringify(parameters) }),
+  generateBracket: (parameters, signal) => request('/brackets/generate', { method: 'POST', body: JSON.stringify(parameters), signal }),
   artifactUrl: (artifactId, format = 'step') => absoluteUrl(`/api/artifacts/${encodeURIComponent(artifactId)}.${format}`),
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   createUser: (payload, token) => request('/auth/users', { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
