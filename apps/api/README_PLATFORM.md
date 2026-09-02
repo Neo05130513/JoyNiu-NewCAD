@@ -106,6 +106,10 @@ turn, so stateless retries remain useful without depending on a stored
 input-text or model-state token cap. Context and output length are therefore
 left to the selected model and relay; one stateless compatibility retry remains
 available for empty, incomplete, transient, or schema-rejected responses.
+Provider requests set `stream=true` and consume standard Responses SSE events.
+Drawing retries send the same original image at high detail and then low detail;
+only the remote model patch is promoted to `candidateParameters`. OCR and local
+geometry remain audit evidence and never fill a missing model field.
 
 Example (use a real platform token; do not place the provider key in this
 request):

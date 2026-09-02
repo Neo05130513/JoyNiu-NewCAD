@@ -69,6 +69,8 @@ def test_proxy_sends_responses_schema_reasoning_and_previous_id(monkeypatch):
     assert captured["body"]["model"] == "gpt-5.6-sol"
     assert captured["body"]["reasoning"] == {"effort": "high"}
     assert "max_output_tokens" not in captured["body"]
+    assert captured["body"]["stream"] is True
+    assert captured["headers"]["Accept"] == "text/event-stream"
     assert captured["body"]["store"] is True
     assert captured["body"]["previous_response_id"] == "resp_previous_1"
     assert captured["body"]["text"]["format"]["strict"] is True
@@ -186,6 +188,116 @@ def test_proxy_retries_incomplete_reasoning_without_app_token_cap(monkeypatch):
     assert bodies[1]["store"] is False
 
 
+def test_proxy_parses_responses_sse_stream(monkeypatch):
+    structured = json.dumps(
+        {
+            "message": "流式完成",
+            "parameter_patch": {"baseLength": 125},
+            "needs_review": False,
+            "questions": [],
+        },
+        ensure_ascii=False,
+    )
+    stream = (
+        'event: response.created\n'
+        'data: {"type":"response.created","response":{"id":"resp_stream_1","status":"in_progress"}}\n\n'
+        'event: response.output_text.delta\n'
+        f'data: {json.dumps({"type": "response.output_text.delta", "delta": structured[:20]}, ensure_ascii=False)}\n\n'
+        'event: response.output_text.delta\n'
+        f'data: {json.dumps({"type": "response.output_text.delta", "delta": structured[20:]}, ensure_ascii=False)}\n\n'
+        'event: response.completed\n'
+        f'data: {json.dumps({"type": "response.completed", "response": {"id": "resp_stream_1", "status": "completed", "output_text": structured}}, ensure_ascii=False)}\n\n'
+        'data: [DONE]\n\n'
+    ).encode("utf-8")
+
+    class _StreamResponse:
+        def __init__(self, body):
+            self.lines = iter(body.splitlines(keepends=True))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            return next(self.lines, b"")
+
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode())
+        captured["accept"] = request.headers["Accept"]
+        assert timeout == 7
+        return _StreamResponse(stream)
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = AIProxy(timeout_seconds=7).converse("把底板长度改为 125")
+
+    assert captured["body"]["stream"] is True
+    assert captured["accept"] == "text/event-stream"
+    assert result.response_id == "resp_stream_1"
+    assert result.parameter_patch == {"baseLength": 125}
+    assert result.provider["streaming"] is True
+
+
+def test_drawing_retry_uses_original_image_high_then_low_and_only_remote_patch(monkeypatch):
+    from app import ai_proxy
+    from app.recognition import canonical_bracket_parameters
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    local_parameters = canonical_bracket_parameters().model_dump(by_alias=True)
+    monkeypatch.setattr(
+        ai_proxy,
+        "_recognize_attachment",
+        lambda _item: {"id": "local_verified", "status": "confirmed", "parameters": local_parameters},
+    )
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        body = json.loads(request.data.decode())
+        requests.append((body, timeout))
+        if len(requests) == 1:
+            return _Response({"id": "resp_empty_vision", "output": []})
+        return _Response(
+            {
+                "id": "resp_remote_vision",
+                "output_text": json.dumps(
+                    {
+                        "message": "模型读取原图后给出候选",
+                        "parameter_patch": {"baseLength": 123, "baseWidth": 49},
+                        "needs_review": True,
+                        "questions": ["请确认底板厚度"],
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = AIProxy(timeout_seconds=7).converse(
+        "直接分析原图",
+        files=(AIFile("drawing.png", "image/png", png),),
+    )
+
+    assert len(requests) == 2
+    first_image = next(item for item in requests[0][0]["input"][0]["content"] if item["type"] == "input_image")
+    second_image = next(item for item in requests[1][0]["input"][0]["content"] if item["type"] == "input_image")
+    assert first_image["detail"] == "high"
+    assert second_image["detail"] == "low"
+    assert first_image["image_url"] == second_image["image_url"]
+    assert all(body["stream"] is True for body, _timeout in requests)
+    assert all(timeout == 7 for _body, timeout in requests)
+    assert result.provider["mode"] == "remote"
+    assert result.parameter_patch == {"baseLength": 123, "baseWidth": 49}
+    assert result.parameter_patch != local_parameters
+
+
 def test_proxy_retries_transient_http_failure_but_not_auth_failure(monkeypatch):
     calls = []
 
@@ -231,6 +343,12 @@ def test_provider_image_normalization_keeps_original_audit_metadata():
     assert metadata["sha256"] == hashlib.sha256(png).hexdigest()
     assert attachment["type"] == "input_image"
     assert attachment["image_url"].startswith("data:image/jpeg;base64,")
+    assert attachment["detail"] == "high"
+
+    _metadata, low_attachment = _attachment_content(
+        AIFile("drawing.png", "image/png", png), image_detail="low"
+    )
+    assert low_attachment["detail"] == "low"
 
     # Browsers and DWG/PDM gateways sometimes lose the MIME declaration. The
     # extension and file signature must still select the vision path.
@@ -370,7 +488,8 @@ def test_unknown_drawing_degraded_message_is_request_scoped_and_retryable(monkey
     assert result.needs_review is True
     assert result.questions == ()
     assert "中转站不可用" not in result.message
-    assert "远程 AI 已自动重试" in result.message
+    assert "高清与兼容视觉模式" in result.message
+    assert "没有用本地 OCR 或模板值替代" in result.message
     assert "可直接再次分析" in result.message
 
 
@@ -414,6 +533,66 @@ def test_platform_conversation_does_not_promote_compatibility_scaffold(monkeypat
     assert drawing["candidateParameters"] == {}
 
 
+def test_platform_does_not_promote_ocr_dimensions_when_model_patch_is_empty(monkeypatch):
+    from app.ocr import DimensionEvidence, DrawingRecognition
+
+    services = build_platform_services(":memory:", auth_secret="d" * 32)
+    services.ai.converse = lambda *args, **kwargs: AIConversationResult(
+        response_id="local_remote_failed",
+        message="远程模型没有返回参数",
+        parameter_patch={},
+        needs_review=True,
+        questions=(),
+        provider={"mode": "local-fallback", "streaming": True},
+    )
+    services.ocr.analyze = lambda *_args, **_kwargs: DrawingRecognition(
+        id="drw_local_ocr",
+        status="needs_review",
+        part_type="bracket",
+        source_filename="drawing.png",
+        source_sha256="a" * 64,
+        image_width=100,
+        image_height=100,
+        confidence=0.9,
+        dimensions=(
+            DimensionEvidence(
+                id="dim_ocr",
+                field="base_length",
+                value=999,
+                unit="mm",
+                kind="linear",
+                source_text="999",
+                confidence=0.9,
+            ),
+        ),
+        features=(),
+        model_recipe={"parameters": {"baseLength": 999}, "source": "live-ocr"},
+        assumptions=(),
+        warnings=(),
+        unresolved=(),
+        ocr_text="999",
+        engine="tesseract",
+        candidate_parameters={"baseLength": 999},
+    )
+    monkeypatch.setenv("JOYNIU_AI_ALLOW_ANONYMOUS", "1")
+    monkeypatch.setenv("JOYNIU_ENV", "development")
+    app = FastAPI()
+    app.include_router(create_platform_router(services), prefix="/api/v1")
+    response = TestClient(app).post(
+        "/api/v1/ai/conversation",
+        data={"message": "请分析原图"},
+        files={"file": ("drawing.png", b"image", "image/png")},
+    )
+
+    assert response.status_code == 200, response.text
+    drawing = response.json()["drawingRecognition"]
+    assert drawing["engine"] == "ai-no-candidate"
+    assert drawing["parameters"] == {}
+    assert drawing["candidateParameters"] == {}
+    assert drawing["dimensions"][0]["value"] == 999
+    assert drawing["modelRecipe"]["evidenceEngine"] == "tesseract"
+
+
 def test_anonymous_ai_requires_loopback_or_development_environment(monkeypatch):
     from types import SimpleNamespace
 
@@ -442,8 +621,8 @@ def test_proxy_rejects_unsupported_provider_patch(monkeypatch):
         AIProxy().converse("修改模型")
 
 
-def test_verified_drawing_uses_deterministic_patch_without_remote_call(monkeypatch):
-    """A reviewed drawing must not be reinterpreted by a flaky relay."""
+def test_verified_local_drawing_does_not_substitute_for_remote_model(monkeypatch):
+    """Even calibrated drawing values must not masquerade as model output."""
     from app import ai_proxy
     from app.recognition import canonical_bracket_parameters
 
@@ -456,22 +635,18 @@ def test_verified_drawing_uses_deterministic_patch_without_remote_call(monkeypat
     monkeypatch.delenv("JOYNIU_AI_API_KEY", raising=False)
     monkeypatch.delenv("JOYNIU_AI_API_KEY_FILE", raising=False)
 
-    def fail_remote(*_args, **_kwargs):
-        raise AssertionError("verified fixture should not call the relay")
-
-    monkeypatch.setattr("urllib.request.urlopen", fail_remote)
     result = AIProxy().converse(
         "请生成三维模型",
         files=(AIFile("drawing.jpg", "image/jpeg", b"fixture"),),
     )
-    assert result.provider["mode"] == "verified-local"
-    assert result.needs_review is False
-    assert result.parameter_patch["upperWidth"] == 50
-    assert result.parameter_patch["slotLength"] == 30
+    assert result.provider["mode"] == "local-fallback"
+    assert result.needs_review is True
+    assert result.parameter_patch == {}
+    assert "没有写入任何自动候选参数" in result.message
 
 
-def test_unreviewed_attachment_keeps_review_gate_for_local_edit(monkeypatch):
-    """An explicit local edit must not silently confirm an unknown drawing."""
+def test_attachment_never_uses_local_text_parser_as_model_output(monkeypatch):
+    """Upload candidates must come from the multimodal model only."""
     from app import ai_proxy
 
     monkeypatch.setattr(
@@ -486,7 +661,7 @@ def test_unreviewed_attachment_keeps_review_gate_for_local_edit(monkeypatch):
         model_state={"kind": "bracket"},
         files=(AIFile("drawing.pdf", "application/pdf", b"pdf"),),
     )
-    assert result.parameter_patch == {"baseLength": 110}
+    assert result.parameter_patch == {}
     assert result.needs_review is True
 
 
@@ -565,6 +740,8 @@ def test_ai_route_passes_file_and_turn_state_to_injected_proxy():
     # This synthetic PDF has no deterministic recipe; the compatibility alias
     # is still present and intentionally empty until reviewer confirmation.
     assert drawing["parameters"] == {}
+    assert drawing["candidateParameters"] == {"baseLength": 110}
+    assert drawing["engine"] == "ai-candidate"
     assert services.recognitions[drawing["id"]].source_filename == "drawing.pdf"
     assert fake.calls[0][0] == "把底板加长"
     assert fake.calls[0][1] == "resp_previous"

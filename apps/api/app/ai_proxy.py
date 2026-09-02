@@ -2,10 +2,10 @@
 
 The browser never receives the relay credential.  This module deliberately
 keeps the provider boundary small: drawings and the current parameter state
-go in, while a validated, allow-listed parameter patch comes out.  A
-hash-verified acceptance drawing can use the local recognition profile as a
-fast, deterministic path; the relay is still used for ordinary conversational
-edits and unknown drawings.
+go in, while a validated, allow-listed parameter patch comes out.  Uploaded
+drawing parameters come from the remote multimodal model; local recognition
+is retained only as review/audit metadata and never substitutes for that
+model response.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ import json
 import math
 import os
 import re
-import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -31,7 +30,6 @@ DEFAULT_MODEL = "gpt-5.6-sol"
 DEFAULT_REASONING_EFFORT = "high"
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_FILE_COUNT = 4
-MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 _RESPONSE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,256}$")
 _KEY_RE = re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9][A-Za-z0-9._-]{10,}")
 
@@ -701,15 +699,13 @@ def _provider_image_bytes(item: AIFile) -> tuple[bytes, str]:
 def _image_detail() -> str:
     """Select the provider vision detail level.
 
-    GPTX's high-detail path can spend more than the bounded request timeout on
-    a screenshot, while its low-detail path still preserves the full JPEG
-    dimensions and returns the structured candidate promptly.  Deployments
-    that use a relay with a reliable high-detail adapter can opt in through
-    ``JOYNIU_AI_IMAGE_DETAIL``.
+    Engineering dimensions need the high-detail path, so it is the default.
+    If that provider path fails, ``AIProxy.converse`` retries the same original
+    drawing once at low detail.  Both attempts remain multimodal model calls.
     """
 
-    value = os.environ.get("JOYNIU_AI_IMAGE_DETAIL", "low").strip().casefold()
-    return value if value in {"low", "high", "auto"} else "low"
+    value = os.environ.get("JOYNIU_AI_IMAGE_DETAIL", "high").strip().casefold()
+    return value if value in {"low", "high", "auto"} else "high"
 
 
 def _image_max_dimension() -> int:
@@ -722,13 +718,17 @@ def _image_max_dimension() -> int:
     """
 
     try:
-        value = int(os.environ.get("JOYNIU_AI_IMAGE_MAX_DIMENSION", "1200"))
+        value = int(os.environ.get("JOYNIU_AI_IMAGE_MAX_DIMENSION", "4096"))
     except (TypeError, ValueError):
-        value = 1200
+        value = 4096
     return max(256, min(4096, value))
 
 
-def _attachment_content(item: AIFile) -> tuple[dict[str, Any], dict[str, Any]]:
+def _attachment_content(
+    item: AIFile,
+    *,
+    image_detail: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     provider_bytes, provider_mime = _provider_image_bytes(item)
     encoded = base64.b64encode(provider_bytes).decode("ascii")
     mime = item.content_type or "application/octet-stream"
@@ -742,7 +742,7 @@ def _attachment_content(item: AIFile) -> tuple[dict[str, Any], dict[str, Any]]:
         return metadata, {
             "type": "input_image",
             "image_url": f"data:{provider_mime};base64,{encoded}",
-            "detail": _image_detail(),
+            "detail": image_detail or _image_detail(),
         }
     return metadata, {
         "type": "input_file",
@@ -759,6 +759,7 @@ def _provider_body(
     *,
     include_schema: bool = True,
     force_store: bool | None = None,
+    image_detail: str | None = None,
 ) -> dict[str, Any]:
     content: list[dict[str, Any]] = []
     has_attachments = bool(files)
@@ -810,7 +811,7 @@ def _provider_body(
     for item in files:
         if len(item.data) > MAX_FILE_BYTES:
             raise AIProxyError("drawing file is too large")
-        _metadata, attachment = _attachment_content(item)
+        _metadata, attachment = _attachment_content(item, image_detail=image_detail)
         content.append(attachment)
     configured_store = os.environ.get("JOYNIU_AI_STORE_RESPONSES", "0").casefold() not in {"0", "false", "no"}
     store_response = configured_store if force_store is None else bool(force_store)
@@ -821,6 +822,10 @@ def _provider_body(
         # budget; JoyNiu must not truncate high-effort reasoning or the final
         # structured CAD answer with an additional application-level cap.
         "store": store_response,
+        # GPTX declares the Responses wire protocol.  Request its standard
+        # server-sent event stream so long high-effort vision turns keep
+        # producing progress instead of appearing as one non-streaming call.
+        "stream": True,
         "input": [{"role": "user", "content": content}],
     }
     if not has_attachments:
@@ -848,13 +853,114 @@ def _provider_body(
     return body
 
 
+def _json_mapping(raw: bytes, *, error_message: str) -> Mapping[str, Any]:
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise AIProxyError(error_message) from exc
+    if not isinstance(payload, Mapping):
+        raise AIProxyError(error_message)
+    return payload
+
+
+def _stream_payload(response: Any) -> Mapping[str, Any]:
+    """Consume a Responses SSE stream and return its completed response.
+
+    GPTX is Responses-compatible, but a few compatible test/local gateways
+    still return a normal JSON body even when ``stream=true``.  Supporting
+    both forms keeps that compatibility without changing the upstream request
+    back to non-streaming.
+    """
+
+    if hasattr(response, "readline"):
+        raw_lines: list[bytes] = []
+        while True:
+            line = response.readline()
+            if not line:
+                break
+            raw_lines.append(line)
+    else:  # small injectable response doubles used by tests
+        raw_lines = response.read().splitlines(keepends=True)
+
+    raw_body = b"".join(raw_lines).strip()
+    if not raw_body:
+        raise AIProxyError("AI provider returned an empty streaming response")
+    # Compatibility path for relays that honour the request but aggregate the
+    # final Responses object into a single JSON body.
+    if raw_body.startswith((b"{", b"[")):
+        return _json_mapping(raw_body, error_message="AI provider returned invalid JSON")
+
+    completed: Mapping[str, Any] | None = None
+    response_id = ""
+    deltas: list[str] = []
+    done_text = ""
+    data_lines: list[str] = []
+
+    def consume_event() -> None:
+        nonlocal completed, response_id, done_text, data_lines
+        if not data_lines:
+            return
+        raw_data = "\n".join(data_lines).strip()
+        data_lines = []
+        if not raw_data or raw_data == "[DONE]":
+            return
+        event = _json_mapping(
+            raw_data.encode("utf-8"),
+            error_message="AI provider returned an invalid streaming event",
+        )
+        event_type = str(event.get("type", ""))
+        event_response = event.get("response")
+        if isinstance(event_response, Mapping):
+            candidate_id = event_response.get("id")
+            if isinstance(candidate_id, str):
+                response_id = candidate_id
+        if event_type in {"response.completed", "response.failed", "response.incomplete"}:
+            if isinstance(event_response, Mapping):
+                completed = event_response
+            return
+        if event_type == "error":
+            raise AIProxyError("AI provider streaming response failed")
+        if event_type == "response.output_text.delta":
+            delta = event.get("delta")
+            if isinstance(delta, str):
+                deltas.append(delta)
+        elif event_type == "response.output_text.done":
+            text = event.get("text")
+            if isinstance(text, str):
+                done_text = text
+
+    for raw_line in raw_lines:
+        try:
+            line = raw_line.decode("utf-8").rstrip("\r\n")
+        except UnicodeDecodeError as exc:
+            raise AIProxyError("AI provider returned an invalid streaming event") from exc
+        if not line:
+            consume_event()
+            continue
+        if line.startswith(":") or line.startswith("event:") or line.startswith("id:"):
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+    consume_event()
+
+    if completed is not None:
+        return completed
+    output_text = done_text or "".join(deltas)
+    if response_id and output_text:
+        # Some compatible relays omit ``response.completed`` but provide all
+        # text events followed by [DONE].  Reconstruct only the minimum normal
+        # response envelope consumed by the existing strict parser.
+        return {"id": response_id, "status": "completed", "output_text": output_text}
+    raise AIProxyError("AI provider returned no completed streaming response")
+
+
 def _call_provider(body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]:
     raw_body = json.dumps(dict(body), ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         f"{_base_url()}/responses",
         data=raw_body,
         headers={
-            "Accept": "application/json",
+            "Accept": "text/event-stream",
             "Content-Type": "application/json",
             "Authorization": f"Bearer {_provider_key()}",
         },
@@ -862,20 +968,11 @@ def _call_provider(body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            response_body = response.read(MAX_RESPONSE_BYTES + 1)
+            return _stream_payload(response)
     except urllib.error.HTTPError as exc:
         raise AIProviderHTTPError(exc.code) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise AIProviderTransportError("AI provider request failed") from exc
-    if len(response_body) > MAX_RESPONSE_BYTES:
-        raise AIProxyError("AI provider response is too large")
-    try:
-        payload = json.loads(response_body.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise AIProxyError("AI provider returned invalid JSON") from exc
-    if not isinstance(payload, Mapping):
-        raise AIProxyError("AI provider returned invalid JSON")
-    return payload
 
 
 def _provider_error_is_retryable(error: AIProxyError) -> bool:
@@ -907,6 +1004,7 @@ def _safe_provider_info(mode: str, configured: bool) -> dict[str, Any]:
         "baseUrl": base_url,
         "model": _model(),
         "reasoningEffort": _reasoning_effort(),
+        "streaming": True,
         "configured": configured,
         "mode": mode,
         "anonymousAllowed": os.environ.get("JOYNIU_AI_ALLOW_ANONYMOUS", "0").casefold() in {"1", "true", "yes"},
@@ -964,49 +1062,23 @@ class AIProxy:
                 metadata["recognitionEngine"] = recognized.get("engine")
             attachment_meta.append(metadata)
 
-        trusted_patch = _recognition_patch(drawing)
         local_patch = _text_parameter_patch(message, model_state)
         configured = _provider_configured()
-        explicit_edit = bool(local_patch) or bool(re.search(r"改|修改|调整|变更|设为|增加|删除|换成", message))
-
-        # The acceptance fixture is cryptographically identified and its
-        # dimensions/topology are deterministic. Avoid an unnecessary remote
-        # round-trip when the user simply asks to import it. Explicit text
-        # edits still win over the calibrated values.
-        if trusted_patch and (not explicit_edit or not configured):
-            patch = dict(trusted_patch)
-            patch.update(local_patch)
-            return AIConversationResult(
-                response_id=f"local_{uuid4().hex[:16]}",
-                message=(
-                    "已识别并锁定图纸尺寸：底板 100 × 50 × 10 mm、上部全宽 70 × 50 × 30 mm；"
-                    "R15 鞍槽沿 Y 贯穿，两条 10 × 30 × 10 mm 浅槽，2×Ø20 沿 Z 贯穿。"
-                    "可以继续直接告诉我需要修改的尺寸。"
-                ),
-                parameter_patch=patch,
-                needs_review=False,
-                questions=(),
-                drawing=drawing,
-                provider=_safe_provider_info("verified-local", configured),
-                attachments=tuple(attachment_meta),
-            )
 
         remote_error: AIProxyError | None = None
         remote_result: AIConversationResult | None = None
         if configured:
-            # Keep retries inside the original request budget.  The second
-            # attempt is deliberately stateless and schema-light: this fixes
-            # transient empty responses as well as relays that reject a stale
-            # previous_response_id or strict response schema.
-            retry_deadline = time.monotonic() + self.timeout_seconds
+            # Both attempts ask the multimodal model to inspect the original
+            # upload.  The first uses engineering-friendly high detail; the
+            # second is a stateless low-detail compatibility retry.  Give each
+            # attempt its own inactivity timeout so a real first timeout does
+            # not result in a misleading "retried" message without a second
+            # network call.
             attempt_specs = (
-                (True, provider_previous_id, None),
-                (False, None, False),
+                (True, provider_previous_id, None, _image_detail() if files_tuple else None),
+                (False, None, False, "low" if files_tuple else None),
             )
-            for attempt_index, (include_schema, attempt_previous_id, force_store) in enumerate(attempt_specs):
-                remaining = self.timeout_seconds if attempt_index == 0 else retry_deadline - time.monotonic()
-                if remaining <= 1:
-                    break
+            for attempt_index, (include_schema, attempt_previous_id, force_store, image_detail) in enumerate(attempt_specs):
                 try:
                     body = _provider_body(
                         message,
@@ -1015,8 +1087,9 @@ class AIProxy:
                         attempt_previous_id,
                         include_schema=include_schema,
                         force_store=force_store,
+                        image_detail=image_detail,
                     )
-                    payload = _call_provider(body, remaining)
+                    payload = _call_provider(body, self.timeout_seconds)
                     # A vision model may include descriptive, non-CAD keys
                     # (for example ``overall_length``) alongside allow-listed
                     # fields. Drop those keys for attachment turns so useful
@@ -1033,14 +1106,13 @@ class AIProxy:
                         break
 
         if remote_result is not None:
-            if trusted_patch:
-                patch = dict(trusted_patch)
+            # For an uploaded drawing, the model patch is the only automatic
+            # parameter source.  Local OCR/calibration remains visible as
+            # audit metadata but cannot replace or override model values.
+            patch = dict(remote_result.parameter_patch)
+            if not files_tuple:
                 patch.update(local_patch)
-                needs_review = False
-            else:
-                patch = dict(remote_result.parameter_patch)
-                patch.update(local_patch)
-                needs_review = remote_result.needs_review or bool(drawing and drawing.get("status") != "confirmed")
+            needs_review = remote_result.needs_review or bool(files_tuple)
             return AIConversationResult(
                 response_id=remote_result.response_id,
                 message=remote_result.message,
@@ -1052,19 +1124,10 @@ class AIProxy:
                 attachments=tuple(attachment_meta),
             )
 
-        if trusted_patch or local_patch:
-            patch = dict(trusted_patch)
-            patch.update(local_patch)
-            if trusted_patch:
-                local_message = "图纸已按本地校准证据解析，尺寸补丁已应用。"
-                review = False
-            else:
-                local_message = "已用本地参数语法应用明确尺寸；可继续重试 AI 服务以获得更丰富的解释。"
-                # An explicit edit can be applied to the parameter editor, but
-                # an attached drawing that has not been reviewed must remain a
-                # review gate. This keeps the API contract safe even if a
-                # downstream caller ignores the UI's generation guard.
-                review = bool(drawing and drawing.get("status") != "confirmed")
+        if local_patch and not files_tuple:
+            patch = dict(local_patch)
+            local_message = "已用本地参数语法应用明确尺寸；可继续重试 AI 服务以获得更丰富的解释。"
+            review = False
             if remote_error:
                 local_message += "（远程 AI 已自动重试，但本次未返回可靠结果；本地明确尺寸已保留。）"
             return AIConversationResult(
@@ -1078,19 +1141,17 @@ class AIProxy:
                 attachments=tuple(attachment_meta),
             )
 
-        # An unknown attachment is itself a valid evidence result even when
-        # no relay key is configured. Return the review envelope rather than a
-        # misleading 503, so a reviewer can inspect/confirm it through the
-        # platform OCR workflow.
-        if drawing is not None and drawing.get("status") != "confirmed":
+        # Preserve the source attachment and its audit metadata after a remote
+        # failure, but return no parameter patch.  This prevents OCR geometry
+        # or a fixture profile from masquerading as multimodal-model output.
+        if files_tuple:
             return AIConversationResult(
                 response_id=f"local_{uuid4().hex[:16]}",
                 message=(
-                    "已收到图纸；AI 本次未形成可信的完整参数结果。系统已保留图纸分析并预填可编辑候选，"
-                    "请核对标为“模板默认”的字段后确认数据。"
+                    "已收到并保留原图；当前未配置远程大模型，因此没有写入任何自动候选参数。"
                     if remote_error is None
-                    else "已收到图纸；远程 AI 已自动重试，但本次仍未返回可靠参数。"
-                    "系统已保留原图与可编辑候选，可直接再次分析或核对后确认数据。"
+                    else "已收到并保留原图；远程大模型已分别用高清与兼容视觉模式分析，"
+                    "但本次仍未返回可靠参数。系统没有用本地 OCR 或模板值替代，可直接再次分析。"
                 ),
                 parameter_patch={},
                 needs_review=True,

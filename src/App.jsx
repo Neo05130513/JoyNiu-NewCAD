@@ -238,21 +238,21 @@ function hydratePendingCandidateDefaults(job) {
   const existingCandidates = job.evidence.candidateParameters && typeof job.evidence.candidateParameters === 'object'
     ? job.evidence.candidateParameters
     : {}
-  const explicitFields = new Set([
-    ...recognitionCandidateFields(job.evidence),
-    ...(job.candidateFields || []),
-    ...(job.humanEditedFields || []),
-  ])
+  const storedSources = job.analysis?.candidateSources || {}
+  const storedMeta = job.evidence.candidateParameterMeta || {}
+  const evidenceCandidates = Object.fromEntries(Object.entries(existingCandidates).filter(([key]) => {
+    const source = String(storedSources[key] || storedMeta[key]?.source || '')
+    return !nonEvidenceCandidateSources.has(source)
+  }))
   const humanFields = new Set(job.humanEditedFields || [])
-  const completeCandidates = Object.fromEntries(bracketParameterKeys
-    .filter((key) => existingCandidates[key] !== undefined || bracketModel[key] !== undefined)
-    .map((key) => [key, explicitFields.has(key) && existingCandidates[key] !== undefined ? existingCandidates[key] : bracketModel[key]]))
+  const completeCandidates = Object.fromEntries(Object.entries(evidenceCandidates)
+    .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== ''))
   const engine = String(job.evidence.engine || '').toLowerCase()
   const candidateSources = Object.fromEntries(Object.keys(completeCandidates).map((key) => [
     key,
-    humanFields.has(key) ? 'manual' : explicitFields.has(key) ? (engine.includes('ai-candidate') ? 'ai' : 'drawing') : 'template_default',
+    humanFields.has(key) ? 'manual' : engine.includes('ai') ? 'ai' : 'drawing',
   ]))
-  const defaultedFields = bracketRequiredParameterKeys.filter((key) => candidateSources[key] === 'template_default')
+  const defaultedFields = []
   const missingFields = bracketRequiredParameterKeys.filter((key) => !(Number(completeCandidates[key]) > 0))
   const candidateParameterMeta = Object.fromEntries(Object.entries(candidateSources).map(([key, source]) => [key, {
     source,
@@ -265,9 +265,9 @@ function hydratePendingCandidateDefaults(job) {
     evidence: {
       ...job.evidence,
       status: 'pending',
-      parameters: { ...(job.evidence.parameters || {}), ...completeCandidates },
+      parameters: completeCandidates,
       candidateParameters: completeCandidates,
-      recognizedParameters: job.evidence.recognizedParameters || rawParametersFromRecognition(job.evidence) || {},
+      recognizedParameters: completeCandidates,
       candidateParameterMeta,
     },
     analysis: {
@@ -920,11 +920,20 @@ function App() {
           warning: result.drawingRecognition.warnings?.join('；') || '',
         }))
       }
-      const recognizedParameters = parametersFromRecognition(drawing)
+      const resultPatch = result?.parameterPatch || {}
+      const aiDrawingPatch = Object.fromEntries(Object.entries(resultPatch)
+        .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== ''))
+      // On upload turns, only the multimodal model's parameterPatch may seed
+      // the candidate. Local OCR/geometry data remains review metadata and
+      // must not silently become editable AI output.
+      const recognizedParameters = files.length > 0
+        ? (Object.keys(aiDrawingPatch).length
+            ? parametersFromRecognition({ candidateParameters: aiDrawingPatch, engine: 'ai-candidate' })
+            : null)
+        : parametersFromRecognition(drawing)
       if (files.length > 0 && !drawing) {
         setDrawingJob((current) => ({ ...current, status: 'error', error: aiError?.message || recognitionError?.message || 'AI 未返回可用尺寸候选', warning: '' }))
       }
-      const resultPatch = result?.parameterPatch || {}
       const patchKeys = Object.keys(resultPatch)
       const patchLooksBracket = patchKeys.some((key) => ['baseLength', 'baseWidth', 'upperLength', 'notchRadius', 'slotLength', 'pocketDepth', 'bossDiameter'].includes(key))
       const patchLooksShaft = patchKeys.some((key) => ['outerDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'].includes(key))
@@ -945,7 +954,7 @@ function App() {
               ? { ...bracketModel, kind: 'bracket', name: 'AI 候选 · 待确认' }
               : { ...baseModel }
       let next = applyAiPatch(seed, resultPatch)
-      if (!result && !recognizedParameters && !Object.keys(result?.parameterPatch || {}).length) {
+      if (files.length === 0 && !result && !recognizedParameters && !Object.keys(result?.parameterPatch || {}).length) {
         // The local grammar is deliberately the last fallback, so an offline
         // or unauthorized provider cannot leave the chat looking successful
         // while dropping the customer's explicit edit.
@@ -956,7 +965,7 @@ function App() {
       }
       setModel(next)
       if (files.length > 0) setActivePanel('参数')
-      const fallbackChanged = !result && (
+      const fallbackChanged = files.length === 0 && !result && (
         next.kind !== baseModel.kind
         || JSON.stringify(modelParametersForApi(next)) !== JSON.stringify(modelParametersForApi(baseModel))
       )
@@ -994,7 +1003,11 @@ function App() {
         status: provider || current.status,
         error: aiError ? aiError.message : '',
       }))
-      const fallbackNote = aiError && !result ? `（AI/实体服务提示：${aiError.message}，已保留本地明确参数）` : ''
+      const fallbackNote = aiError && !result
+        ? files.length > 0
+          ? `（远程大模型提示：${aiError.message}；原图已保留，未使用本地候选替代。）`
+          : `（AI/实体服务提示：${aiError.message}，已保留本地明确参数）`
+        : ''
       const resultMessage = result?.message || ''
       const reviewQuestions = result?.provider?.mode === 'local-fallback' ? [] : (result?.questions || [])
       const review = !effectiveNeedsReview
@@ -1016,35 +1029,20 @@ function App() {
         // editable model has a supported recipe surface for previewing, but
         // its default values are not evidence and must never silently become
         // an accepted answer for an unrelated upload.
-        const sourceParameters = rawParametersFromRecognition(source) || {}
+        const sourceParameters = files.length > 0 ? {} : (rawParametersFromRecognition(source) || {})
         const recognizedCandidateParameters = Object.fromEntries(
-          Object.entries({ ...sourceParameters, ...resultPatch })
+          Object.entries({ ...sourceParameters, ...aiDrawingPatch })
             .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== '')
         )
-        // Keep every supported field visible after analysis. Values actually
-        // extracted from the drawing/AI override the bracket template; the
-        // rest are explicit template defaults that remain review-gated.
-        const modelCandidateParameters = modelParametersForApi(next)
-        const candidateParameters = files.length > 0 && next.kind === 'bracket'
-          ? Object.fromEntries(Object.entries(modelCandidateParameters)
-            .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== ''))
-          : modelCandidateParameters
+        const candidateParameters = recognizedCandidateParameters
         const missingCandidateFields = bracketRequiredParameterKeys.filter((key) => !(Number(candidateParameters[key]) > 0))
-        const candidateFields = [...new Set([
-          ...recognitionCandidateFields(source),
-          ...Object.keys(resultPatch).filter((key) => bracketParameterKeys.includes(key)),
-        ])]
-        const drawingCandidateFields = new Set(recognitionCandidateFields(source))
-        const aiCandidateFields = new Set(Object.keys(resultPatch).filter((key) => bracketParameterKeys.includes(key)))
-        const sourceEngine = String(source.engine || '').toLowerCase()
-        const verifiedDrawingSource = sourceEngine.includes('deterministic') || sourceEngine.includes('verified')
+        const candidateFields = Object.keys(candidateParameters)
+        const aiCandidateFields = new Set(Object.keys(aiDrawingPatch))
         const candidateSources = Object.fromEntries(Object.keys(candidateParameters).map((key) => {
-          if (aiCandidateFields.has(key) && !verifiedDrawingSource) return [key, 'ai']
-          if (drawingCandidateFields.has(key)) return [key, sourceEngine.includes('ai-candidate') ? 'ai' : 'drawing']
           if (aiCandidateFields.has(key)) return [key, 'ai']
-          return [key, 'template_default']
+          return [key, 'manual']
         }))
-        const defaultedFields = bracketRequiredParameterKeys.filter((key) => candidateSources[key] === 'template_default')
+        const defaultedFields = []
         const candidateParameterMeta = Object.fromEntries(Object.entries(candidateSources).map(([key, sourceType]) => {
           const dimension = recognitionEvidence(source).find((item) => {
             const field = recognitionParameterAliases[item?.field] || snakeToCamel(String(item?.field || ''))
@@ -1068,10 +1066,7 @@ function App() {
         setDrawingJob((current) => {
           const currentEvidence = current?.evidence || source
           if (!currentEvidence || typeof currentEvidence !== 'object' || !Object.keys(currentEvidence).length) return current
-          const evidenceParameters = {
-            ...(currentEvidence.parameters && typeof currentEvidence.parameters === 'object' ? currentEvidence.parameters : {}),
-            ...candidateParameters,
-          }
+          const evidenceParameters = candidateParameters
           return {
             ...current,
             status: current.status === 'error' ? current.status : 'ready',
@@ -1640,23 +1635,17 @@ function App() {
     if (drawingJob.status !== 'ready') return false
     const currentEvidence = drawingJob.evidence
     if (!currentEvidence) return showToast('请先完成 AI 分析')
-    // Prefer the AI/OCR candidate, then use the values currently visible in
-    // the parameter panel.  The latter matters for an unknown drawing whose
-    // provider returned only partial fields: the customer can complete the
-    // supported recipe and explicitly accept that snapshot.
-    const candidate = parametersFromRecognition(currentEvidence)
-      || (model?.kind === 'bracket' ? { ...bracketModel, ...model, kind: 'bracket' } : null)
-    if (!candidate) return showToast('识别结果缺少候选参数；请先在参数面板补全支架字段')
-    const overrides = modelParametersForApi({ ...candidate, ...model, kind: 'bracket' })
-    const candidateModel = { ...candidate, ...model, kind: 'bracket' }
-    // The customer is confirming the complete snapshot currently visible in
-    // the panel. Template defaults are not drawing evidence, but a deliberate
-    // click can accept them after their source has been shown field by field.
-    // The server still performs the strict schema and geometry validation.
-    const missing = bracketRequiredParameterKeys.filter((key) => !(Number(candidateModel[key]) > 0))
+    // Confirm only values supplied by the multimodal model or explicitly
+    // edited by the customer. The render model keeps a private scaffold so
+    // the viewport can remain usable, but those hidden template values must
+    // never enter the confirmation payload.
+    const candidate = rawParametersFromRecognition(currentEvidence) || {}
+    const overrides = Object.fromEntries(Object.entries(candidate)
+      .filter(([key, value]) => bracketParameterKeys.includes(key) && value !== undefined && value !== null && value !== ''))
+    const missing = bracketRequiredParameterKeys.filter((key) => !(Number(overrides[key]) > 0))
     if (missing.length) return showToast(`请先补全候选尺寸：${missing.slice(0, 3).join('、')}${missing.length > 3 ? '…' : ''}`)
     if (!modelValid && model.kind === 'bracket') return showToast('候选尺寸存在约束冲突，请先修正参数面板中的标红字段')
-    let accepted = { ...currentEvidence, status: currentEvidence.status, parameters: { ...candidate, ...overrides }, candidateParameters: overrides }
+    let accepted = { ...currentEvidence, status: currentEvidence.status, parameters: overrides, candidateParameters: overrides }
     let serverAccepted = false
     if (currentEvidence.id && !String(currentEvidence.id).startsWith('offline_')) {
       try {
@@ -1686,7 +1675,7 @@ function App() {
         // but never passes a sourceDrawingId to the production endpoint.
         recognized = {
           ...recognized,
-          parameters: parametersFromRecognition(recognized) || modelParametersForApi({ ...bracketModel, ...model, kind: 'bracket' }),
+          parameters: rawParametersFromRecognition(recognized) || {},
         }
       } else {
         await acceptDrawingData()
@@ -1866,7 +1855,7 @@ function ModelWorkspace(props) {
     : providerDegraded
       ? '本次请求已降级'
       : providerReady
-        ? '中转站在线'
+        ? '中转站在线 · SSE 流式'
         : '本地回退'
   const evidence = drawingJob?.evidence
   const reviewRequired = Boolean(evidence && evidence.status !== 'confirmed')
@@ -1986,7 +1975,7 @@ function ModelWorkspace(props) {
       <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
       <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{providerLabel}</small></div>
       {!providerConfigured && !platform?.token && <div className="ai-auth-hint">当前可用本地尺寸解析；通用视觉对话由服务端中转站提供。</div>}
-      {providerDegraded && <div className="ai-error-banner">远程 AI 已自动重试但本次未返回可靠参数；原图仍保留，可点击“重新尝试 AI 分析”。</div>}
+      {providerDegraded && <div className="ai-error-banner">远程大模型已分别用高清与兼容视觉模式分析，但本次未返回可靠参数；原图仍保留，且没有使用 OCR 或模板值代填。</div>}
       {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
       {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；上传后按“AI 分析 → 确认数据 → 生成 3D”推进。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
       <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
@@ -2029,7 +2018,7 @@ function LegacyModelWorkspace(props) {
     : providerDegraded
       ? '本次请求已降级'
       : providerReady
-        ? '中转站在线'
+        ? '中转站在线 · SSE 流式'
         : '本地回退'
   return <div className="model-workspace">
     <section className="ai-column panel-card">
@@ -2037,7 +2026,7 @@ function LegacyModelWorkspace(props) {
       <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
       <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{providerLabel}</small></div>
       {!providerConfigured && !platform?.token && <div className="ai-auth-hint">图纸识别和明确尺寸可走本地审计回退；要使用通用视觉对话，请在服务端配置中转站密钥并按部署要求登录。</div>}
-      {providerDegraded && <div className="ai-error-banner">远程 AI 已自动重试但本次未返回可靠参数；原图仍保留，可再次分析。</div>}
+      {providerDegraded && <div className="ai-error-banner">远程大模型已分别用高清与兼容视觉模式分析，但本次未返回可靠参数；原图仍保留，且没有使用 OCR 或模板值代填。</div>}
       {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
       <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
       {chatAttachments.length > 0 && <div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div>}
@@ -2259,17 +2248,17 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel, dra
       ? ['需要重新选择图纸文件', '刷新后浏览器只保留文件名；请重新选择同一文件以继续 AI 分析，不会沿用上一张图纸的尺寸。']
       : ['等待 AI 分析图纸', '分析完成后会在这里显示模型候选值；不会沿用上一张图纸的尺寸。']
     : missingFields.size
-      ? [`仍有 ${missingFields.size} 项候选无有效数值`, '请修正空白或无效字段；完成后点击“确认数据”。']
-      : [`已预填 ${bracketRequiredParameterKeys.length} 项候选值`, `图纸/AI 明确候选 ${explicitCandidateCount} 项 · 模板默认 ${defaultedFields.size} 项；可直接修改或确认当前快照。`]
+      ? [`大模型仍有 ${missingFields.size} 项未返回`, '空白字段没有使用 OCR 或模板值代填；请人工补全后点击“确认数据”。']
+      : [`大模型已返回 ${explicitCandidateCount} 项候选值`, '请逐项核对后确认当前快照。']
   const showCandidateNote = candidatePending && (waitingForAnalysis || missingFields.size > 0 || defaultedFields.size > 0)
   return <div className="inspector-content">
     <div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{waitingForAnalysis ? '上一版本仅保留为预览' : candidatePending ? 'AI 候选数据 · 可编辑确认' : '图纸识别实体 · 证据已锁定'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>
     {showCandidateNote && <div className={`candidate-missing-note ${!waitingForAnalysis && !missingFields.size ? 'candidate-default-note' : ''}`}><b>{candidateMessage[0]}</b><span>{candidateMessage[1]}</span>{!waitingForAnalysis && missingFields.size > 0 && <small>{[...missingFields].slice(0, 5).map((key) => bracketParameterLabels[key] || key).join('、')}{missingFields.size > 5 ? '…' : ''}</small>}</div>}
-    {groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => <NumberField key={key} label={fieldLabel(key, label)} value={waitingForAnalysis ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || (defaultedFields.has(key) ? 'template_default' : '')} disabled={waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} />)}</div>)}
+    {groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => <NumberField key={key} label={fieldLabel(key, label)} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || (defaultedFields.has(key) ? 'template_default' : '')} disabled={waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} />)}</div>)}
     <div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>贯穿孔中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>
     {relationWarning && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}
     <div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)} disabled={waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div>
-    <div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '识别值和模板默认均已预填；修改或确认后才会进入生产实体。' : '所有尺寸均可回溯到上传图纸的视图和校验状态。'}</span></div><button className="reset-link" onClick={resetModel} disabled={waitingForAnalysis}>↻ 恢复支架基准参数</button>
+    <div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '仅显示大模型候选与人工补全值；确认后才会进入生产实体。' : '所有尺寸均可回溯到上传图纸的视图和校验状态。'}</span></div><button className="reset-link" onClick={resetModel} disabled={waitingForAnalysis}>↻ 恢复支架基准参数</button>
   </div>
 }
 

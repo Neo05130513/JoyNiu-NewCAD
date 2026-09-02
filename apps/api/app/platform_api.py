@@ -671,13 +671,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                         engine="ai-candidate",
                         candidate_parameters=filtered_patch,
                     )
-                # Merge the AI's validated parameterPatch into the canonical
-                # platform recognition candidate.  Keep the result pending;
-                # a patch is a proposal, never an implicit confirmation.  For
-                # a wholly unknown drawing, preserve the durable recipe's
-                # historical empty ``parameters`` alias but expose the AI
-                # proposal as ``candidateParameters`` so the customer can see
-                # and edit every value before accepting it.
+                # The multimodal model's validated parameterPatch is the only
+                # automatic candidate source in the AI workbench.  OCR and
+                # geometry analysis remain attached as auditable evidence,
+                # but must never fill a field the model did not return.
                 patch = getattr(result, "parameter_patch", {})
                 candidate_patch: dict[str, Any] = {}
                 if isinstance(patch, Mapping):
@@ -688,55 +685,25 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                             if str(key) in PARAMETER_FIELDS and value is not None
                         }
                     )
-                # A live OCR adapter may have dimensions even when the AI
-                # provider returned no parameter patch. Promote those numeric
-                # fields to the same editable candidate envelope.
-                aliases = {
-                    "base_length": "baseLength", "base_width": "baseWidth", "base_thickness": "baseThickness",
-                    "upper_length": "upperLength", "upper_width": "upperWidth", "upper_height": "upperHeight",
-                    "total_height": "totalHeight", "notch_opening": "notchOpening", "notch_radius": "notchRadius",
-                    "slot_length": "slotLength", "slot_width": "slotWidth", "pocket_depth": "pocketDepth",
-                    "saddle_depth": "saddleDepth", "hole_depth": "holeDepth", "hole_through": "holeThrough",
-                    "boss_diameter": "bossDiameter", "boss_center_distance": "bossCenterDistance", "boss_height": "bossHeight",
-                }
-                if not candidate_patch:
-                    for dimension in candidate.dimensions:
-                        raw_field = str(dimension.field)
-                        field_name = aliases.get(raw_field, raw_field)
-                        # The legacy compatibility recognizer emits a full
-                        # canonical profile with ``sourceText`` set to this
-                        # marker when OCR found no labelled value.  Those
-                        # numbers are a preview scaffold, not AI/OCR
-                        # evidence, so do not promote them to a candidate.
-                        source_text = str(getattr(dimension, "source_text", "") or "")
-                        if source_text.casefold().startswith("canonical-bracket-fallback"):
-                            continue
-                        if field_name in PARAMETER_FIELDS and dimension.value is not None:
-                            candidate_patch[field_name] = dimension.value
-                existing_recipe = candidate.model_recipe.get("parameters", {})
-                compatibility_fallback = _is_compatibility_fallback(candidate)
-                if compatibility_fallback:
-                    # Keep recipe metadata for audit/debugging, but strip the
-                    # synthetic canonical dimensions from the durable
-                    # candidate.  Marking the part unknown forces the strict
-                    # all-required-fields check in OCRService.confirm even
-                    # when a few OCR labels or AI fields are present.
-                    recipe = dict(candidate.model_recipe)
-                    recipe["parameters"] = dict(candidate_patch)
-                    candidate = replace(
-                        candidate,
-                        part_type="unknown",
-                        model_recipe=recipe,
-                        candidate_parameters=dict(candidate_patch),
-                    )
-                elif candidate.part_type != "unknown" or bool(existing_recipe):
-                    recipe = dict(candidate.model_recipe)
-                    merged = dict(existing_recipe) if isinstance(existing_recipe, Mapping) else {}
-                    merged.update(candidate_patch)
-                    recipe["parameters"] = merged
-                    candidate = replace(candidate, model_recipe=recipe, candidate_parameters=dict(merged))
-                elif candidate_patch:
-                    candidate = replace(candidate, candidate_parameters=candidate_patch)
+                evidence_engine = candidate.engine
+                recipe = dict(candidate.model_recipe)
+                # Keep the durable recipe empty until explicit human
+                # confirmation. The editable proposal lives only in
+                # candidateParameters, preserving the audit distinction.
+                recipe["parameters"] = {}
+                recipe["source"] = "ai-multimodal-candidate" if candidate_patch else "ai-multimodal-no-result"
+                recipe["evidenceEngine"] = evidence_engine
+                candidate = replace(
+                    candidate,
+                    status="needs_review",
+                    part_type="unknown",
+                    engine="ai-candidate" if candidate_patch else "ai-no-candidate",
+                    model_recipe=recipe,
+                    candidate_parameters=dict(candidate_patch),
+                    assumptions=tuple(candidate.assumptions) + (
+                        "工作台候选参数仅来自远程多模态模型；本地 OCR/几何结果只作为人工复核证据。",
+                    ),
+                )
                 services.recognitions[candidate.id] = candidate
                 if registered_drawing is None:
                     registered_drawing = candidate

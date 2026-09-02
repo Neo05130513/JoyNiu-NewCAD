@@ -94,6 +94,9 @@ uvicorn app.main:app --reload --port 8011
 The relay configuration follows the [GPTX integration guide](https://gptx.shop/docs/).
 The API accepts a plain key file, JSON auth file, or a Markdown code block and extracts only
 the credential token; the file contents are never returned to the browser.
+图纸分析请求使用 Responses SSE 流式协议：首轮以 `high` 细节读取原图，兼容重试以
+`low` 细节读取同一原图。上传轮次只有远程模型 `parameterPatch` 会进入候选参数；
+OCR/几何结果仅作为人工复核证据，模型未返回的字段保持空白。
 
 可选能力：
 
