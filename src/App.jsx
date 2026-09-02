@@ -995,7 +995,15 @@ function App() {
         error: aiError ? aiError.message : '',
       }))
       const fallbackNote = aiError && !result ? `（AI/实体服务提示：${aiError.message}，已保留本地明确参数）` : ''
-      const review = effectiveNeedsReview ? `；${(result?.questions || []).join('；') || '候选数据待人工确认'}` : ''
+      const resultMessage = result?.message || ''
+      const reviewQuestions = result?.provider?.mode === 'local-fallback' ? [] : (result?.questions || [])
+      const review = !effectiveNeedsReview
+        ? ''
+        : reviewQuestions.length
+          ? `\n待确认：${reviewQuestions.join('；')}`
+          : /确认|候选/.test(resultMessage)
+            ? ''
+            : '\n候选数据待确认。'
       const localText = next.kind === 'bracket'
         ? `参数已更新：底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；上部 ${next.upperLength} × ${next.upperWidth} × ${next.upperHeight} mm；R${next.notchRadius} 鞍槽、两条 ${next.slotWidth} × ${next.slotLength} × ${next.pocketDepth} 浅槽、2×Ø${next.bossDiameter} 贯穿凹槽。`
         : `参数已更新：Ø${next.outerDiameter} × ${next.length} mm，通孔 Ø${next.holeDiameter}；键槽 ${next.keywayWidth} × ${next.keywayDepth} × ${next.keywayLength} mm。`
@@ -1098,10 +1106,12 @@ function App() {
       }
       const responseText = `${result?.message || localText}${generated?.validation?.productionReady ? ' 已生成并通过 OCCT 拓扑检查。' : generated ? ' 已生成可交互 GLB 预览。' : ''}${review}${fallbackNote}`
       setMessages((prev) => [...prev, { role: 'ai', text: responseText }])
-      setChatAttachments([])
+      const keepAttachmentForRetry = files.length > 0 && result?.provider?.mode === 'local-fallback'
+      setChatAttachments(keepAttachmentForRetry ? files : [])
       if (generated?.validation?.productionReady) showToast('AI 修改已应用 · OCCT STEP / GLB 已生成')
       else if (generated) showToast('AI 修改已应用 · 三维实体已更新')
       else if (aiError) showToast('已应用本地参数；AI 服务稍后可重试')
+      else if (keepAttachmentForRetry) showToast('远程 AI 本次已降级 · 原图已保留，可再次分析')
       else showToast('AI 参数化修改已应用')
       return true
     } catch (error) {
@@ -1847,7 +1857,17 @@ function ModelWorkspace(props) {
   const productionReady = productionArtifactsAvailable(generation)
   const topology = generation?.validation?.metrics || {}
   const aiStatus = aiConversation?.status
-  const providerReady = Boolean(aiStatus?.configured || aiStatus?.mode === 'verified-local')
+  const providerMode = aiStatus?.mode || ''
+  const providerConfigured = Boolean(aiStatus?.configured)
+  const providerReady = providerMode === 'remote' || providerMode === 'verified-local'
+  const providerDegraded = providerConfigured && providerMode === 'local-fallback'
+  const providerLabel = providerMode === 'verified-local'
+    ? '图纸校准'
+    : providerDegraded
+      ? '本次请求已降级'
+      : providerReady
+        ? '中转站在线'
+        : '本地回退'
   const evidence = drawingJob?.evidence
   const reviewRequired = Boolean(evidence && evidence.status !== 'confirmed')
   const pendingConfirmedDrawing = Boolean(evidence && evidence.status === 'confirmed' && generation?.pendingDrawing)
@@ -1964,13 +1984,14 @@ function ModelWorkspace(props) {
     <section className="ai-column panel-card">
       <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>AI 设计助手</h2><p className="panel-subtitle">上传图纸，或直接描述你要修改的尺寸</p></div><button className="more-button" aria-label="AI 历史记录" title="AI 历史记录" onClick={() => showToast('AI 历史记录将在当前项目内保留')}>•••</button></div>
       <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
-      <div className={`ai-provider-status ${providerReady ? 'ready' : aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{aiStatus?.mode === 'verified-local' ? '图纸校准' : providerReady ? '中转站在线' : '本地回退'}</small></div>
-      {!providerReady && !platform?.token && <div className="ai-auth-hint">当前可用本地尺寸解析；通用视觉对话由服务端中转站提供。</div>}
+      <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{providerLabel}</small></div>
+      {!providerConfigured && !platform?.token && <div className="ai-auth-hint">当前可用本地尺寸解析；通用视觉对话由服务端中转站提供。</div>}
+      {providerDegraded && <div className="ai-error-banner">远程 AI 已自动重试但本次未返回可靠参数；原图仍保留，可点击“重新尝试 AI 分析”。</div>}
       {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
       {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；上传后按“AI 分析 → 确认数据 → 生成 3D”推进。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
       <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
       {chatAttachments.length > 0 && <div className="queued-drawing"><div><b>待处理图纸</b><span>可先补充意图，再开始识别</span></div><div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div></div>}
-      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么，或修改哪个尺寸…" aria-label="AI 设计指令" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="上传图纸" title="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>上传图纸</span></button><span>主图 1 张 · 可附加参考图 · 单个不超过 20 MB</span><button type="button" className="run-button" disabled={isGenerating || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>{isGenerating ? '处理中…' : chatAttachments.length ? '开始 AI 分析' : '发送修改'}<Icon>↑</Icon></button></div></div>
+      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么，或修改哪个尺寸…" aria-label="AI 设计指令" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="上传图纸" title="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>上传图纸</span></button><span>主图 1 张 · 可附加参考图 · 单个不超过 20 MB</span><button type="button" className="run-button" disabled={isGenerating || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>{isGenerating ? '处理中…' : chatAttachments.length ? providerDegraded ? '重新尝试 AI 分析' : '开始 AI 分析' : '发送修改'}<Icon>↑</Icon></button></div></div>
       <div className="suggestions"><span>快速开始：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button><button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button></div>
     </section>
 
@@ -1999,13 +2020,24 @@ function LegacyModelWorkspace(props) {
   const productionReady = productionArtifactsAvailable(generation)
   const topology = generation?.validation?.metrics || {}
   const aiStatus = aiConversation?.status
-  const providerReady = Boolean(aiStatus?.configured || aiStatus?.mode === 'verified-local')
+  const providerMode = aiStatus?.mode || ''
+  const providerConfigured = Boolean(aiStatus?.configured)
+  const providerReady = providerMode === 'remote' || providerMode === 'verified-local'
+  const providerDegraded = providerConfigured && providerMode === 'local-fallback'
+  const providerLabel = providerMode === 'verified-local'
+    ? '图纸校准'
+    : providerDegraded
+      ? '本次请求已降级'
+      : providerReady
+        ? '中转站在线'
+        : '本地回退'
   return <div className="model-workspace">
     <section className="ai-column panel-card">
       <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>描述你的设计</h2></div><button className="more-button" onClick={() => showToast('已打开 AI 历史记录')}>•••</button></div>
       <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
-      <div className={`ai-provider-status ${providerReady ? 'ready' : aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{aiStatus?.mode === 'verified-local' ? '图纸校准' : providerReady ? '中转站在线' : '本地回退'}</small></div>
-      {!providerReady && !platform?.token && <div className="ai-auth-hint">图纸识别和明确尺寸可走本地审计回退；要使用通用视觉对话，请在服务端配置中转站密钥并按部署要求登录。</div>}
+      <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{providerLabel}</small></div>
+      {!providerConfigured && !platform?.token && <div className="ai-auth-hint">图纸识别和明确尺寸可走本地审计回退；要使用通用视觉对话，请在服务端配置中转站密钥并按部署要求登录。</div>}
+      {providerDegraded && <div className="ai-error-banner">远程 AI 已自动重试但本次未返回可靠参数；原图仍保留，可再次分析。</div>}
       {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
       <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
       {chatAttachments.length > 0 && <div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div>}

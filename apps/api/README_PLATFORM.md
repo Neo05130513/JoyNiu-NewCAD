@@ -99,6 +99,14 @@ attachment metadata, and an allowlisted `parameterPatch`. Unknown fields,
 non-finite values and unsupported types are rejected before they reach the CAD
 editor.
 
+Relay response storage is disabled by default (`JOYNIU_AI_STORE_RESPONSES=0`),
+matching GPTX's Codex configuration. The editable model state is sent on every
+turn, so stateless retries remain useful without depending on a stored
+`previous_response_id`. The proxy intentionally omits `max_output_tokens` and does not impose its own
+input-text or model-state token cap. Context and output length are therefore
+left to the selected model and relay; one stateless compatibility retry remains
+available for empty, incomplete, transient, or schema-rejected responses.
+
 Example (use a real platform token; do not place the provider key in this
 request):
 

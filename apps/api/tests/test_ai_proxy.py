@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import urllib.error
 
 import pytest
 
@@ -53,6 +54,7 @@ def test_proxy_sends_responses_schema_reasoning_and_previous_id(monkeypatch):
         )
 
     monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setenv("JOYNIU_AI_STORE_RESPONSES", "1")
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     result = AIProxy(timeout_seconds=7).converse(
         "把轴加长到 80",
@@ -66,12 +68,153 @@ def test_proxy_sends_responses_schema_reasoning_and_previous_id(monkeypatch):
     assert captured["timeout"] == 7
     assert captured["body"]["model"] == "gpt-5.6-sol"
     assert captured["body"]["reasoning"] == {"effort": "high"}
+    assert "max_output_tokens" not in captured["body"]
+    assert captured["body"]["store"] is True
     assert captured["body"]["previous_response_id"] == "resp_previous_1"
     assert captured["body"]["text"]["format"]["strict"] is True
     assert captured["body"]["text"]["format"]["name"] == "joyniu_cad_parameter_patch"
     # The credential is only an Authorization header and is not put in the
     # model input, structured result, or any client-facing field.
     assert "test-provider-key" not in json.dumps(captured["body"])
+
+
+def test_proxy_does_not_add_input_or_output_token_caps(monkeypatch):
+    captured = {}
+    long_message = "输入" * 8_000
+    long_state = "状态" * 60_000
+    long_answer = "输出" * 7_000
+    questions = ["待确认" * 180 for _ in range(25)]
+
+    def fake_urlopen(request, timeout):
+        assert timeout > 0
+        captured["body"] = json.loads(request.data.decode())
+        return _Response(
+            {
+                "id": "resp_unbounded",
+                "output_text": json.dumps(
+                    {
+                        "message": long_answer,
+                        "parameter_patch": {},
+                        "needs_review": True,
+                        "questions": questions,
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = AIProxy(timeout_seconds=7).converse(
+        long_message,
+        model_state={"kind": "bracket", "unboundedContext": long_state},
+    )
+
+    assert "max_output_tokens" not in captured["body"]
+    assert long_message in captured["body"]["input"][0]["content"][0]["text"]
+    assert long_state in captured["body"]["input"][0]["content"][1]["text"]
+    assert result.message == long_answer
+    assert result.questions == tuple(questions)
+
+
+def test_proxy_retries_empty_result_without_schema_or_previous_id(monkeypatch):
+    """A malformed relay turn gets one clean, stateless retry."""
+
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append((json.loads(request.data.decode()), timeout))
+        if len(requests) == 1:
+            return _Response({"id": "resp_empty", "output": []})
+        return _Response(
+            {
+                "id": "resp_recovered",
+                "output_text": '{"message":"已恢复","parameter_patch":{"baseLength":120},"needs_review":false,"questions":[]}',
+            }
+        )
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setenv("JOYNIU_AI_STORE_RESPONSES", "1")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = AIProxy(timeout_seconds=7).converse(
+        "把底板长度改为 120 mm",
+        previous_response_id="resp_previous",
+        model_state={"kind": "bracket", "baseLength": 100},
+    )
+
+    assert result.response_id == "resp_recovered"
+    assert result.parameter_patch["baseLength"] == 120
+    assert len(requests) == 2
+    assert requests[0][0]["previous_response_id"] == "resp_previous"
+    assert "text" in requests[0][0]
+    assert "previous_response_id" not in requests[1][0]
+    assert "text" not in requests[1][0]
+    assert requests[1][0]["store"] is False
+    assert "max_output_tokens" not in requests[1][0]
+    assert 0 < requests[1][1] <= 7
+
+
+def test_proxy_retries_incomplete_reasoning_without_app_token_cap(monkeypatch):
+    bodies = []
+
+    def fake_urlopen(request, timeout):
+        assert timeout > 0
+        bodies.append(json.loads(request.data.decode()))
+        if len(bodies) == 1:
+            return _Response(
+                {
+                    "id": "resp_incomplete",
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [{"type": "reasoning", "content": []}],
+                }
+            )
+        return _Response(
+            {
+                "id": "resp_complete",
+                "output_text": '{"message":"完成","parameter_patch":{},"needs_review":false,"questions":[]}',
+            }
+        )
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = AIProxy(timeout_seconds=7).converse("分析当前参数")
+
+    assert result.response_id == "resp_complete"
+    assert all("max_output_tokens" not in body for body in bodies)
+    assert bodies[0]["store"] is False
+    assert bodies[1]["store"] is False
+
+
+def test_proxy_retries_transient_http_failure_but_not_auth_failure(monkeypatch):
+    calls = []
+
+    def transient_urlopen(request, timeout):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(request.full_url, 503, "busy", {}, None)
+        return _Response(
+            {
+                "id": "resp_after_503",
+                "output_text": '{"message":"ok","parameter_patch":{},"needs_review":false,"questions":[]}',
+            }
+        )
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", transient_urlopen)
+    assert AIProxy(timeout_seconds=7).converse("继续").response_id == "resp_after_503"
+    assert len(calls) == 2
+
+    auth_calls = []
+
+    def auth_urlopen(request, timeout):
+        auth_calls.append(timeout)
+        raise urllib.error.HTTPError(request.full_url, 401, "unauthorized", {}, None)
+
+    monkeypatch.setattr("urllib.request.urlopen", auth_urlopen)
+    with pytest.raises(AIProxyError, match="HTTP 401"):
+        AIProxy(timeout_seconds=7).converse("继续")
+    assert len(auth_calls) == 1
 
 
 def test_provider_image_normalization_keeps_original_audit_metadata():
@@ -88,6 +231,15 @@ def test_provider_image_normalization_keeps_original_audit_metadata():
     assert metadata["sha256"] == hashlib.sha256(png).hexdigest()
     assert attachment["type"] == "input_image"
     assert attachment["image_url"].startswith("data:image/jpeg;base64,")
+
+    # Browsers and DWG/PDM gateways sometimes lose the MIME declaration. The
+    # extension and file signature must still select the vision path.
+    octet_metadata, octet_attachment = _attachment_content(
+        AIFile("drawing.png", "application/octet-stream", png)
+    )
+    assert octet_metadata["contentType"] == "application/octet-stream"
+    assert octet_attachment["type"] == "input_image"
+    assert octet_attachment["image_url"].startswith("data:image/jpeg;base64,")
 
 
 def test_proxy_reads_key_file_without_requiring_environment(monkeypatch, tmp_path):
@@ -184,6 +336,42 @@ def test_unknown_drawing_returns_review_envelope_without_provider(monkeypatch):
     assert result.needs_review is True
     assert result.parameter_patch == {}
     assert result.drawing["id"] == "compat_unknown"
+
+
+def test_unknown_drawing_degraded_message_is_request_scoped_and_retryable(monkeypatch):
+    """A failed turn must not claim the whole relay is unavailable."""
+
+    from app import ai_proxy
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    calls = []
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr(
+        ai_proxy,
+        "_recognize_attachment",
+        lambda _item: {"id": "compat_unknown", "status": "needs_review", "parameters": {}},
+    )
+
+    def empty_urlopen(_request, timeout):
+        calls.append(timeout)
+        return _Response({"id": f"resp_empty_{len(calls)}", "output": []})
+
+    monkeypatch.setattr("urllib.request.urlopen", empty_urlopen)
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析图纸",
+        files=(AIFile("unknown.png", "image/png", png),),
+    )
+
+    assert len(calls) == 2
+    assert result.provider["mode"] == "local-fallback"
+    assert result.needs_review is True
+    assert result.questions == ()
+    assert "中转站不可用" not in result.message
+    assert "远程 AI 已自动重试" in result.message
+    assert "可直接再次分析" in result.message
 
 
 def test_platform_conversation_does_not_promote_compatibility_scaffold(monkeypatch):

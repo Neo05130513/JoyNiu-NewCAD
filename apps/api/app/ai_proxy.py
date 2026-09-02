@@ -17,6 +17,7 @@ import json
 import math
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -41,6 +42,26 @@ class AIProxyError(RuntimeError):
 
 class AIProviderNotConfigured(AIProxyError):
     """The server has no configured provider credential."""
+
+
+class AIProviderHTTPError(AIProxyError):
+    """Provider HTTP failure with a status code safe for retry decisions."""
+
+    def __init__(self, status_code: int):
+        self.status_code = int(status_code)
+        super().__init__(f"AI provider request failed (HTTP {self.status_code})")
+
+
+class AIProviderTransportError(AIProxyError):
+    """Transient provider connection or timeout failure."""
+
+
+class AIProviderIncompleteError(AIProxyError):
+    """Provider stopped before producing the required structured message."""
+
+    def __init__(self, reason: str = "unknown"):
+        self.reason = str(reason or "unknown")[:80]
+        super().__init__(f"AI provider response incomplete ({self.reason})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,10 +389,14 @@ def _parse_result(
     response_id = _safe_response_id(payload.get("id"))
     raw_text = _output_text(payload)
     if not raw_text:
+        if payload.get("status") == "incomplete":
+            details = payload.get("incomplete_details")
+            reason = details.get("reason") if isinstance(details, Mapping) else "unknown"
+            raise AIProviderIncompleteError(str(reason or "unknown"))
         raise AIProxyError("AI provider returned no structured result")
     parsed = _json_from_text(raw_text)
     message = parsed.get("message", parsed.get("assistant_message", ""))
-    if not isinstance(message, str) or len(message) > 12_000:
+    if not isinstance(message, str):
         raise AIProxyError("AI provider returned an invalid message")
     raw_questions = parsed.get("questions", [])
     if raw_questions is None:
@@ -387,7 +412,7 @@ def _parse_result(
         message=message,
         parameter_patch=_validated_patch(raw_patch, tolerate_invalid=tolerate_patch_errors),
         needs_review=bool(parsed.get("needs_review", parsed.get("needsReview", False))),
-        questions=tuple(item[:500] for item in raw_questions[:20]),
+        questions=tuple(raw_questions),
     )
 
 
@@ -596,6 +621,36 @@ def _text_parameter_patch(message: str, model_state: Mapping[str, Any] | None) -
     return patch
 
 
+def _detected_image_mime(item: AIFile) -> str:
+    """Identify common image uploads even when browsers use octet-stream."""
+
+    declared = (item.content_type or "").strip().casefold()
+    if declared.startswith("image/"):
+        return declared
+    suffix_mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+    }.get(Path(item.filename).suffix.casefold(), "")
+    data = item.data[:16]
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if data.startswith(b"BM"):
+        return "image/bmp"
+    if data.startswith(b"RIFF") and item.data[8:12] == b"WEBP":
+        return "image/webp"
+    return suffix_mime
+
+
 def _provider_image_bytes(item: AIFile) -> tuple[bytes, str]:
     """Return a relay-friendly image payload without changing audit bytes.
 
@@ -608,7 +663,7 @@ def _provider_image_bytes(item: AIFile) -> tuple[bytes, str]:
     normal, bounded error path.
     """
 
-    mime = (item.content_type or "").casefold()
+    mime = _detected_image_mime(item) or (item.content_type or "").casefold()
     if not mime.startswith("image/"):
         return item.data, mime or "application/octet-stream"
     try:
@@ -683,7 +738,7 @@ def _attachment_content(item: AIFile) -> tuple[dict[str, Any], dict[str, Any]]:
         "sizeBytes": len(item.data),
         "sha256": hashlib.sha256(item.data).hexdigest(),
     }
-    if mime.startswith("image/"):
+    if provider_mime.startswith("image/"):
         return metadata, {
             "type": "input_image",
             "image_url": f"data:{provider_mime};base64,{encoded}",
@@ -703,6 +758,7 @@ def _provider_body(
     previous_response_id: str | None,
     *,
     include_schema: bool = True,
+    force_store: bool | None = None,
 ) -> dict[str, Any]:
     content: list[dict[str, Any]] = []
     has_attachments = bool(files)
@@ -710,8 +766,6 @@ def _provider_body(
         content.append({"type": "input_text", "text": message})
     if model_state:
         serialized = json.dumps(dict(model_state), ensure_ascii=False, separators=(",", ":"))
-        if len(serialized) > 100_000:
-            raise AIProxyError("model state is too large")
         content.append({
             "type": "input_text",
             "text": (
@@ -758,13 +812,15 @@ def _provider_body(
             raise AIProxyError("drawing file is too large")
         _metadata, attachment = _attachment_content(item)
         content.append(attachment)
+    configured_store = os.environ.get("JOYNIU_AI_STORE_RESPONSES", "0").casefold() not in {"0", "false", "no"}
+    store_response = configured_store if force_store is None else bool(force_store)
     body: dict[str, Any] = {
         "model": _model(),
         "reasoning": {"effort": _reasoning_effort()},
-        # Bound vision output so a relay cannot spend minutes narrating the
-        # image instead of returning the small candidate envelope we need.
-        "max_output_tokens": 1200 if has_attachments else 1200,
-        "store": os.environ.get("JOYNIU_AI_STORE_RESPONSES", "1") not in {"0", "false", "no"},
+        # Do not send max_output_tokens. The relay/model owns its native output
+        # budget; JoyNiu must not truncate high-effort reasoning or the final
+        # structured CAD answer with an additional application-level cap.
+        "store": store_response,
         "input": [{"role": "user", "content": content}],
     }
     if not has_attachments:
@@ -787,7 +843,7 @@ def _provider_body(
                 "schema": response_schema(),
             }
         }
-    if previous_response_id:
+    if previous_response_id and store_response:
         body["previous_response_id"] = previous_response_id
     return body
 
@@ -808,9 +864,9 @@ def _call_provider(body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]
         with urllib.request.urlopen(request, timeout=timeout) as response:
             response_body = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
-        raise AIProxyError(f"AI provider request failed (HTTP {exc.code})") from exc
+        raise AIProviderHTTPError(exc.code) from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise AIProxyError("AI provider request failed") from exc
+        raise AIProviderTransportError("AI provider request failed") from exc
     if len(response_body) > MAX_RESPONSE_BYTES:
         raise AIProxyError("AI provider response is too large")
     try:
@@ -820,6 +876,25 @@ def _call_provider(body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]
     if not isinstance(payload, Mapping):
         raise AIProxyError("AI provider returned invalid JSON")
     return payload
+
+
+def _provider_error_is_retryable(error: AIProxyError) -> bool:
+    """Return whether one clean, stateless relay retry is worthwhile.
+
+    GPTX-compatible relays can reject a strict schema or a stale
+    ``previous_response_id`` even though the same model request succeeds
+    without those optional fields.  Transport failures, throttling/server
+    failures and malformed/empty model envelopes are also safe to retry once.
+    Authentication and permission errors deliberately fail immediately.
+    """
+
+    if isinstance(error, AIProviderHTTPError):
+        return error.status_code in {400, 404, 408, 409, 425, 429, 500, 502, 503, 504}
+    if isinstance(error, AIProviderTransportError):
+        return True
+    if isinstance(error, AIProviderIncompleteError):
+        return True
+    return str(error).startswith("AI provider returned")
 
 
 def _safe_provider_info(mode: str, configured: bool) -> dict[str, Any]:
@@ -868,8 +943,6 @@ class AIProxy:
         files_tuple = tuple(files)
         if not message and not files_tuple:
             raise AIProxyError("message or drawing file is required")
-        if len(message) > 12_000:
-            raise AIProxyError("message is too long")
         if len(files_tuple) > MAX_FILE_COUNT:
             raise AIProxyError("too many drawing files")
         for item in files_tuple:
@@ -921,29 +994,43 @@ class AIProxy:
         remote_error: AIProxyError | None = None
         remote_result: AIConversationResult | None = None
         if configured:
-            try:
-                body = _provider_body(message, model_state, files_tuple, provider_previous_id, include_schema=True)
+            # Keep retries inside the original request budget.  The second
+            # attempt is deliberately stateless and schema-light: this fixes
+            # transient empty responses as well as relays that reject a stale
+            # previous_response_id or strict response schema.
+            retry_deadline = time.monotonic() + self.timeout_seconds
+            attempt_specs = (
+                (True, provider_previous_id, None),
+                (False, None, False),
+            )
+            for attempt_index, (include_schema, attempt_previous_id, force_store) in enumerate(attempt_specs):
+                remaining = self.timeout_seconds if attempt_index == 0 else retry_deadline - time.monotonic()
+                if remaining <= 1:
+                    break
                 try:
-                    payload = _call_provider(body, self.timeout_seconds)
-                except AIProxyError as first_error:
-                    if "HTTP 400" in str(first_error) or "HTTP 404" in str(first_error):
-                        payload = _call_provider(
-                            _provider_body(message, model_state, files_tuple, provider_previous_id, include_schema=False),
-                            self.timeout_seconds,
-                        )
-                    else:
-                        raise
-                # A vision model may include descriptive, non-CAD keys (for
-                # example ``overall_length``) alongside the allow-listed
-                # fields.  Drop those keys for attachment turns so the useful
-                # candidate values and questions still reach the customer;
-                # text-only turns keep the strict rejection behavior.
-                remote_result = _parse_result(
-                    payload,
-                    tolerate_patch_errors=bool(files_tuple),
-                )
-            except AIProxyError as exc:
-                remote_error = exc
+                    body = _provider_body(
+                        message,
+                        model_state,
+                        files_tuple,
+                        attempt_previous_id,
+                        include_schema=include_schema,
+                        force_store=force_store,
+                    )
+                    payload = _call_provider(body, remaining)
+                    # A vision model may include descriptive, non-CAD keys
+                    # (for example ``overall_length``) alongside allow-listed
+                    # fields. Drop those keys for attachment turns so useful
+                    # candidates and questions still reach the customer.
+                    remote_result = _parse_result(
+                        payload,
+                        tolerate_patch_errors=bool(files_tuple),
+                    )
+                    remote_error = None
+                    break
+                except AIProxyError as exc:
+                    remote_error = exc
+                    if attempt_index + 1 >= len(attempt_specs) or not _provider_error_is_retryable(exc):
+                        break
 
         if remote_result is not None:
             if trusted_patch:
@@ -979,7 +1066,7 @@ class AIProxy:
                 # downstream caller ignores the UI's generation guard.
                 review = bool(drawing and drawing.get("status") != "confirmed")
             if remote_error:
-                local_message += f"（中转站暂不可用：{remote_error}）"
+                local_message += "（远程 AI 已自动重试，但本次未返回可靠结果；本地明确尺寸已保留。）"
             return AIConversationResult(
                 response_id=f"local_{uuid4().hex[:16]}",
                 message=local_message,
@@ -999,13 +1086,15 @@ class AIProxy:
             return AIConversationResult(
                 response_id=f"local_{uuid4().hex[:16]}",
                 message=(
-                    "已收到图纸；AI 暂未形成可信的完整拓扑，已返回可编辑候选数据。请在工作台确认/补全各项参数后生成实体。"
+                    "已收到图纸；AI 本次未形成可信的完整参数结果。系统已保留图纸分析并预填可编辑候选，"
+                    "请核对标为“模板默认”的字段后确认数据。"
                     if remote_error is None
-                    else "已收到图纸，但当前中转站不可用；已保留可编辑候选数据。请在工作台确认/补全各项参数后生成实体。"
+                    else "已收到图纸；远程 AI 已自动重试，但本次仍未返回可靠参数。"
+                    "系统已保留原图与可编辑候选，可直接再次分析或核对后确认数据。"
                 ),
                 parameter_patch={},
                 needs_review=True,
-                questions=("请确认图纸单位、视图对应关系和关键特征后重试。",),
+                questions=(),
                 drawing=drawing,
                 provider=_safe_provider_info("local-fallback", configured),
                 attachments=tuple(attachment_meta),
