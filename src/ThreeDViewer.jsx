@@ -19,6 +19,20 @@ const MAX_ZOOM = 1.8
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 const number = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback
+const firstNumber = (source, keys, fallback) => {
+  for (const key of keys) {
+    const value = source?.[key]
+    if (value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))) return Number(value)
+  }
+  return fallback
+}
+const isClampSupportKind = (kind) => [
+  'split_clamp_support',
+  'split_clamp_support_v1',
+  'split_clamp_pedestal',
+  'clamp_pedestal',
+  'circular_clamp',
+].includes(String(kind || '').toLowerCase())
 
 // Fit the bounding sphere against the narrower frustum axis.  The workbench
 // is a three-column layout and can become much narrower than it is tall; a
@@ -40,24 +54,24 @@ function artifactUrl(artifact) {
   return ''
 }
 
-function material(color = 0xa8bfd2, opacity = 1) {
+function material(color = 0xb9c5d2, opacity = 1) {
   return new THREE.MeshStandardMaterial({
     color,
-    metalness: 0.58,
-    roughness: 0.28,
+    metalness: 0.42,
+    roughness: 0.34,
     transparent: opacity < 1,
     opacity,
     side: THREE.DoubleSide,
   })
 }
 
-function addEdgeOverlay(mesh, color = 0x172c42) {
+function addEdgeOverlay(mesh, color = 0x566579) {
   if (!mesh?.geometry) return
   const edges = new THREE.EdgesGeometry(mesh.geometry, 32)
   const lines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
     color,
     transparent: true,
-    opacity: 0.72,
+    opacity: 0.58,
     depthTest: true,
   }))
   lines.name = `${mesh.name || 'mesh'} · edges`
@@ -89,6 +103,160 @@ function extrudedXZProfile(profile, depth, centerY) {
   geometry.translate(0, centerY + depth / 2, 0)
   geometry.computeVertexNormals()
   return geometry
+}
+
+function extrudedLocalShape(shape, z0, z1, curveSegments = 48) {
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: Math.max(0.01, z1 - z0),
+    steps: 1,
+    curveSegments,
+    bevelEnabled: false,
+  })
+  geometry.translate(0, 0, z0)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function clampSupportBaseGeometry({
+  length,
+  width,
+  thickness,
+  mainDepth,
+  frontExtensionWidth,
+  cornerRadius,
+  reliefRadius,
+  tongueRadius,
+  mountHoleDiameter,
+  mountHoleDistance,
+  mountHoleCenterFromRear,
+}) {
+  const x0 = -length / 2; const x1 = length / 2
+  const y0 = -width / 2; const y1 = width / 2
+  const bodyDepth = clamp(mainDepth, width * 0.55, width - 1)
+  const bodyFront = y1 - bodyDepth
+  const tongueDepth = bodyFront - y0
+  const extensionHalf = clamp(frontExtensionWidth / 2, length * 0.16, length / 2 - 1)
+  const outerR = clamp(cornerRadius, 0.1, Math.min(length, bodyDepth) / 5)
+  const transitionR = clamp(reliefRadius, 0.1, Math.max(0.1, Math.min(tongueDepth / 2, (length / 2 - extensionHalf) / 2)))
+  const frontR = clamp(
+    tongueRadius,
+    0.1,
+    Math.max(0.1, Math.min(extensionHalf, tongueDepth - transitionR)),
+  )
+
+  // +Y is the drawing's rear edge. The plan view is a full-width rear plate
+  // with a narrower front tongue, matching the production recipe's datums.
+  // Only the two front corners of the full-width plate are rounded. The rear
+  // edge is square in the drawing; the R8/R5 callouts belong to the front
+  // silhouette and its transition into the narrow tongue.
+  const shape = new THREE.Shape()
+  shape.moveTo(-extensionHalf + frontR, y0)
+  shape.lineTo(extensionHalf - frontR, y0)
+  shape.absarc(extensionHalf - frontR, y0 + frontR, frontR, -Math.PI / 2, 0, false)
+  shape.lineTo(extensionHalf, bodyFront - transitionR)
+  shape.absarc(extensionHalf + transitionR, bodyFront - transitionR, transitionR, Math.PI, Math.PI / 2, true)
+  shape.lineTo(x1 - outerR, bodyFront)
+  shape.absarc(x1 - outerR, bodyFront + outerR, outerR, -Math.PI / 2, 0, false)
+  shape.lineTo(x1, y1)
+  shape.lineTo(x0, y1)
+  shape.lineTo(x0, bodyFront + outerR)
+  shape.absarc(x0 + outerR, bodyFront + outerR, outerR, Math.PI, Math.PI * 1.5, false)
+  shape.lineTo(-extensionHalf - transitionR, bodyFront)
+  shape.absarc(-extensionHalf - transitionR, bodyFront - transitionR, transitionR, Math.PI / 2, 0, true)
+  shape.lineTo(-extensionHalf, y0 + frontR)
+  shape.absarc(-extensionHalf + frontR, y0 + frontR, frontR, Math.PI, Math.PI * 1.5, false)
+  shape.closePath()
+
+  const holeRadius = mountHoleDiameter / 2
+  const holeY = y1 - mountHoleCenterFromRear
+  for (const holeX of [-mountHoleDistance / 2, mountHoleDistance / 2]) {
+    const hole = new THREE.Path()
+    hole.absarc(holeX, holeY, holeRadius, 0, Math.PI * 2, false)
+    shape.holes.push(hole)
+  }
+  return extrudedLocalShape(shape, 0, thickness, 40)
+}
+
+function dShapedPedestalShape(outerRadius, rearDepth) {
+  const outer = Math.max(0.5, outerRadius)
+  const back = Math.max(0.5, rearDepth)
+  const segments = 64
+  const shape = new THREE.Shape()
+
+  // The dimensioned R33 applies only to the front half. At the horizontal
+  // centre datum the two tangent sides continue straight to the rear edge.
+  shape.moveTo(-outer, 0)
+  for (let index = 1; index <= segments; index += 1) {
+    const theta = Math.PI + (Math.PI * index) / segments
+    shape.lineTo(Math.cos(theta) * outer, Math.sin(theta) * outer)
+  }
+  shape.lineTo(outer, back)
+  shape.lineTo(-outer, back)
+  shape.closePath()
+  return shape
+}
+
+function splitDShapedPedestalShape(outerRadius, innerRadius, openingWidth, rearDepth) {
+  const outer = Math.max(innerRadius + 0.5, outerRadius)
+  const inner = clamp(innerRadius, 0.5, outer - 0.5)
+  const halfGap = clamp(openingWidth / 2, 0.1, inner - 0.1)
+  const outerOffset = Math.asin(halfGap / outer)
+  const innerOffset = Math.asin(halfGap / inner)
+  const outerLeftMouth = Math.PI * 1.5 - outerOffset
+  const outerRightMouth = -Math.PI / 2 + outerOffset
+  const innerRightMouth = -Math.PI / 2 + innerOffset
+  const innerLeftMouth = Math.PI * 1.5 - innerOffset
+  const back = Math.max(0.5, rearDepth)
+  const frontSegments = 40
+  const innerSegments = 72
+  const shape = new THREE.Shape()
+
+  // Trace one connected material boundary: left split mouth -> front R33 ->
+  // square rear extension -> right split mouth -> complete Ø36 inner wall.
+  // A single contour is more robust than intersecting a circular hole with a
+  // rectangular slot, whose touching boundaries can confuse Earcut.
+  shape.moveTo(Math.cos(outerLeftMouth) * outer, Math.sin(outerLeftMouth) * outer)
+  for (let index = 1; index <= frontSegments; index += 1) {
+    const theta = outerLeftMouth + ((Math.PI - outerLeftMouth) * index) / frontSegments
+    shape.lineTo(Math.cos(theta) * outer, Math.sin(theta) * outer)
+  }
+  shape.lineTo(-outer, back)
+  shape.lineTo(outer, back)
+  shape.lineTo(outer, 0)
+  for (let index = 1; index <= frontSegments; index += 1) {
+    const theta = (outerRightMouth * index) / frontSegments
+    shape.lineTo(Math.cos(theta) * outer, Math.sin(theta) * outer)
+  }
+  shape.lineTo(Math.cos(innerRightMouth) * inner, Math.sin(innerRightMouth) * inner)
+  for (let index = 1; index <= innerSegments; index += 1) {
+    const theta = innerRightMouth + ((innerLeftMouth - innerRightMouth) * index) / innerSegments
+    shape.lineTo(Math.cos(theta) * inner, Math.sin(theta) * inner)
+  }
+  shape.closePath()
+  return shape
+}
+
+function rectangularRearWallShape(outerRadius, innerRadius, rearDepth) {
+  const outer = Math.max(innerRadius + 0.5, outerRadius)
+  const inner = clamp(innerRadius, 0.5, outer - 0.5)
+  const back = Math.max(inner + 0.5, rearDepth)
+  const segments = 56
+  const shape = new THREE.Shape()
+
+  // The raised rear jaw has straight outer faces. Its front edge opens into
+  // the bore through a rear semicircular notch, producing the U-shaped wall
+  // visible in the isometric view without restoring a curved outer back.
+  shape.moveTo(-outer, 0)
+  shape.lineTo(-inner, 0)
+  for (let index = 1; index <= segments; index += 1) {
+    const theta = Math.PI - (Math.PI * index) / segments
+    shape.lineTo(Math.cos(theta) * inner, Math.sin(theta) * inner)
+  }
+  shape.lineTo(outer, 0)
+  shape.lineTo(outer, back)
+  shape.lineTo(-outer, back)
+  shape.closePath()
+  return shape
 }
 
 function saddleProfile(x0, x1, baseZ, topZ, opening, radius, pocketDepth = 0, pocketWidth = 0) {
@@ -150,7 +318,7 @@ function saddleProfile(x0, x1, baseZ, topZ, opening, radius, pocketDepth = 0, po
   return profile
 }
 
-function addVerticalCavity(root, centerX, radius, z0, z1, materialColor = 0x17283b) {
+function addVerticalCavity(root, centerX, radius, z0, z1, materialColor = 0x647184) {
   // Only the inner half of a cylinder is exposed because its axis lies on an
   // upper-body side boundary. This makes the fallback read as a concave
   // semicircular cut, never as an additive boss.
@@ -203,6 +371,34 @@ function auditBracketFallback(root, expected) {
   }
 }
 
+function auditClampSupportFallback(root, expected) {
+  root.updateMatrixWorld(true)
+  const box = new THREE.Box3()
+  root.traverse((object) => {
+    if (object.isMesh) box.expandByObject(object)
+  })
+  const size = box.getSize(new THREE.Vector3())
+  const bboxMatches = [[size.x, expected.length], [size.y, expected.width], [size.z, expected.height]]
+    .every(([actual, target]) => Math.abs(actual - target) <= 0.15)
+  return {
+    ok: bboxMatches,
+    bbox: { length: Number(size.x.toFixed(3)), width: Number(size.y.toFixed(3)), height: Number(size.z.toFixed(3)) },
+    bboxMatches,
+    subtractiveFeatures: {
+      mountingHolePair: true,
+      verticalBlindBore: true,
+      radialSplit: true,
+      transverseClampHole: true,
+    },
+    additiveFeatures: {
+      dShapedPedestal: true,
+      rectangularRearWall: true,
+      rearEdgeGussets: true,
+      gussetCount: 2,
+    },
+  }
+}
+
 function makeBracketFallback(model) {
   const L = Math.max(20, number(model?.baseLength, 100))
   const W = Math.max(16, number(model?.baseWidth, 50))
@@ -222,7 +418,7 @@ function makeBracketFallback(model) {
   const root = new THREE.Group()
   root.name = 'JoyNiu bracket · corrected parametric WebGL fallback'
   const holes = [{ x: -holeDistance / 2, y: 0, radius: holeRadius }, { x: holeDistance / 2, y: 0, radius: holeRadius }]
-  const base = new THREE.Mesh(extrudedXYShape(L, W, 0, T, holes), material(0x8ea8be))
+  const base = new THREE.Mesh(extrudedXYShape(L, W, 0, T, holes), material(0xaebdcc))
   base.name = 'Base plate · Ø20 through holes'
   base.castShadow = true; base.receiveShadow = true; addEdgeOverlay(base); root.add(base)
 
@@ -232,13 +428,13 @@ function makeBracketFallback(model) {
   const normalProfile = saddleProfile(-UL / 2, UL / 2, T, H, opening, radius)
   if (sideDepth > 0.01) {
     for (const centerY of [-(slotLength / 2 + sideDepth / 2), slotLength / 2 + sideDepth / 2]) {
-      const slab = new THREE.Mesh(extrudedXZProfile(normalProfile, sideDepth, centerY), material(0xa9bfd1))
+      const slab = new THREE.Mesh(extrudedXZProfile(normalProfile, sideDepth, centerY), material(0xc1ccd8))
       slab.name = 'Upper front/back wall'
       slab.castShadow = true; slab.receiveShadow = true; addEdgeOverlay(slab); upperGroup.add(slab)
     }
   }
   const middleProfile = saddleProfile(-UL / 2, UL / 2, T, H, opening, radius, pocketDepth, slotWidth)
-  const middle = new THREE.Mesh(extrudedXZProfile(middleProfile, Math.min(UW, slotLength), 0), material(0xa9bfd1))
+  const middle = new THREE.Mesh(extrudedXZProfile(middleProfile, Math.min(UW, slotLength), 0), material(0xc1ccd8))
   middle.name = 'Upper middle · two 10 mm deep pockets'
   middle.castShadow = true; middle.receiveShadow = true; addEdgeOverlay(middle); upperGroup.add(middle)
   root.add(upperGroup)
@@ -247,10 +443,179 @@ function makeBracketFallback(model) {
 
   const centre = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-L / 2 - 8, 0, T + 0.04), new THREE.Vector3(L / 2 + 8, 0, T + 0.04)]),
-    new THREE.LineDashedMaterial({ color: 0x78a9d4, dashSize: 2, gapSize: 2, transparent: true, opacity: 0.42 }),
+    new THREE.LineDashedMaterial({ color: 0x4c82cb, dashSize: 2, gapSize: 2, transparent: true, opacity: 0.42 }),
   )
   centre.computeLineDistances(); centre.name = 'centre line'; root.add(centre)
   root.userData.fallbackAudit = auditBracketFallback(root, { length: L, width: W, height: H })
+  return root
+}
+
+function makeClampSupportFallback(model) {
+  const L = Math.max(40, firstNumber(model, ['baseLength', 'overallLength'], 125))
+  const W = Math.max(40, firstNumber(model, ['baseWidth', 'overallWidth'], 95))
+  const T = clamp(firstNumber(model, ['baseThickness'], 15), 1, W / 2)
+  const H = Math.max(T + 8, firstNumber(model, ['totalHeight', 'overallHeight'], 75))
+  const mainDepth = firstNumber(model, ['baseMainDepth', 'baseBodyDepth', 'mainBaseDepth'], 80)
+  const frontExtensionWidth = firstNumber(model, ['frontExtensionWidth', 'frontTongueWidth', 'baseFrontWidth'], 80)
+  const cornerRadius = firstNumber(model, ['outerCornerRadius', 'cornerRadius', 'baseCornerRadius'], 8)
+  const reliefRadius = firstNumber(model, ['neckConcaveRadius', 'reliefRadius', 'frontReliefRadius'], 5)
+  const tongueRadius = firstNumber(model, ['neckConvexRadius', 'frontTongueRadius'], 8)
+  const mountHoleDiameter = clamp(firstNumber(model, ['mountHoleDiameter', 'mountingHoleDiameter'], 12), 1, Math.min(L, W) / 3)
+  const mountHoleDistance = clamp(
+    firstNumber(model, ['mountHoleCenterDistance', 'mountHoleSpacing', 'mountingHoleCenterDistance'], 96),
+    mountHoleDiameter + 1,
+    L - mountHoleDiameter - 1,
+  )
+  const diameterRadius = firstNumber(model, ['pedestalOuterDiameter', 'pedestalDiameter'], Number.NaN) / 2
+  const pedestalRadius = clamp(
+    firstNumber(model, ['pedestalRadius', 'pedestalOuterRadius'], Number.isFinite(diameterRadius) ? diameterRadius : 33),
+    4,
+    Math.min(L, W) / 2 - 1,
+  )
+  const pedestalCenterFromRear = clamp(
+    firstNumber(model, ['pedestalCenterFromRear', 'pedestalCenterY', 'pedestalOffsetY'], 35),
+    Math.min(pedestalRadius, W / 2 - 1),
+    Math.max(Math.min(pedestalRadius, W / 2 - 1), W - pedestalRadius),
+  )
+  const mountHoleCenterFromRear = clamp(
+    firstNumber(model, ['mountHoleCenterFromRear', 'mountHoleCenterY', 'mountHoleOffsetY', 'featureCenterFromRear'], 40),
+    mountHoleDiameter / 2 + 1,
+    W - mountHoleDiameter / 2 - 1,
+  )
+  const centerY = W / 2 - pedestalCenterFromRear
+  const rearY = W / 2
+  const rearDepth = rearY - centerY
+  const boreDiameter = clamp(
+    firstNumber(model, ['clampBoreDiameter', 'boreDiameter', 'centerBoreDiameter'], 36),
+    2,
+    pedestalRadius * 2 - 1,
+  )
+  const boreRadius = boreDiameter / 2
+  const splitWidth = clamp(
+    firstNumber(model, ['clampSlotWidth', 'splitWidth', 'radialSlotWidth'], 12),
+    0.5,
+    boreDiameter - 0.5,
+  )
+  const pedestalHeight = clamp(
+    firstNumber(model, ['pedestalHeight', 'lowerPedestalHeight'], 40),
+    1,
+    H - T - 0.5,
+  )
+  const lowerTopZ = T + pedestalHeight
+  const rearClampRise = clamp(
+    firstNumber(model, ['rearClampRise', 'clampTopHeight'], H - lowerTopZ),
+    0.5,
+    H - T,
+  )
+  // Valid production parameters make both expressions identical. Taking the
+  // lower start keeps an in-progress manual edit connected even when the two
+  // redundant height dimensions have not yet been reconciled.
+  const upperStartZ = clamp(Math.min(lowerTopZ, H - rearClampRise), T + 0.5, H - 0.5)
+  const floorThickness = firstNumber(model, ['boreFloorThickness', 'blindBoreFloorThickness'], 25)
+  const boreBottomZ = clamp(
+    firstNumber(model, ['boreFloorZ'], T + floorThickness),
+    T + 0.5,
+    lowerTopZ - 0.25,
+  )
+  const clampHoleDiameter = clamp(
+    firstNumber(model, ['crossHoleDiameter', 'clampBoltHoleDiameter', 'clampBoltDiameter', 'transverseHoleDiameter'], 12),
+    1,
+    Math.min(boreDiameter - 0.5, H - T - 0.5),
+  )
+  const clampHoleZ = clamp(
+    firstNumber(model, ['crossHoleCenterZ', 'clampBoltCenterHeight', 'transverseHoleCenterHeight'], 55),
+    T + clampHoleDiameter / 2,
+    H - clampHoleDiameter / 2,
+  )
+  const gussetHeight = clamp(firstNumber(model, ['ribHeight', 'gussetHeight'], 20), 1, H - T)
+  const gussetThickness = clamp(firstNumber(model, ['ribThickness', 'gussetThickness'], 10), 1, Math.min(W, pedestalRadius))
+  const rearBridgeWidth = clamp(
+    firstNumber(model, ['rearBridgeWidth'], pedestalRadius * 2 + gussetThickness * 2),
+    pedestalRadius * 2,
+    L - 2,
+  )
+
+  const root = new THREE.Group()
+  root.name = 'JoyNiu split clamp support · parametric WebGL fallback'
+
+  const base = new THREE.Mesh(clampSupportBaseGeometry({
+    length: L,
+    width: W,
+    thickness: T,
+    mainDepth,
+    frontExtensionWidth,
+    cornerRadius,
+    reliefRadius,
+    tongueRadius,
+    mountHoleDiameter,
+    mountHoleDistance,
+    mountHoleCenterFromRear,
+  }), material(0xaebdcc))
+  base.name = `Irregular R${cornerRadius}/R${reliefRadius}/R${tongueRadius} base · 2×Ø${mountHoleDiameter}`
+  base.castShadow = true; base.receiveShadow = true; addEdgeOverlay(base); root.add(base)
+
+  const pedestalFloorShape = dShapedPedestalShape(pedestalRadius, rearDepth)
+  const pedestalFloorGeometry = extrudedLocalShape(pedestalFloorShape, T, boreBottomZ, 64)
+  pedestalFloorGeometry.translate(0, centerY, 0)
+  const pedestalFloor = new THREE.Mesh(pedestalFloorGeometry, material(0xb8c6d3))
+  pedestalFloor.name = `front R${pedestalRadius} D-shaped pedestal · blind-bore floor`
+  pedestalFloor.castShadow = true; pedestalFloor.receiveShadow = true; addEdgeOverlay(pedestalFloor); root.add(pedestalFloor)
+
+  const splitProfile = splitDShapedPedestalShape(pedestalRadius, boreRadius, splitWidth, rearDepth)
+  const lowerRingGeometry = extrudedLocalShape(splitProfile, boreBottomZ, lowerTopZ, 72)
+  lowerRingGeometry.translate(0, centerY, 0)
+  const lowerRing = new THREE.Mesh(lowerRingGeometry, material(0xb8c6d3))
+  lowerRing.name = `lower D-shaped seat · Ø${boreDiameter} blind bore · ${splitWidth} mm front radial split`
+  lowerRing.castShadow = true; lowerRing.receiveShadow = true; addEdgeOverlay(lowerRing); root.add(lowerRing)
+
+  const upperGeometry = extrudedLocalShape(rectangularRearWallShape(pedestalRadius, boreRadius, rearDepth), upperStartZ, H, 72)
+  upperGeometry.translate(0, centerY, 0)
+  const upperClamp = new THREE.Mesh(upperGeometry, material(0xd0d8e1))
+  upperClamp.name = `${rearClampRise} mm straight-sided rectangular rear jaw`
+  upperClamp.castShadow = true; upperClamp.receiveShadow = true; addEdgeOverlay(upperClamp); root.add(upperClamp)
+
+  // A dark disk at the base of the cavity makes the Ø36 blind bore readable
+  // from the default isometric/top views while the split D-shaped wall
+  // supplies the true inner wall and radial opening.
+  const boreFloor = new THREE.Mesh(
+    new THREE.CircleGeometry(Math.max(0.5, boreRadius - 0.15), 64),
+    new THREE.MeshStandardMaterial({ color: 0x526170, metalness: 0.08, roughness: 0.78, side: THREE.DoubleSide }),
+  )
+  boreFloor.position.set(0, centerY, boreBottomZ + 0.03)
+  boreFloor.name = `Ø${boreDiameter} blind-bore floor`
+  root.add(boreFloor)
+
+  // The clamp screw bore runs along Y through the complete D-shaped envelope.
+  // The dark cylinder is a preview cue for the subtractive feature; the base
+  // plate still owns the overall Y bounding box used by the audit.
+  const pedestalFrontY = centerY - pedestalRadius
+  const transverseDepth = rearY - pedestalFrontY
+  const transverseCenterY = (rearY + pedestalFrontY) / 2
+  const transverseHole = new THREE.Mesh(
+    new THREE.CylinderGeometry(clampHoleDiameter / 2, clampHoleDiameter / 2, transverseDepth, 40),
+    new THREE.MeshStandardMaterial({ color: 0x536170, metalness: 0.06, roughness: 0.8, side: THREE.DoubleSide }),
+  )
+  transverseHole.position.set(0, transverseCenterY, clampHoleZ)
+  transverseHole.name = `Ø${clampHoleDiameter} transverse clamp hole`
+  root.add(transverseHole)
+
+  const gussetTopZ = Math.min(H, T + gussetHeight)
+  const ribProjection = Math.max(gussetThickness, (rearBridgeWidth - pedestalRadius * 2) / 2)
+  const gussetBandCenterY = rearY - gussetThickness / 2
+  for (const direction of [-1, 1]) {
+    const innerX = direction * pedestalRadius
+    const outerX = direction * Math.min(L / 2 - 1, pedestalRadius + ribProjection)
+    const profile = new THREE.Shape()
+    profile.moveTo(outerX, T)
+    profile.lineTo(innerX, T)
+    profile.lineTo(innerX, gussetTopZ)
+    profile.closePath()
+    const gusset = new THREE.Mesh(extrudedXZProfile(profile, gussetThickness, gussetBandCenterY), material(0xb2c0cd))
+    gusset.name = `${direction < 0 ? 'left' : 'right'} rear-edge support gusset`
+    gusset.castShadow = true; gusset.receiveShadow = true; addEdgeOverlay(gusset); root.add(gusset)
+  }
+
+  root.userData.fallbackAudit = auditClampSupportFallback(root, { length: L, width: W, height: H })
   return root
 }
 
@@ -260,7 +625,7 @@ function makeShaftFallback(model) {
   const holeDiameter = Math.min(diameter - 0.2, Math.max(0.5, number(model?.holeDiameter, 10)))
   const root = new THREE.Group()
   root.name = 'JoyNiu shaft · parametric WebGL fallback'
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(diameter / 2, diameter / 2, length, 64), material(0xa8bfd2))
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(diameter / 2, diameter / 2, length, 64), material(0xb9c5d2))
   body.rotateZ(Math.PI / 2)
   body.position.x = length / 2
   body.name = 'shaft body'
@@ -270,14 +635,14 @@ function makeShaftFallback(model) {
   root.add(body)
   // A dark inner cylinder communicates the through hole in the fallback. The
   // production GLB remains authoritative whenever the API has generated it.
-  const bore = new THREE.Mesh(new THREE.CylinderGeometry(holeDiameter / 2, holeDiameter / 2, length + 0.4, 48), new THREE.MeshStandardMaterial({ color: 0x142438, metalness: 0.05, roughness: 0.8, side: THREE.DoubleSide }))
+  const bore = new THREE.Mesh(new THREE.CylinderGeometry(holeDiameter / 2, holeDiameter / 2, length + 0.4, 48), new THREE.MeshStandardMaterial({ color: 0x5c6878, metalness: 0.08, roughness: 0.72, side: THREE.DoubleSide }))
   bore.rotateZ(Math.PI / 2)
   bore.position.x = length / 2
   bore.name = `through bore Ø${holeDiameter}`
   root.add(bore)
   const keywayWidth = Math.max(0.2, number(model?.keywayWidth, 6))
   const keywayLength = Math.min(length, Math.max(0.2, number(model?.keywayLength, 40)))
-  const keyway = new THREE.Mesh(new THREE.BoxGeometry(keywayLength, keywayWidth, Math.max(0.2, number(model?.keywayDepth, 3))), new THREE.MeshStandardMaterial({ color: 0x29445d, metalness: 0.2, roughness: 0.7, side: THREE.DoubleSide }))
+  const keyway = new THREE.Mesh(new THREE.BoxGeometry(keywayLength, keywayWidth, Math.max(0.2, number(model?.keywayDepth, 3))), new THREE.MeshStandardMaterial({ color: 0x6b7a8d, metalness: 0.16, roughness: 0.64, side: THREE.DoubleSide }))
   keyway.position.set(keywayLength / 2, 0, diameter / 2 - number(model?.keywayDepth, 3) / 2)
   keyway.name = 'keyway'
   root.add(keyway)
@@ -285,6 +650,7 @@ function makeShaftFallback(model) {
 }
 
 function makeFallback(model) {
+  if (isClampSupportKind(model?.kind)) return makeClampSupportFallback(model)
   return model?.kind === 'bracket' ? makeBracketFallback(model) : makeShaftFallback(model)
 }
 
@@ -295,14 +661,14 @@ function prepareLoadedScene(root) {
     object.receiveShadow = true
     const sourceMaterials = Array.isArray(object.material) ? object.material : [object.material]
     const preparedMaterials = sourceMaterials.map((source) => {
-      const next = source?.clone ? source.clone() : material(0xa8bfd2)
-      if (!next.color) next.color = new THREE.Color(0xa8bfd2)
-      // The generated GLB has no user texture; a cool metal finish makes the
-      // actual mesh readable against the dark workbench while retaining any
+      const next = source?.clone ? source.clone() : material(0xb9c5d2)
+      if (!next.color) next.color = new THREE.Color(0xb9c5d2)
+      // The generated GLB has no user texture; a neutral cool metal finish
+      // keeps the actual mesh readable on the light CAD canvas while retaining any
       // texture/color that a future exporter provides.
-      if (!source?.map && !source?.vertexColors) next.color.set(0xa8bfd2)
-      next.metalness = 0.58
-      next.roughness = 0.28
+      if (!source?.map && !source?.vertexColors) next.color.set(0xb9c5d2)
+      next.metalness = 0.42
+      next.roughness = 0.34
       next.side = THREE.DoubleSide
       return next
     })
@@ -371,8 +737,8 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
 
   const glbArtifact = generation?.stale ? null : generation?.artifacts?.find((item) => String(item.format || '').toLowerCase() === 'glb')
   const glbUrl = artifactUrl(glbArtifact)
-  const productionBracketGlb = Boolean(
-    model?.kind === 'bracket'
+  const productionCadGlb = Boolean(
+    ['bracket', 'split_clamp_support', 'clamp_pedestal'].includes(model?.kind)
     && !generation?.stale
     && generation?.validation?.productionReady === true
     && glbArtifact,
@@ -397,6 +763,65 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     bossDiameter: model?.bossDiameter,
     bossCenterDistance: model?.bossCenterDistance,
     bossHeight: model?.bossHeight,
+    overallLength: model?.overallLength,
+    overallWidth: model?.overallWidth,
+    overallHeight: model?.overallHeight,
+    baseMainDepth: model?.baseMainDepth,
+    baseBodyDepth: model?.baseBodyDepth,
+    mainBaseDepth: model?.mainBaseDepth,
+    frontExtensionWidth: model?.frontExtensionWidth,
+    frontTongueWidth: model?.frontTongueWidth,
+    baseFrontWidth: model?.baseFrontWidth,
+    rearBridgeWidth: model?.rearBridgeWidth,
+    cornerRadius: model?.cornerRadius,
+    baseCornerRadius: model?.baseCornerRadius,
+    outerCornerRadius: model?.outerCornerRadius,
+    reliefRadius: model?.reliefRadius,
+    frontReliefRadius: model?.frontReliefRadius,
+    neckConcaveRadius: model?.neckConcaveRadius,
+    neckConvexRadius: model?.neckConvexRadius,
+    frontTongueRadius: model?.frontTongueRadius,
+    mountHoleDiameter: model?.mountHoleDiameter,
+    mountingHoleDiameter: model?.mountingHoleDiameter,
+    mountHoleCount: model?.mountHoleCount,
+    mountHoleCenterDistance: model?.mountHoleCenterDistance,
+    mountHoleSpacing: model?.mountHoleSpacing,
+    mountingHoleCenterDistance: model?.mountingHoleCenterDistance,
+    mountHoleCenterFromRear: model?.mountHoleCenterFromRear,
+    mountHoleCenterY: model?.mountHoleCenterY,
+    mountHoleOffsetY: model?.mountHoleOffsetY,
+    featureCenterFromRear: model?.featureCenterFromRear,
+    pedestalRadius: model?.pedestalRadius,
+    pedestalOuterRadius: model?.pedestalOuterRadius,
+    pedestalDiameter: model?.pedestalDiameter,
+    pedestalOuterDiameter: model?.pedestalOuterDiameter,
+    pedestalCenterFromRear: model?.pedestalCenterFromRear,
+    lowerPedestalHeight: model?.lowerPedestalHeight,
+    pedestalHeight: model?.pedestalHeight,
+    rearClampRise: model?.rearClampRise,
+    clampStepHeight: model?.clampStepHeight,
+    stepHeight: model?.stepHeight,
+    clampTopHeight: model?.clampTopHeight,
+    clampBoreDiameter: model?.clampBoreDiameter,
+    boreDiameter: model?.boreDiameter,
+    centerBoreDiameter: model?.centerBoreDiameter,
+    clampSlotWidth: model?.clampSlotWidth,
+    splitWidth: model?.splitWidth,
+    radialSlotWidth: model?.radialSlotWidth,
+    boreFloorZ: model?.boreFloorZ,
+    boreFloorThickness: model?.boreFloorThickness,
+    blindBoreFloorThickness: model?.blindBoreFloorThickness,
+    clampBoltHoleDiameter: model?.clampBoltHoleDiameter,
+    clampBoltDiameter: model?.clampBoltDiameter,
+    transverseHoleDiameter: model?.transverseHoleDiameter,
+    crossHoleDiameter: model?.crossHoleDiameter,
+    clampBoltCenterHeight: model?.clampBoltCenterHeight,
+    transverseHoleCenterHeight: model?.transverseHoleCenterHeight,
+    crossHoleCenterZ: model?.crossHoleCenterZ,
+    gussetHeight: model?.gussetHeight,
+    gussetThickness: model?.gussetThickness,
+    ribHeight: model?.ribHeight,
+    ribThickness: model?.ribThickness,
     length: model?.length,
     outerDiameter: model?.outerDiameter,
     holeDiameter: model?.holeDiameter,
@@ -411,7 +836,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     if (!host) return undefined
     let disposed = false
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x0b1522)
+    scene.background = new THREE.Color(0xf2f4f7)
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 5000)
     camera.up.set(0, 0, 1)
     let renderer
@@ -425,11 +850,11 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
       return undefined
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
-    renderer.setClearColor(0x0b1522, 0)
+    renderer.setClearColor(0xf2f4f7, 0)
     renderer.localClippingEnabled = true
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.12
+    renderer.toneMappingExposure = 1.02
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.domElement.className = 'three-canvas'
@@ -449,25 +874,25 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     controls.zoomSpeed = 0.85
     controls.panSpeed = 0.7
 
-    const ambient = new THREE.HemisphereLight(0xc9e4ff, 0x132238, 1.45)
+    const ambient = new THREE.HemisphereLight(0xffffff, 0xb9c2ce, 1.72)
     scene.add(ambient)
-    const key = new THREE.DirectionalLight(0xe9f5ff, 2.6)
+    const key = new THREE.DirectionalLight(0xffffff, 2.15)
     key.position.set(120, -130, 180)
     key.castShadow = true
     key.shadow.mapSize.set(1024, 1024)
     scene.add(key)
-    const fill = new THREE.DirectionalLight(0x5e9ddd, 0.85)
+    const fill = new THREE.DirectionalLight(0x89bfff, 0.72)
     fill.position.set(-150, 100, 80)
     scene.add(fill)
-    const rim = new THREE.PointLight(0x80b8ea, 0.9, 500)
+    const rim = new THREE.PointLight(0xb4c1d1, 0.62, 500)
     rim.position.set(0, 120, 130)
     scene.add(rim)
 
-    const grid = new THREE.GridHelper(280, 28, 0x365572, 0x1b344d)
+    const grid = new THREE.GridHelper(280, 28, 0x9aa9bd, 0xd5dce5)
     grid.rotation.x = Math.PI / 2
     grid.position.z = -0.08
     grid.material.transparent = true
-    grid.material.opacity = 0.42
+    grid.material.opacity = 0.56
     scene.add(grid)
     const axes = new THREE.AxesHelper(66)
     axes.position.set(-56, -32, 0)
@@ -477,7 +902,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     const clippingPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
     const sectionPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(180, 90),
-      new THREE.MeshBasicMaterial({ color: 0xf2ae62, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0x2f7cff, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }),
     )
     sectionPlane.rotation.x = -Math.PI / 2
     sectionPlane.position.z = 45
@@ -627,7 +1052,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
       attach(makeFallback(model), '参数化 WebGL fallback', `真实 GLB 加载失败（${detail}），已切换到可交互参数预览。`)
       const statusCode = Number(error?.target?.status || error?.response?.status || error?.status)
       const missingArtifact = statusCode === 404 || /responded with (?:a status of )?404|\b404\s*(?::|Not Found)/i.test(detail)
-      if (productionBracketGlb && missingArtifact) {
+      if (productionCadGlb && missingArtifact) {
         const failureKey = `${generation?.requestId || 'unknown'}:${glbArtifact?.id || glbUrl}`
         if (!reportedGlbFailuresRef.current.has(failureKey)) {
           reportedGlbFailuresRef.current.add(failureKey)

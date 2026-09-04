@@ -49,6 +49,18 @@ _REQUIRED_BRACKET_CANDIDATE_FIELDS = frozenset(
         "slotWidth", "pocketDepth", "bossDiameter", "bossCenterDistance",
     }
 )
+_REQUIRED_SPLIT_CLAMP_CANDIDATE_FIELDS = frozenset(
+    {
+        "baseLength", "baseWidth", "baseThickness", "baseMainDepth",
+        "frontTongueWidth", "rearBridgeWidth", "totalHeight",
+        "pedestalOuterRadius", "pedestalCenterFromRear", "pedestalHeight",
+        "rearClampRise", "boreDiameter", "boreFloorZ", "splitWidth",
+        "mountHoleCount", "mountHoleDiameter", "mountHoleCenterDistance",
+        "mountHoleCenterFromRear",
+        "crossHoleDiameter", "crossHoleCenterZ", "ribHeight", "ribThickness",
+        "outerCornerRadius", "neckConcaveRadius", "neckConvexRadius",
+    }
+)
 # SHA-256 of the acceptance drawing supplied with the product brief.  The
 # registry also stores this value in JSON; keeping the constant here makes it
 # easy for callers to identify the canonical fixture without opening the file.
@@ -695,8 +707,8 @@ class OCRService:
         if not isinstance(overrides, Mapping):
             raise ValidationError("parameter_overrides must be an object")
         # Unknown/low-confidence candidates are accepted only when the caller
-        # supplies an explicit parameter candidate.  BracketParameters then
-        # provides the strict schema and geometry gate below.
+        # supplies an explicit parameter candidate.  A known AI recipe keeps
+        # its own topology instead of being coerced into the legacy bracket.
         was_unknown = recognition.part_type == "unknown"
         # An AI conversation may already have merged a candidate patch into
         # the recognition recipe.  Accept can therefore omit overrides only
@@ -709,7 +721,22 @@ class OCRService:
         # forwards-compatibility, but confirmation is an authorization
         # boundary: an operator must know every requested value was actually
         # applied to the recipe.
-        effective_part_type = "bracket" if was_unknown else recognition.part_type
+        recipe_id = str(recipe.get("recipeId", recipe.get("recipe_id", "")) or "")
+        if recognition.part_type == "split_clamp_support" or (
+            was_unknown and recipe_id == "split_clamp_support_v1"
+        ):
+            effective_part_type = "split_clamp_support"
+            if recipe_id != "split_clamp_support_v1":
+                raise ValidationError(
+                    "split_clamp_support candidate requires recipeId split_clamp_support_v1"
+                )
+        elif recognition.part_type in {"unknown", "bracket"}:
+            # Preserve the historical unknown → bracket confirmation bridge.
+            effective_part_type = "bracket"
+            if recipe_id and recipe_id not in {"review-required", "bracket_support_v1"}:
+                raise ValidationError("drawing part_type and recipeId do not match")
+        else:
+            raise ValidationError(f"unsupported drawing part_type: {recognition.part_type}")
         if effective_part_type == "bracket":
             try:
                 from .schemas import BracketParameters
@@ -738,10 +765,28 @@ class OCRService:
                 raise ValidationError(
                     "unknown parameter override(s): " + ", ".join(unknown)
                 )
+        else:
+            from .schemas import SplitClampSupportParameters
+
+            allowed = set(SplitClampSupportParameters.model_fields)
+            allowed.update(
+                field.alias
+                for field in SplitClampSupportParameters.model_fields.values()
+                if getattr(field, "alias", None)
+            )
+            unknown = sorted(
+                str(key)
+                for key in set(raw_parameters).union(overrides)
+                if str(key) not in allowed
+            )
+            if unknown:
+                raise ValidationError(
+                    "unknown parameter override(s): " + ", ".join(unknown)
+                )
         parameters = dict(raw_parameters)
         parameters.update(dict(overrides))
 
-        if was_unknown:
+        if was_unknown and effective_part_type == "bracket":
             aliases = {
                 "base_length": "baseLength", "base_width": "baseWidth", "base_thickness": "baseThickness",
                 "upper_length": "upperLength", "upper_width": "upperWidth", "upper_height": "upperHeight",
@@ -754,6 +799,23 @@ class OCRService:
             if missing:
                 raise ValidationError(
                     "unknown drawing candidate is incomplete; provide: " + ", ".join(missing)
+                )
+        if effective_part_type == "split_clamp_support":
+            from .schemas import SplitClampSupportParameters
+
+            aliases = {
+                name: field.alias or name
+                for name, field in SplitClampSupportParameters.model_fields.items()
+            }
+            supplied = {
+                aliases.get(str(key), str(key))
+                for key, value in parameters.items()
+                if value is not None
+            }
+            missing = sorted(_REQUIRED_SPLIT_CLAMP_CANDIDATE_FIELDS - supplied)
+            if missing:
+                raise ValidationError(
+                    "split clamp candidate is incomplete; provide: " + ", ".join(missing)
                 )
 
         # Bracket confirmations are the hand-off into the geometry kernel.  Do
@@ -772,6 +834,25 @@ class OCRService:
             if not validation.valid:
                 raise ValidationError("drawing recipe failed geometry validation")
             parameters = validated_parameters.model_dump(by_alias=True)
+            recipe["recipeId"] = "bracket_support_v1"
+        else:
+            try:
+                from .model_recipes import parse_model_parameters, validate_model_recipe
+
+                validated_parameters = parse_model_parameters(
+                    "split_clamp_support_v1",
+                    parameters,
+                )
+                validation = validate_model_recipe(
+                    "split_clamp_support_v1",
+                    validated_parameters,
+                )
+            except Exception as exc:
+                raise ValidationError("drawing recipe parameters are invalid") from exc
+            if not validation.get("valid"):
+                raise ValidationError("drawing recipe failed geometry validation")
+            parameters = validated_parameters.model_dump(mode="json", by_alias=True)
+            recipe["recipeId"] = "split_clamp_support_v1"
         recipe["parameters"] = parameters
         recipe["confirmed_by"] = reviewer_id
         recipe["confirmation_type"] = str(confirmation_type or "reviewer")

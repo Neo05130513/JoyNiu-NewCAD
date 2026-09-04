@@ -1,5 +1,58 @@
 # 变更记录
 
+## v0.5.1 · 2026-09-02 · 远程多阶段审校与真实失败状态
+
+### Added
+
+- 图纸上传改为远程提取 → 远程尺寸链审校 → 复杂配方无候选数值盲审 → 相邻位置尺寸多次独立专项复核；每轮都重新查看原图，专项复核使用无 OCR/无模板值的高清图像块，至少两票一致才写入，前端只收到最终白名单候选。
+- 高度尺寸链增加独立远程多票复读，分别锁定 `pedestalHeight=40`、`rearClampRise=20`、`boreFloorZ=40` 和 `crossHoleCenterZ=55`；共识按字段计算，单个字段无两票一致时仅移除该字段。
+- 增加上游 `timeout/transport/incomplete/invalid_json/empty_response/invalid_stream`安全分类、尝试次数和无敏感内容耗时日志；完整 JSON delta 已到达时可从意外中断的 SSE 恢复。
+
+### Fixed
+
+- `local-fallback` 不再产生空 evidence、候选卡或“确认数据”入口，也不再把上一个动力轴冒充为新图纸候选。原图保留可重试，旧模型明确标记为上一版本。
+- 远程结果未给出 `parameterEvidence` 时显示“待评估”，不再把本地 Tesseract 的低置信度显示为 AI 置信度。
+- 根据 `9.jpg` 俯视图尺寸界线纠正两个纵向基准：圆筒轴心距后缘 35 mm，安装孔中心线距后缘 40 mm。
+- 纠正实体拓扑：下座改为前半 R33、后半直边延伸至后缘的 D 形；后高墙改为矩形直边，筋板移到后缘 10 mm 带，底板后角保持方角，横孔切通后侧。
+
+### Verification
+
+- 完整 FastAPI/CadQuery 测试集、前端生产构建和 diff 校验通过；真实 `9.jpg` 默认短提示词实测经 7 次 Responses SSE 远程分析返回全部 25 项参数，人工确认后生成一个有效 OCCT solid 与生产级 STEP，包络为 `125×95×75 mm`。
+
+## v0.5.0 · 2026-09-02 · 开口夹紧座通用配方与真实实体验收
+
+### Added
+
+- 新增 `split_clamp_support_v1` 服务端参数配方，对应 `partType=split_clamp_support`。标准实体包络为 `125×95×75 mm`，包含底板主体与前舌、R5/R8 圆角、R33 圆筒座、Ø36 中央盲孔、12 mm 径向开缝、2×Ø12 安装孔、Ø12 横向孔和对称加强筋。
+- 新增白名单配方调度器与通用几何入口 `POST /api/v1/models/validate` / `POST /api/v1/models/generate`。两个入口均校验 `partType` 与 `recipeId` 的对应关系，并严格拒绝未知参数。
+- 新增开口夹紧座专用 CadQuery/OCCT 建模、审计和 fallback 草稿。STEP 与 GLB 来自同一配方；生产验收检查单实体、包络、外圆柱、中央孔、安装孔对、横向孔、开缝和底板圆角。
+
+### Changed
+
+- 多模态候选结果增加零件身份契约：远程模型可同时返回 `partType`、`recipeId`、`parameterPatch` 和字段级 `parameterEvidence`。开口夹紧座候选返回后，工作台立即同步对应的参数面板、特征树和三维草稿，不再继续显示轴类或旧支架模型。
+- 候选数据保持 `pending/needs_review`；客户可编辑后显式确认。确认提交携带 `partType`、`recipeId` 和 `parameterOverrides`，生成时使用服务端登记的已确认 `sourceDrawingId`，并拒绝与确认快照不一致的参数。
+- 按俯视图尺寸界线重新核对纵向基准：圆筒轴心距后缘 `pedestalCenterFromRear=35`，安装孔中心线距后缘 `mountHoleCenterFromRear=40`；横向孔中心为下座顶面 `crossHoleCenterZ=15+40=55`，而非 65。缩颈凹角为 R5，前舌和底板外凸角为 R8。
+- 旧 `/brackets/validate` 与 `/brackets/generate` 保留兼容；支持多配方的工作台改用通用 models 入口。
+
+### Verification
+
+- 增加候选聊天 → 客户确认 → 通用实体生成的端到端覆盖，验证已确认图纸 ID、配方身份和参数快照能连续交接。
+- 增加配方不匹配、未知字段、参数关系冲突和严格 CadQuery 禁止降级的回归覆盖。
+- CadQuery/OCCT 可用时，覆盖 STEP 回读：回读后仍为一个有效实体，包络保持 `125×95×75 mm`，关键拓扑审计继续通过；GLB 检查 `glTF` 文件头、版本 2 和字节长度。
+
+### Production boundary
+
+- `requireCadQuery=true` 时不得降级；CadQuery/OCCT 缺失必须明确失败。faceted/WebGL fallback 始终为 `productionReady=false`，只能审阅。
+- 客户确认只解锁参数实体生成，不替代 OCCT 校验、STEP 回读、PDM 发布、CAM 审批或 NC 放行。
+
+## v0.4.1 · 2026-09-02 · 图纸候选同步预览
+
+### Fixed
+
+- 上传图纸后只要远程大模型返回有效候选，右侧参数面板和中间三维草稿会立即同步，不再停留在上传前的轴类示例模型。
+- 冲突检测改为客户操作修订号，内部分析与渲染状态不再误报为“回复期间人工编辑”。
+- 仍保留候选字段来源、待补全提示、人工确认与 OCCT 生产门禁。
+
 ## v0.4.0 · 2026-09-02 · 可持续交互的 CAD Copilot
 
 ### Added

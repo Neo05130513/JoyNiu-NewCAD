@@ -73,12 +73,16 @@ def test_rbac_token_and_deactivation() -> None:
 
 
 def test_ocr_acceptance_fixture_is_deterministic() -> None:
-    image_path = Path(
-        "/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/"
-        "codex-clipboard-6532c96b-cdb4-4481-8ffc-b1ad27ad26ac.jpg"
+    # The calibration source originally arrived through a macOS temporary
+    # clipboard path, which is intentionally not durable across machines or
+    # reboots.  Exercise the explicit fixture-only smoke-test mode here; the
+    # adjacent spoofing test verifies production mode still requires the exact
+    # registered SHA-256.
+    result = OCRService(allow_unverified_fixture=True).analyze(
+        b"fixture-bytes",
+        filename="acceptance.jpg",
+        fixture_id="bracket_support_v1",
     )
-    payload = image_path.read_bytes() if image_path.exists() else b"fixture-bytes"
-    result = OCRService().analyze(payload, filename="acceptance.jpg", fixture_id="bracket_support_v1")
     fields = {item.field: item.value for item in result.dimensions}
     assert result.status == "confirmed"
     assert result.fixture_id == "bracket_support_v1"

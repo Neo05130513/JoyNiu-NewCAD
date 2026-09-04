@@ -166,6 +166,8 @@ export const api = {
   acceptDrawing: (drawingId, payload = {}, token) => request(`/drawings/${encodeURIComponent(drawingId)}/accept`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
   validateBracket: (parameters) => request('/brackets/validate', { method: 'POST', body: JSON.stringify(parameters) }),
   generateBracket: (parameters, signal) => request('/brackets/generate', { method: 'POST', body: JSON.stringify(parameters), signal }),
+  validateModel: (payload) => request('/models/validate', { method: 'POST', body: JSON.stringify(payload) }),
+  generateModel: (payload, signal) => request('/models/generate', { method: 'POST', body: JSON.stringify(payload), signal }),
   artifactUrl: (artifactId, format = 'step') => absoluteUrl(`/api/artifacts/${encodeURIComponent(artifactId)}.${format}`),
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   createUser: (payload, token) => request('/auth/users', { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),

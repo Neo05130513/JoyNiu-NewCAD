@@ -32,6 +32,11 @@ from .geometry import (
     validate_bracket,
 )
 from .recognition import recognize_drawing_bytes, parse_hints_json
+from .model_recipes import (
+    generate_model_recipe_artifacts,
+    parse_model_parameters,
+    validate_model_recipe,
+)
 from .schemas import (
     ArtifactDescriptor,
     BracketParameters,
@@ -39,6 +44,8 @@ from .schemas import (
     DrawingResultSubmission,
     GeometryRequest,
     GeometryResponse,
+    ModelGeometryRequest,
+    ModelGeometryResponse,
     ValidationReport,
 )
 
@@ -83,6 +90,7 @@ app.add_middleware(
 _drawings: dict[str, DrawingRecognition] = {}
 _artifacts: dict[str, dict[str, Any]] = {}
 _requests: dict[str, GeometryResponse] = {}
+_model_requests: dict[str, ModelGeometryResponse] = {}
 
 # ``recognition.py`` is intentionally backwards-compatible: when no OCR
 # dimension can be recovered it returns a complete canonical bracket profile
@@ -306,6 +314,46 @@ def _reconcile_validation_with_artifacts(
         }
     )
     return reconciled, response_engine
+
+
+def _reconcile_model_validation_with_artifacts(
+    report: dict[str, Any],
+    generated: list[GeneratedArtifact],
+) -> tuple[dict[str, Any], str]:
+    """Generic-recipe counterpart of the legacy bracket delivery gate."""
+
+    step = next((item for item in generated if item.format == "step"), None)
+    primary = step or (generated[0] if generated else None)
+    step_production = bool(
+        step and step.production_ready and step.engine == "cadquery-occt"
+    )
+    production_ready = bool(report.get("productionReady") and step_production)
+    if production_ready:
+        engine = "cadquery-occt"
+        reason = "OCCT STEP artifact passed the production delivery gate"
+    elif primary is not None:
+        engine = primary.engine
+        reason = (
+            "no STEP artifact was requested; emitted artifacts are preview-only"
+            if step is None
+            else "STEP artifact is preview-only; production B-Rep is unavailable"
+        )
+    else:
+        engine = str(report.get("engine") or "no-artifact")
+        reason = "no geometry artifact was emitted"
+    reconciled = dict(report)
+    metrics = dict(reconciled.get("metrics") or {})
+    metrics.update({
+        "artifactProductionReady": production_ready,
+        "stepArtifactProductionReady": step_production,
+        "artifactEngine": engine,
+        "productionReadyReason": reason,
+        "previewOnly": not production_ready,
+    })
+    reconciled["productionReady"] = production_ready
+    reconciled["engine"] = engine
+    reconciled["metrics"] = metrics
+    return reconciled, engine
 
 
 @app.get("/health", tags=["system"])
@@ -858,6 +906,149 @@ async def generate_bracket(body: dict[str, Any] = Body(default_factory=dict)) ->
         sourceDrawingId=request.source_drawing_id,
     )
     _requests[request_id] = response
+    return response
+
+
+@app.post("/api/models/validate", tags=["geometry"])
+@app.post("/api/v1/models/validate", tags=["geometry"], include_in_schema=False)
+async def validate_model_endpoint(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Validate a server-owned recipe without executing model-supplied CAD."""
+
+    try:
+        request = ModelGeometryRequest.model_validate(body)
+        parameters = parse_model_parameters(request.recipe_id, request.parameters)
+        report = validate_model_recipe(request.recipe_id, parameters)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_context=False)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "partType": request.part_type,
+        "recipeId": request.recipe_id,
+        **report,
+    }
+
+
+@app.post(
+    "/api/models/generate",
+    response_model=ModelGeometryResponse,
+    tags=["geometry"],
+)
+@app.post(
+    "/api/v1/models/generate",
+    response_model=ModelGeometryResponse,
+    include_in_schema=False,
+)
+async def generate_model(body: dict[str, Any] = Body(...)) -> ModelGeometryResponse:
+    """Generate STEP/GLB by dispatching a validated, allow-listed recipe."""
+
+    try:
+        request = ModelGeometryRequest.model_validate(body)
+        parameters = parse_model_parameters(request.recipe_id, request.parameters)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_context=False)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if request.source_drawing_id:
+        drawing = _drawings.get(request.source_drawing_id)
+        if drawing is None and platform_services is not None:
+            drawing = getattr(platform_services, "recognitions", {}).get(request.source_drawing_id)
+        if drawing is None:
+            raise HTTPException(status_code=404, detail="source drawing recognition not found")
+        if getattr(drawing, "status", None) != "confirmed":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "drawing evidence requires explicit human confirmation before generation",
+                    "drawingId": request.source_drawing_id,
+                    "status": getattr(drawing, "status", "unknown"),
+                },
+            )
+        recipe = getattr(drawing, "model_recipe", {}) or {}
+        recorded_recipe_id = recipe.get("recipeId", recipe.get("recipe_id")) if isinstance(recipe, Mapping) else None
+        if recorded_recipe_id and recorded_recipe_id != request.recipe_id:
+            raise HTTPException(status_code=422, detail="confirmed drawing recipeId does not match request")
+        recorded_parameters = recipe.get("parameters") if isinstance(recipe, Mapping) else None
+        if isinstance(recorded_parameters, Mapping) and recorded_parameters:
+            try:
+                confirmed = parse_model_parameters(request.recipe_id, recorded_parameters)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="confirmed drawing recipe is invalid") from exc
+            current_payload = parameters.model_dump(mode="json", by_alias=True)
+            confirmed_payload = confirmed.model_dump(mode="json", by_alias=True)
+            if current_payload != confirmed_payload:
+                raise HTTPException(
+                    status_code=409,
+                    detail="requested parameters differ from the confirmed drawing recipe",
+                )
+
+    report = validate_model_recipe(request.recipe_id, parameters)
+    if not report.get("valid"):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Geometry validation failed; no artifact was generated.",
+                "validation": report,
+            },
+        )
+    try:
+        generated = generate_model_recipe_artifacts(
+            request.recipe_id,
+            parameters,
+            request.formats,
+            require_cadquery=request.require_cadquery,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    report, response_engine = _reconcile_model_validation_with_artifacts(report, generated)
+
+    request_id = f"geo_{uuid4().hex[:16]}"
+    descriptors: list[ArtifactDescriptor] = []
+    for artifact in generated:
+        artifact_id = f"art_{uuid4().hex[:16]}"
+        filename = f"joyniu-{request.recipe_id}-{request_id}.{artifact.format}"
+        digest = hashlib.sha256(artifact.data).hexdigest()
+        _artifacts[artifact_id] = {
+            "id": artifact_id,
+            "data": artifact.data,
+            "format": artifact.format,
+            "filename": filename,
+            "media_type": MEDIA_TYPES[artifact.format],
+            "engine": artifact.engine,
+            "production_ready": artifact.production_ready,
+            "warnings": artifact.warnings,
+            "request_id": request_id,
+            "sha256": digest,
+            "part_type": request.part_type,
+            "recipe_id": request.recipe_id,
+        }
+        descriptors.append(ArtifactDescriptor(
+            id=artifact_id,
+            format=artifact.format,
+            filename=filename,
+            mediaType=MEDIA_TYPES[artifact.format],
+            sizeBytes=len(artifact.data),
+            sha256=digest,
+            downloadUrl=f"/api/artifacts/{artifact_id}.{artifact.format}",
+            engine=artifact.engine,
+            productionReady=artifact.production_ready,
+            warnings=list(artifact.warnings),
+        ))
+    response = ModelGeometryResponse(
+        requestId=request_id,
+        status="completed",
+        partType=request.part_type,
+        recipeId=request.recipe_id,
+        engine=response_engine,
+        parameters=parameters.model_dump(mode="json", by_alias=True),
+        validation=report,
+        artifacts=descriptors,
+        sourceDrawingId=request.source_drawing_id,
+    )
+    _model_requests[request_id] = response
     return response
 
 

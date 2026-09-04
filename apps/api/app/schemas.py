@@ -157,6 +157,91 @@ class BracketParameters(ApiModel):
         return float(self.saddle_depth if self.saddle_depth is not None else self.base_width)
 
 
+class SplitClampSupportParameters(ApiModel):
+    """Dimensions of the split cylindrical clamp support shown in drawing 9.
+
+    This is intentionally a separate recipe from :class:`BracketParameters`.
+    Although both parts have a base and circular callouts, ``R33`` is the
+    clamp body's outside radius, ``Ø36`` is its central bore, and ``12`` is a
+    radial split width; treating those values as the legacy bracket's saddle
+    and side-hole fields produces a different solid.
+    """
+
+    base_length: float = Field(125.0, alias="baseLength")
+    base_width: float = Field(95.0, alias="baseWidth")
+    base_thickness: float = Field(15.0, alias="baseThickness")
+    base_main_depth: float = Field(80.0, alias="baseMainDepth")
+    front_tongue_width: float = Field(80.0, alias="frontTongueWidth")
+    rear_bridge_width: float = Field(86.0, alias="rearBridgeWidth")
+    total_height: float = Field(75.0, alias="totalHeight")
+    pedestal_outer_radius: float = Field(33.0, alias="pedestalOuterRadius")
+    pedestal_center_from_rear: float = Field(35.0, alias="pedestalCenterFromRear")
+    pedestal_height: float = Field(40.0, alias="pedestalHeight")
+    rear_clamp_rise: float = Field(20.0, alias="rearClampRise")
+    bore_diameter: float = Field(36.0, alias="boreDiameter")
+    bore_floor_z: float = Field(40.0, alias="boreFloorZ")
+    split_width: float = Field(12.0, alias="splitWidth")
+    mount_hole_count: Literal[2] = Field(2, alias="mountHoleCount")
+    mount_hole_diameter: float = Field(12.0, alias="mountHoleDiameter")
+    mount_hole_center_distance: float = Field(96.0, alias="mountHoleCenterDistance")
+    mount_hole_center_from_rear: float = Field(40.0, alias="mountHoleCenterFromRear")
+    cross_hole_diameter: float = Field(12.0, alias="crossHoleDiameter")
+    cross_hole_center_z: float = Field(55.0, alias="crossHoleCenterZ")
+    rib_height: float = Field(20.0, alias="ribHeight")
+    rib_thickness: float = Field(10.0, alias="ribThickness")
+    outer_corner_radius: float = Field(8.0, alias="outerCornerRadius")
+    neck_concave_radius: float = Field(5.0, alias="neckConcaveRadius")
+    neck_convex_radius: float = Field(8.0, alias="neckConvexRadius")
+    material: str = "45# 钢"
+    units: Literal["mm"] = "mm"
+
+    @field_validator(
+        "base_length",
+        "base_width",
+        "base_thickness",
+        "base_main_depth",
+        "front_tongue_width",
+        "rear_bridge_width",
+        "total_height",
+        "pedestal_outer_radius",
+        "pedestal_center_from_rear",
+        "pedestal_height",
+        "rear_clamp_rise",
+        "bore_diameter",
+        "bore_floor_z",
+        "split_width",
+        "mount_hole_diameter",
+        "mount_hole_center_distance",
+        "mount_hole_center_from_rear",
+        "cross_hole_diameter",
+        "cross_hole_center_z",
+        "rib_height",
+        "rib_thickness",
+        "outer_corner_radius",
+        "neck_concave_radius",
+        "neck_convex_radius",
+    )
+    @classmethod
+    def finite_number(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("dimension must be finite")
+        return value
+
+    @property
+    def pedestal_center_y(self) -> float:
+        """Y coordinate when the base rear edge is ``+baseWidth / 2``."""
+
+        return float(self.base_width / 2 - self.pedestal_center_from_rear)
+
+    @property
+    def mount_hole_center_y(self) -> float:
+        return float(self.base_width / 2 - self.mount_hole_center_from_rear)
+
+    @property
+    def lower_clamp_top_z(self) -> float:
+        return float(self.base_thickness + self.pedestal_height)
+
+
 class Severity(str, Enum):
     error = "error"
     warning = "warning"
@@ -279,6 +364,47 @@ class GeometryResponse(ApiModel):
     engine: str
     parameters: BracketParameters
     validation: ValidationReport
+    artifacts: list[ArtifactDescriptor]
+    source_drawing_id: str | None = Field(None, alias="sourceDrawingId")
+    created_at: datetime = Field(default_factory=utc_now, alias="createdAt")
+
+
+class ModelGeometryRequest(ApiModel):
+    """Recipe-dispatched geometry request used by the generic model API."""
+
+    part_type: Literal["bracket", "split_clamp_support"] = Field(alias="partType")
+    recipe_id: Literal["bracket_support_v1", "split_clamp_support_v1"] = Field(alias="recipeId")
+    parameters: dict[str, Any]
+    formats: list[Literal["step", "glb"]] = Field(default_factory=lambda: ["step", "glb"])
+    source_drawing_id: str | None = Field(None, alias="sourceDrawingId")
+    require_cadquery: bool = Field(False, alias="requireCadQuery")
+
+    @field_validator("formats")
+    @classmethod
+    def unique_non_empty_formats(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("at least one output format is required")
+        return list(dict.fromkeys(value))
+
+    @model_validator(mode="after")
+    def recipe_matches_part_type(self) -> "ModelGeometryRequest":
+        expected = {
+            "bracket_support_v1": "bracket",
+            "split_clamp_support_v1": "split_clamp_support",
+        }[self.recipe_id]
+        if self.part_type != expected:
+            raise ValueError(f"recipeId {self.recipe_id!r} requires partType {expected!r}")
+        return self
+
+
+class ModelGeometryResponse(ApiModel):
+    request_id: str = Field(alias="requestId")
+    status: Literal["completed", "failed"]
+    part_type: Literal["bracket", "split_clamp_support"] = Field(alias="partType")
+    recipe_id: Literal["bracket_support_v1", "split_clamp_support_v1"] = Field(alias="recipeId")
+    engine: str
+    parameters: dict[str, Any]
+    validation: dict[str, Any]
     artifacts: list[ArtifactDescriptor]
     source_drawing_id: str | None = Field(None, alias="sourceDrawingId")
     created_at: datetime = Field(default_factory=utc_now, alias="createdAt")

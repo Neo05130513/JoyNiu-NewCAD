@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import http.client
 import io
 import json
+import logging
 import math
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -32,6 +35,7 @@ MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_FILE_COUNT = 4
 _RESPONSE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,256}$")
 _KEY_RE = re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9][A-Za-z0-9._-]{10,}")
+_LOGGER = logging.getLogger("joyniu.ai_proxy")
 
 
 class AIProxyError(RuntimeError):
@@ -52,6 +56,14 @@ class AIProviderHTTPError(AIProxyError):
 
 class AIProviderTransportError(AIProxyError):
     """Transient provider connection or timeout failure."""
+
+    def __init__(self, reason: str = "transport"):
+        self.reason = "timeout" if reason == "timeout" else "transport"
+        super().__init__(
+            "AI provider request timed out"
+            if self.reason == "timeout"
+            else "AI provider request failed"
+        )
 
 
 class AIProviderIncompleteError(AIProxyError):
@@ -76,6 +88,13 @@ class AIConversationResult:
     parameter_patch: dict[str, Any]
     needs_review: bool
     questions: tuple[str, ...]
+    # A drawing turn must identify the supported topology before its numeric
+    # patch is interpreted.  Keeping this identity outside parameterPatch
+    # prevents values such as R33/Ø36 from being forced into the legacy
+    # saddle-bracket fields merely because both recipes contain circles.
+    part_type: str = "unknown"
+    recipe_id: str = ""
+    parameter_evidence: dict[str, Any] | None = None
     drawing: dict[str, Any] | None = None
     provider: dict[str, Any] | None = None
     attachments: tuple[dict[str, Any], ...] = ()
@@ -87,7 +106,11 @@ class AIConversationResult:
             "parameterPatch": dict(self.parameter_patch),
             "needsReview": self.needs_review,
             "questions": list(self.questions),
+            "partType": self.part_type,
+            "recipeId": self.recipe_id,
         }
+        if self.parameter_evidence:
+            result["parameterEvidence"] = dict(self.parameter_evidence)
         if self.drawing is not None:
             result["drawingRecognition"] = self.drawing
         if self.provider is not None:
@@ -124,9 +147,68 @@ PARAMETER_FIELDS: dict[str, str] = {
     "keywayWidth": "number",
     "keywayDepth": "number",
     "keywayLength": "number",
+    # split_clamp_support_v1 — the open cylindrical clamp pedestal used by
+    # the current 125 × 95 × 75 customer drawing.  These names deliberately
+    # do not reuse the C-bracket notch/boss aliases.
+    "baseMainDepth": "number",
+    "frontTongueWidth": "number",
+    "rearBridgeWidth": "number",
+    "pedestalOuterRadius": "number",
+    "pedestalCenterFromRear": "number",
+    "pedestalHeight": "number",
+    "rearClampRise": "number",
+    "boreDiameter": "number",
+    "boreFloorZ": "number",
+    "splitWidth": "number",
+    "mountHoleCount": "number",
+    "mountHoleDiameter": "number",
+    "mountHoleCenterDistance": "number",
+    "mountHoleCenterFromRear": "number",
+    "crossHoleDiameter": "number",
+    "crossHoleCenterZ": "number",
+    "ribHeight": "number",
+    "ribThickness": "number",
+    "outerCornerRadius": "number",
+    "neckConcaveRadius": "number",
+    "neckConvexRadius": "number",
     "material": "string",
     "units": "string",
 }
+
+_SPLIT_CLAMP_REVIEW_FIELDS = frozenset(
+    {
+        "baseLength", "baseWidth", "baseThickness", "baseMainDepth",
+        "frontTongueWidth", "rearBridgeWidth", "totalHeight",
+        "pedestalOuterRadius", "pedestalCenterFromRear", "pedestalHeight",
+        "rearClampRise", "boreDiameter", "boreFloorZ", "splitWidth",
+        "mountHoleCount", "mountHoleDiameter", "mountHoleCenterDistance",
+        "mountHoleCenterFromRear", "crossHoleDiameter", "crossHoleCenterZ",
+        "ribHeight", "ribThickness", "outerCornerRadius",
+        "neckConcaveRadius", "neckConvexRadius",
+    }
+)
+_SPLIT_CLAMP_UNIQUE_FIELDS = frozenset(
+    {
+        "baseMainDepth", "frontTongueWidth", "rearBridgeWidth",
+        "pedestalOuterRadius", "pedestalCenterFromRear", "pedestalHeight",
+        "rearClampRise", "boreDiameter", "boreFloorZ", "splitWidth",
+        "mountHoleCount", "mountHoleDiameter", "mountHoleCenterDistance",
+        "mountHoleCenterFromRear", "crossHoleDiameter", "crossHoleCenterZ",
+        "ribHeight", "ribThickness", "outerCornerRadius",
+        "neckConcaveRadius", "neckConvexRadius",
+    }
+)
+_BRACKET_REVIEW_FIELDS = frozenset(
+    {
+        "baseLength", "baseWidth", "baseThickness", "upperLength",
+        "upperWidth", "upperHeight", "totalHeight", "notchOpening",
+        "notchRadius", "slotLength", "slotWidth", "pocketDepth",
+        "bossDiameter", "bossCenterDistance",
+    }
+)
+_SHAFT_REVIEW_FIELDS = frozenset(
+    {"outerDiameter", "length", "holeDiameter", "keywayWidth", "keywayDepth", "keywayLength"}
+)
 
 
 def _nullable_schema(kind: str) -> dict[str, Any]:
@@ -408,12 +490,489 @@ def _parse_result(
         "parameter_patch",
         parsed.get("parameterPatch", parsed.get("parameters", {})),
     )
+    validated_patch = _validated_patch(raw_patch, tolerate_invalid=tolerate_patch_errors)
+    raw_part_type = parsed.get("part_type", parsed.get("partType", "unknown"))
+    raw_recipe_id = parsed.get("recipe_id", parsed.get("recipeId", ""))
+    part_type = str(raw_part_type or "unknown").strip().casefold()
+    recipe_id = str(raw_recipe_id or "").strip().casefold()
+    part_type = {
+        "split_clamp_support_v1": "split_clamp_support",
+        "circular_clamp": "split_clamp_support",
+        "circular_clamp_v1": "split_clamp_support",
+        "bracket_support_v1": "bracket",
+    }.get(part_type, part_type)
+    recipe_id = {
+        "split_clamp_support": "split_clamp_support_v1",
+        "circular_clamp": "split_clamp_support_v1",
+        "circular_clamp_v1": "split_clamp_support_v1",
+        "bracket": "bracket_support_v1",
+        "shaft": "shaft_v1",
+    }.get(recipe_id, recipe_id)
+    recipe_for_part = {
+        "shaft": "shaft_v1",
+        "bracket": "bracket_support_v1",
+        "split_clamp_support": "split_clamp_support_v1",
+    }
+    split_identity_contradicted = (
+        part_type in {"shaft", "bracket"}
+        or recipe_id in {"shaft_v1", "bracket_support_v1"}
+    )
+    part_for_recipe = {value: key for key, value in recipe_for_part.items()}
+    if not recipe_id and part_type in recipe_for_part:
+        recipe_id = recipe_for_part[part_type]
+    if part_type == "unknown" and recipe_id in part_for_recipe:
+        part_type = part_for_recipe[recipe_id]
+    supported_identities = {
+        ("unknown", ""),
+        ("shaft", "shaft_v1"),
+        ("bracket", "bracket_support_v1"),
+        ("split_clamp_support", "split_clamp_support_v1"),
+    }
+    # Some compatible vision models put the recipe id in ``part_type`` or omit
+    # one identity field.  A patch containing recipe-exclusive CAD fields is
+    # still remote-model output, so it can safely repair only an otherwise
+    # unknown/empty identity; contradictory explicit identities remain rejected.
+    has_split_fields = bool(_SPLIT_CLAMP_UNIQUE_FIELDS.intersection(validated_patch))
+    if (
+        has_split_fields
+        and not split_identity_contradicted
+        and part_type == "unknown"
+        and not recipe_id
+    ):
+        part_type, recipe_id = "split_clamp_support", "split_clamp_support_v1"
+    if (part_type, recipe_id) not in supported_identities:
+        # A provider may omit recipeId for old text-only turns.  Never infer a
+        # drawing recipe from that omission; only preserve known old types.
+        if recipe_id or part_type not in {"unknown", "shaft", "bracket"}:
+            part_type, recipe_id = "unknown", ""
+        elif part_type == "shaft":
+            recipe_id = "shaft_v1"
+        elif part_type == "bracket":
+            recipe_id = "bracket_support_v1"
+    # Compatible models sometimes invent a descriptive split-clamp label even
+    # after returning the exact recipe-exclusive field set.  Once an
+    # unsupported label has been safely reduced to unknown, perform the same
+    # evidence-based inference a second time.  Explicit shaft/bracket
+    # identities never reach this branch, so contradictory labels stay
+    # rejected.
+    if (
+        has_split_fields
+        and not split_identity_contradicted
+        and part_type == "unknown"
+        and not recipe_id
+    ):
+        part_type, recipe_id = "split_clamp_support", "split_clamp_support_v1"
+    raw_evidence = parsed.get("parameter_evidence", parsed.get("parameterEvidence", {}))
+    parameter_evidence = dict(raw_evidence) if isinstance(raw_evidence, Mapping) else {}
     return AIConversationResult(
         response_id=response_id,
         message=message,
-        parameter_patch=_validated_patch(raw_patch, tolerate_invalid=tolerate_patch_errors),
+        parameter_patch=validated_patch,
         needs_review=bool(parsed.get("needs_review", parsed.get("needsReview", False))),
         questions=tuple(raw_questions),
+        part_type=part_type,
+        recipe_id=recipe_id,
+        parameter_evidence=parameter_evidence,
+    )
+
+
+def _candidate_snapshot(result: AIConversationResult) -> dict[str, Any]:
+    """Serialize only typed remote identity and values for another stage.
+
+    Free-form evidence and questions are deliberately excluded: text derived
+    from an uploaded drawing must not be replayed as instructions in the next
+    model request.
+    """
+
+    return {
+        "part_type": result.part_type,
+        "recipe_id": result.recipe_id,
+        "parameter_patch": dict(result.parameter_patch),
+        "needs_review": bool(result.needs_review),
+    }
+
+
+def _required_review_fields(result: AIConversationResult) -> frozenset[str]:
+    if result.part_type == "split_clamp_support" or result.recipe_id == "split_clamp_support_v1":
+        return _SPLIT_CLAMP_REVIEW_FIELDS
+    if result.part_type == "bracket" or result.recipe_id == "bracket_support_v1":
+        return _BRACKET_REVIEW_FIELDS
+    if result.part_type == "shaft" or result.recipe_id == "shaft_v1":
+        return _SHAFT_REVIEW_FIELDS
+    return frozenset()
+
+
+def _candidate_needs_arbitration(
+    extraction: AIConversationResult,
+    review: AIConversationResult,
+) -> bool:
+    """Detect unresolved identity, dimensions, or recipe completeness."""
+
+    if review.part_type == "unknown" or not review.recipe_id or not review.parameter_patch:
+        return True
+    # Brackets and split-clamp supports contain several nearby dimensions
+    # whose extension lines can be mapped to different but geometrically
+    # plausible datums.  Two passes can agree while repeating that visual
+    # association error, so complex recipes always receive an independent
+    # third look at the original drawing.  Simpler shaft recipes can stop
+    # after two complete, consistent remote passes.
+    if review.part_type in {"bracket", "split_clamp_support"}:
+        return True
+    if (
+        extraction.part_type != "unknown"
+        and extraction.part_type != review.part_type
+    ) or (
+        extraction.recipe_id
+        and extraction.recipe_id != review.recipe_id
+    ):
+        return True
+    for key in extraction.parameter_patch.keys() & review.parameter_patch.keys():
+        first = extraction.parameter_patch[key]
+        second = review.parameter_patch[key]
+        if isinstance(first, (int, float)) and isinstance(second, (int, float)):
+            if not math.isclose(float(first), float(second), rel_tol=1e-6, abs_tol=0.01):
+                return True
+        elif first != second:
+            return True
+    required = _required_review_fields(review)
+    return bool(required.difference(review.parameter_patch))
+
+
+def _review_stage_prompt(
+    stage: str,
+    candidates: tuple[AIConversationResult, ...],
+) -> str:
+    """Build a remote-only audit prompt without local OCR or template values."""
+
+    latest = candidates[-1]
+    required = sorted(_required_review_fields(latest))
+    if stage == "audit":
+        snapshots = [_candidate_snapshot(item) for item in candidates]
+        task = (
+            "这是远程第二阶段尺寸审校。首轮候选不是真值；请重新查看随附原图的全部正投影视图、"
+            "剖面/隐藏线、尺寸界线与等轴测图，逐字段检查尺寸属于边距、中心距、相对高度还是绝对高度。"
+            "重点核对尺寸链闭合、总高分解、孔底位置、半径与直径、同一特征跨视图对应关系。"
+        )
+        candidate_context = (
+            "待审校的远程候选JSON："
+            + json.dumps(snapshots, ensure_ascii=False, separators=(",", ":"))
+        )
+    else:
+        task = (
+            "这是远程第三阶段盲审裁决。随附内容是客户原始全图。前两轮候选均不是真值，且本轮刻意"
+            "不提供其数值以避免锚定；请完全从图像重新读取并补查字段。必须独立复读尺寸线："
+            "沿每条尺寸界线追踪箭头端点，特别区分相邻平行尺寸对应的孔中心、主体轴线、"
+            "台阶边界和外轮廓，禁止因前两轮一致而直接照抄。只能以原图尺寸和可证明的尺寸链为依据。"
+        )
+        candidate_context = (
+            "前两轮仅确定了待盲审的配方身份，不提供任何候选尺寸："
+            + json.dumps(
+                {"part_type": latest.part_type, "recipe_id": latest.recipe_id},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+    completeness = (
+        "当前已识别配方的完整候选字段为：" + ",".join(required) + "。"
+        if required
+        else "请先从原图确定受支持的part_type与recipe_id。"
+    )
+    return (
+        task
+        + completeness
+        + "禁止使用本地OCR、模板默认值或未经图纸证明的猜测；无法证明的值应省略并放入questions。"
+        + "返回且只返回最终JSON：message、part_type、recipe_id、parameter_patch、"
+        "parameter_evidence、needs_review、questions。"
+        + candidate_context
+    )
+
+
+def _review_detail_files(files: tuple[AIFile, ...]) -> tuple[AIFile, ...]:
+    """Add overlapping raster detail tiles for the blind remote review.
+
+    The tiles contain no OCR, inferred values, or template annotations. They
+    are merely enlarged crops of the customer's original raster drawing, so
+    every candidate dimension still comes exclusively from the remote vision
+    model while dense dimension lines remain legible after relay resizing.
+    """
+
+    expanded = list(files)
+    try:
+        from PIL import Image
+    except Exception:
+        return tuple(expanded)
+
+    total_tile_bytes = 0
+    for item in files:
+        suffix = Path(item.filename).suffix.casefold()
+        if not item.content_type.casefold().startswith("image/") or suffix not in {
+            ".png", ".jpg", ".jpeg", ".webp", ".bmp",
+        }:
+            continue
+        tiles: list[AIFile] = []
+        try:
+            with Image.open(io.BytesIO(item.data)) as opened:
+                opened.seek(0)
+                width, height = opened.size
+                if width < 800 or height < 600 or width * height > 20_000_000:
+                    continue
+                image = opened.convert("RGB")
+            tile_width = min(width, math.ceil(width * 0.58))
+            tile_height = min(height, math.ceil(height * 0.58))
+            positions = (
+                (0, 0, "top-left"),
+                (width - tile_width, 0, "top-right"),
+                (0, height - tile_height, "bottom-left"),
+                (width - tile_width, height - tile_height, "bottom-right"),
+            )
+            stem = Path(item.filename).stem or "drawing"
+            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            for left, top, label in positions:
+                crop = image.crop((left, top, left + tile_width, top + tile_height))
+                longest = max(crop.size)
+                if longest != 1800:
+                    scale = 1800 / longest
+                    crop = crop.resize(
+                        (max(1, round(crop.width * scale)), max(1, round(crop.height * scale))),
+                        resampling,
+                    )
+                output = io.BytesIO()
+                crop.save(output, format="JPEG", quality=90, optimize=True)
+                payload = output.getvalue()
+                if not payload or len(payload) > MAX_FILE_BYTES:
+                    continue
+                if total_tile_bytes + len(payload) > 8 * 1024 * 1024:
+                    break
+                total_tile_bytes += len(payload)
+                tiles.append(
+                    AIFile(
+                        filename=f"{stem}__detail-{label}.jpg",
+                        content_type="image/jpeg",
+                        data=payload,
+                    )
+                )
+        except Exception:
+            continue
+        expanded.extend(tiles)
+        # Only the first decodable raster receives derivatives; the original
+        # uploads remain intact and additional customer files are not copied.
+        break
+    return tuple(expanded)
+
+
+def _focused_position_review_prompt(
+    result: AIConversationResult,
+) -> tuple[str, frozenset[str]] | None:
+    """Return a narrow remote visual check for recipe-specific position datums.
+
+    This prompt intentionally contains field semantics but no candidate or
+    expected numbers.  It exists because a full-part review can correctly read
+    every label yet swap two nearby extension lines while filling the schema.
+    """
+
+    if result.part_type != "split_clamp_support" and result.recipe_id != "split_clamp_support_v1":
+        return None
+    allowed = frozenset({"pedestalCenterFromRear", "mountHoleCenterFromRear"})
+    prompt = (
+        "这是独立的位置基准视觉校验。所附内容是客户原图或其无标注的高清局部块；"
+        "只分析俯视图，不参考任何先前候选。请逐条追踪所有竖向尺寸线的上、下箭头及其"
+        "水平延长线，明确哪条中心线穿过中央R外圆筒座轴心，哪条中心线穿过两只底板安装孔轴心。"
+        "不要依据标注文字处在图面左侧或右侧来猜测，必须以尺寸界线终点实际落到的特征中心线为准。"
+        "只返回JSON：message、part_type=split_clamp_support、recipe_id=split_clamp_support_v1、"
+        "parameter_patch（仅允许pedestalCenterFromRear和mountHoleCenterFromRear）、"
+        "parameter_evidence、needs_review、questions。无法从图像证明的字段就省略。"
+    )
+    return prompt, allowed
+
+
+def _focused_height_review_prompt(
+    result: AIConversationResult,
+) -> tuple[str, frozenset[str]] | None:
+    """Return a narrow side-view check for absolute hole-height datums."""
+
+    if result.part_type != "split_clamp_support" and result.recipe_id != "split_clamp_support_v1":
+        return None
+    allowed = frozenset({
+        "pedestalHeight",
+        "rearClampRise",
+        "boreFloorZ",
+        "crossHoleCenterZ",
+    })
+    prompt = (
+        "这是独立的高度基准视觉校验，只分析所附侧视图放大块，不参考任何先前候选。"
+        "以零件最底面为Z=0。先只看侧视图最右侧的上下叠加竖向尺寸链：逐段追踪箭头与"
+        "水平延长线，分别读取最高壁顶面到低圆筒顶面、低圆筒顶面到中央盲孔底部虚线的数值。"
+        "后一段才是盲孔深度，严禁借用左侧标注或上一段数值。再追踪Ø12横孔两条隐藏轮廓线及"
+        "圆心线，判断圆心线与哪个实体水平面重合，并计算绝对Z。"
+        "同时从底板上表面、低圆筒顶面和最高壁顶面的关系给出低圆筒净高及后壁加高。"
+        "只返回JSON：message、part_type=split_clamp_support、recipe_id=split_clamp_support_v1、"
+        "parameter_patch（仅允许pedestalHeight、rearClampRise、boreFloorZ和crossHoleCenterZ）、parameter_evidence、"
+        "needs_review、questions。无法从图像证明的字段就省略。"
+    )
+    return prompt, allowed
+
+
+def _merge_remote_review_result(
+    base: AIConversationResult,
+    override: AIConversationResult,
+) -> AIConversationResult:
+    """Merge a partial later remote audit without discarding earlier fields."""
+
+    patch = dict(base.parameter_patch)
+    patch.update(override.parameter_patch)
+    evidence = dict(base.parameter_evidence or {})
+    evidence.update(override.parameter_evidence or {})
+    questions = tuple(dict.fromkeys((*base.questions, *override.questions)))
+    return AIConversationResult(
+        response_id=override.response_id or base.response_id,
+        message=override.message or base.message,
+        parameter_patch=patch,
+        needs_review=base.needs_review or override.needs_review,
+        questions=questions,
+        part_type=(
+            override.part_type
+            if override.part_type != "unknown"
+            else base.part_type
+        ),
+        recipe_id=override.recipe_id or base.recipe_id,
+        parameter_evidence=evidence,
+    )
+
+
+def _merge_focused_remote_result(
+    base: AIConversationResult,
+    focused: AIConversationResult,
+    allowed: frozenset[str],
+    label: str,
+) -> AIConversationResult:
+    """Overlay only remotely re-read datum fields onto the full remote result."""
+
+    focused_patch = {
+        key: value
+        for key, value in focused.parameter_patch.items()
+        if key in allowed
+    }
+    if not focused_patch:
+        return base
+    patch = dict(base.parameter_patch)
+    patch.update(focused_patch)
+    evidence = dict(base.parameter_evidence or {})
+    for key in focused_patch:
+        candidate = (focused.parameter_evidence or {}).get(key)
+        if isinstance(candidate, Mapping):
+            evidence[key] = dict(candidate)
+    questions = tuple(dict.fromkeys((*base.questions, *focused.questions)))
+    message = base.message
+    if focused.message:
+        message = f"{message}\n\n{label}：{focused.message}" if message else focused.message
+    return AIConversationResult(
+        response_id=focused.response_id or base.response_id,
+        message=message,
+        parameter_patch=patch,
+        needs_review=True,
+        questions=questions,
+        part_type=base.part_type,
+        recipe_id=base.recipe_id,
+        parameter_evidence=evidence,
+    )
+
+
+def _focused_review_files(
+    review_files: tuple[AIFile, ...],
+    tile_label: str,
+    variant: int,
+) -> tuple[AIFile, ...]:
+    """Diversify independent reads between full context and a close tile."""
+
+    focused = tuple(
+        item for item in review_files
+        if f"__detail-{tile_label}" in item.filename
+    )
+    if variant == 0:
+        return review_files
+    return focused or review_files[:1]
+
+
+def _focused_consensus(
+    results: tuple[AIConversationResult, ...],
+    allowed: frozenset[str],
+) -> tuple[AIConversationResult | None, frozenset[str]]:
+    """Return field-level two-vote consensus and the unresolved fields."""
+
+    agreed_patch: dict[str, Any] = {}
+    agreed_evidence: dict[str, Any] = {}
+    contributors: list[AIConversationResult] = []
+    for key in sorted(allowed):
+        votes: dict[float, list[AIConversationResult]] = {}
+        for result in results:
+            value = result.parameter_patch.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            votes.setdefault(round(float(value), 6), []).append(result)
+        winning = next(
+            (bucket for bucket in votes.values() if len(bucket) >= 2),
+            None,
+        )
+        if winning is None:
+            continue
+        contributor = winning[-1]
+        contributors.append(contributor)
+        agreed_patch[key] = contributor.parameter_patch[key]
+        candidate = (contributor.parameter_evidence or {}).get(key)
+        if isinstance(candidate, Mapping):
+            agreed_evidence[key] = dict(candidate)
+    unresolved = frozenset(allowed.difference(agreed_patch))
+    if not agreed_patch:
+        return None, unresolved
+    last = contributors[-1]
+    questions = tuple(
+        dict.fromkeys(
+            question
+            for contributor in contributors
+            for question in contributor.questions
+        )
+    )
+    return AIConversationResult(
+        response_id=last.response_id,
+        message="远程独立复读已对 " + "、".join(sorted(agreed_patch)) + " 形成两票一致。",
+        parameter_patch=agreed_patch,
+        needs_review=True,
+        questions=questions,
+        part_type=last.part_type,
+        recipe_id=last.recipe_id,
+        parameter_evidence=agreed_evidence,
+    ), unresolved
+
+
+def _drop_unconfirmed_remote_fields(
+    base: AIConversationResult,
+    fields: frozenset[str],
+    label: str,
+) -> AIConversationResult:
+    """Do not expose a stochastic datum when remote reads lack consensus."""
+
+    patch = {key: value for key, value in base.parameter_patch.items() if key not in fields}
+    evidence = {
+        key: value
+        for key, value in (base.parameter_evidence or {}).items()
+        if key not in fields
+    }
+    question = f"{label}的独立远程复读未形成两票一致，请人工确认对应尺寸界线。"
+    questions = tuple(dict.fromkeys((*base.questions, question)))
+    message = (
+        f"{base.message}\n\n{label}未形成一致，因此未写入相关候选字段。"
+        if base.message
+        else f"{label}未形成一致，因此未写入相关候选字段。"
+    )
+    return AIConversationResult(
+        response_id=base.response_id,
+        message=message,
+        parameter_patch=patch,
+        needs_review=True,
+        questions=questions,
+        part_type=base.part_type,
+        recipe_id=base.recipe_id,
+        parameter_evidence=evidence,
     )
 
 
@@ -792,12 +1351,28 @@ def _provider_body(
         # Keep the key guide short enough for the relay's vision path while
         # still making the supported bracket semantics unambiguous.  The
         # server-side allowlist below remains the final authority.
-        fields = (
+        legacy_fields = (
             "baseLength=底板长,baseWidth=底板宽,baseThickness=底板厚,"
             "upperLength=上部长,upperWidth=上部全宽,upperHeight=上部高,"
             "totalHeight=总高,notchOpening=鞍槽开口,notchRadius=鞍槽半径,"
             "slotLength=浅槽沿Y长,slotWidth=浅槽宽,pocketDepth=浅槽深,"
             "bossDiameter=圆孔直径,bossCenterDistance=圆孔中心距,units=单位"
+        )
+        split_clamp_fields = (
+            "baseLength=底板X总长,baseWidth=底板Y总深,baseThickness=底板厚,"
+            "baseMainDepth=不含前舌的底板主段Y深,frontTongueWidth=前舌X宽,"
+            "rearBridgeWidth=俯视86跨距,pedestalOuterRadius=圆筒座外半径,"
+            "pedestalCenterFromRear=圆筒轴距底板后缘,pedestalHeight=低圆筒高(不含底板),"
+            "rearClampRise=后部高壁比低圆筒再高的高度,totalHeight=零件总高,"
+            "boreDiameter=中央竖直孔直径,boreFloorZ=中央盲孔底面绝对Z,"
+            "splitWidth=从中央孔径向贯通外壁的开缝宽,"
+            "mountHoleCount=底板安装孔数量,mountHoleDiameter=底板安装孔直径,"
+            "mountHoleCenterDistance=两安装孔X中心距,"
+            "mountHoleCenterFromRear=安装孔轴线距底板后缘,"
+            "crossHoleDiameter=夹紧横孔直径,crossHoleCenterZ=横孔中心绝对Z,"
+            "ribHeight=加强筋高,ribThickness=加强筋Y厚,"
+            "outerCornerRadius=底板外圆角,neckConcaveRadius=肩部内凹圆角,"
+            "neckConvexRadius=前舌外圆角,units=单位"
         )
         content.insert(
             0,
@@ -805,9 +1380,23 @@ def _provider_body(
                 "type": "input_text",
                 "text": (
                     "请分析附加工程图，检查所有视图、标注和特征关系。"
-                    "只返回 JSON（不要 Markdown）：message、parameter_patch、needs_review、questions。"
-                    f"parameter_patch 字段含义：{fields}。"
-                    "只填图纸明确证明的候选值，未知省略或 null，绝不猜测；"
+                    "只返回 JSON（不要 Markdown）：message、part_type、recipe_id、"
+                    "parameter_patch、parameter_evidence、needs_review、questions。"
+                    "先识别拓扑：普通轴用 shaft/shaft_v1；旧矩形鞍槽支架用 "
+                    "bracket/bracket_support_v1；带异形底板、R外圆筒座、中央竖孔和径向开缝的"
+                    "开口夹紧座必须用 split_clamp_support/split_clamp_support_v1；无法判定用 unknown/空串。"
+                    f"旧鞍槽支架字段：{legacy_fields}。"
+                    f"开口夹紧座字段：{split_clamp_fields}。"
+                    "严禁跨配方错配：开口夹紧座的R外圆填pedestalOuterRadius，中央Ø孔填boreDiameter，"
+                    "径向槽宽填splitWidth，2×Ø安装孔填mountHoleCount/mountHoleDiameter/"
+                    "mountHoleCenterDistance/mountHoleCenterFromRear，不能写入"
+                    "notchRadius/notchOpening/bossDiameter。"
+                    "开口夹紧座的高度语义：pedestalHeight是底板上表面到低圆筒顶面的高度，"
+                    "rearClampRise是低圆筒顶面到后部高壁顶面的高度；侧视图中从低圆筒顶面"
+                    "向下的尺寸属于盲孔深度，不得再从pedestalHeight扣除。"
+                    "若横孔圆心与低圆筒顶面同高，则crossHoleCenterZ=baseThickness+pedestalHeight。"
+                    "图纸可直接推导的值也应填写，并在parameter_evidence中记录sourceView、sourceText、"
+                    "confidence、derivation；未知省略或null，绝不猜测。"
                     "识别不完整时仍返回已识别值并设 needs_review=true，候选必须人工确认。"
                 ),
             },
@@ -956,6 +1545,22 @@ def _stream_payload(
     data_lines: list[str] = []
     emitted_message = ""
 
+    def recover_complete_output() -> Mapping[str, Any] | None:
+        """Recover a complete JSON answer if an SSE connection ends abruptly."""
+
+        output_text = done_text or "".join(deltas)
+        if not output_text:
+            return None
+        try:
+            _json_from_text(output_text)
+        except AIProxyError:
+            return None
+        return {
+            "id": response_id or f"resp_stream_{uuid4().hex[:16]}",
+            "status": "completed",
+            "output_text": output_text,
+        }
+
     def consume_event() -> bool:
         nonlocal completed, response_id, done_text, data_lines, emitted_message
         if not data_lines:
@@ -1040,50 +1645,61 @@ def _stream_payload(
             data_lines.append(next_data)
         return False
 
-    if hasattr(response, "readline"):
-        first_line = response.readline()
-        if not first_line:
-            raise AIProxyError("AI provider returned an empty streaming response")
-        # Compatibility path for relays that ignore ``stream=true`` and return
-        # one ordinary Responses JSON document.  Actual SSE always begins with
-        # an event/comment/data field, so buffering is confined to this path.
-        if first_line.lstrip().startswith((b"{", b"[")):
-            if hasattr(response, "read"):
-                remainder = response.read()
-            else:
-                parts: list[bytes] = []
-                while True:
-                    part = response.readline()
-                    if not part:
-                        break
-                    parts.append(part)
-                remainder = b"".join(parts)
-            return _json_mapping(
-                (first_line + remainder).strip(),
-                error_message="AI provider returned invalid JSON",
-            )
+    try:
+        if hasattr(response, "readline"):
+            first_line = response.readline()
+            if not first_line:
+                raise AIProxyError("AI provider returned an empty streaming response")
+            # Compatibility path for relays that ignore ``stream=true`` and return
+            # one ordinary Responses JSON document.  Actual SSE always begins with
+            # an event/comment/data field, so buffering is confined to this path.
+            if first_line.lstrip().startswith((b"{", b"[")):
+                if hasattr(response, "read"):
+                    remainder = response.read()
+                else:
+                    parts: list[bytes] = []
+                    while True:
+                        part = response.readline()
+                        if not part:
+                            break
+                        parts.append(part)
+                    remainder = b"".join(parts)
+                return _json_mapping(
+                    (first_line + remainder).strip(),
+                    error_message="AI provider returned invalid JSON",
+                )
 
-        terminal = consume_line(first_line)
-        while not terminal:
-            raw_line = response.readline()
-            if not raw_line:
-                break
-            terminal = consume_line(raw_line)
-        if not terminal and data_lines:
-            consume_event()
-    else:  # small injectable response doubles used by tests
-        raw_body = response.read().strip()
-        if not raw_body:
-            raise AIProxyError("AI provider returned an empty streaming response")
-        if raw_body.startswith((b"{", b"[")):
-            return _json_mapping(raw_body, error_message="AI provider returned invalid JSON")
-        terminal = False
-        for raw_line in raw_body.splitlines(keepends=True):
-            terminal = consume_line(raw_line)
-            if terminal:
-                break
-        if not terminal and data_lines:
-            consume_event()
+            terminal = consume_line(first_line)
+            while not terminal:
+                raw_line = response.readline()
+                if not raw_line:
+                    break
+                terminal = consume_line(raw_line)
+            if not terminal and data_lines:
+                consume_event()
+        else:  # small injectable response doubles used by tests
+            raw_body = response.read().strip()
+            if not raw_body:
+                raise AIProxyError("AI provider returned an empty streaming response")
+            if raw_body.startswith((b"{", b"[")):
+                return _json_mapping(raw_body, error_message="AI provider returned invalid JSON")
+            terminal = False
+            for raw_line in raw_body.splitlines(keepends=True):
+                terminal = consume_line(raw_line)
+                if terminal:
+                    break
+            if not terminal and data_lines:
+                consume_event()
+    except (TimeoutError, OSError, http.client.IncompleteRead):
+        if data_lines:
+            try:
+                consume_event()
+            except AIProxyError:
+                pass
+        recovered = recover_complete_output()
+        if recovered is not None:
+            return recovered
+        raise
 
     if completed is not None:
         return completed
@@ -1121,8 +1737,29 @@ def _call_provider(
             return _stream_payload(response, on_message_update=on_message_update)
     except urllib.error.HTTPError as exc:
         raise AIProviderHTTPError(exc.code) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise AIProviderTransportError("AI provider request failed") from exc
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as exc:
+        nested_reason = getattr(exc, "reason", None)
+        timed_out = isinstance(exc, TimeoutError) or isinstance(nested_reason, TimeoutError)
+        raise AIProviderTransportError("timeout" if timed_out else "transport") from exc
+
+
+def _provider_error_code(error: AIProxyError | None) -> str:
+    """Return a credential-free failure category for logs and UI diagnostics."""
+
+    if isinstance(error, AIProviderHTTPError):
+        return f"http_{error.status_code}"
+    if isinstance(error, AIProviderTransportError):
+        return error.reason
+    if isinstance(error, AIProviderIncompleteError):
+        return "incomplete"
+    message = str(error or "")
+    if "invalid structured JSON" in message:
+        return "invalid_json"
+    if "empty" in message or "no structured" in message or "no completed" in message:
+        return "empty_response"
+    if "stream" in message:
+        return "invalid_stream"
+    return "invalid_response" if error is not None else "not_configured"
 
 
 def _provider_error_is_retryable(error: AIProxyError) -> bool:
@@ -1165,12 +1802,18 @@ def _validated_history(history: Iterable[Mapping[str, Any]]) -> tuple[dict[str, 
     return tuple(result)
 
 
-def _safe_provider_info(mode: str, configured: bool) -> dict[str, Any]:
+def _safe_provider_info(
+    mode: str,
+    configured: bool,
+    *,
+    last_error: AIProxyError | None = None,
+    attempts: int | None = None,
+) -> dict[str, Any]:
     try:
         base_url = _base_url()
     except AIProxyError:
         base_url = ""
-    return {
+    result = {
         "name": "gptx",
         "baseUrl": base_url,
         "model": _model(),
@@ -1180,17 +1823,27 @@ def _safe_provider_info(mode: str, configured: bool) -> dict[str, Any]:
         "mode": mode,
         "anonymousAllowed": os.environ.get("JOYNIU_AI_ALLOW_ANONYMOUS", "0").casefold() in {"1", "true", "yes"},
     }
+    if last_error is not None:
+        result["lastErrorCode"] = _provider_error_code(last_error)
+    if attempts is not None:
+        result["attempts"] = int(attempts)
+    return result
 
 
 class AIProxy:
     """Small Responses API client, injectable in tests."""
 
-    def __init__(self, *, timeout_seconds: float = 60.0):
-        # Keep an unavailable relay from holding the customer's workbench in
-        # a spinner indefinitely.  Vision requests can legitimately take
-        # several dozen seconds on a relay, so allow one bounded minute before
-        # returning the editable local candidate envelope.
-        self.timeout_seconds = timeout_seconds
+    def __init__(self, *, timeout_seconds: float | None = None):
+        # High-effort engineering vision regularly needs more than one minute
+        # before it closes a large structured answer.  Keep a transport safety
+        # timeout, but do not impose an application token/output cap or abort a
+        # healthy long-running relay turn at the old 60-second boundary.
+        configured_timeout = os.environ.get("JOYNIU_AI_TIMEOUT_SECONDS", "600")
+        try:
+            default_timeout = float(configured_timeout)
+        except (TypeError, ValueError):
+            default_timeout = 600.0
+        self.timeout_seconds = timeout_seconds if timeout_seconds is not None else max(30.0, default_timeout)
 
     @property
     def allow_anonymous(self) -> bool:
@@ -1243,6 +1896,7 @@ class AIProxy:
 
         remote_error: AIProxyError | None = None
         remote_result: AIConversationResult | None = None
+        attempts_made = 0
         if configured:
             # Both attempts ask the multimodal model to inspect the original
             # upload.  The first uses engineering-friendly high detail; the
@@ -1255,9 +1909,19 @@ class AIProxy:
                 (False, None, False, "low" if files_tuple else None),
             )
             for attempt_index, (include_schema, attempt_previous_id, force_store, image_detail) in enumerate(attempt_specs):
+                attempts_made = attempt_index + 1
+                started_at = time.monotonic()
+                stage_name = "extract" if files_tuple else "conversation"
                 try:
                     if on_status is not None:
-                        on_status("正在连接远程大模型…" if attempt_index == 0 else "正在使用兼容视觉模式重试…")
+                        if files_tuple:
+                            on_status(
+                                "阶段 1/3：远程模型正在提取图纸候选…"
+                                if attempt_index == 0
+                                else "阶段 1/3：首次提取未完成，正在兼容视觉重试…"
+                            )
+                        else:
+                            on_status("正在连接远程大模型…" if attempt_index == 0 else "正在重试远程大模型…")
                     body = _provider_body(
                         message,
                         model_state,
@@ -1271,7 +1935,10 @@ class AIProxy:
                     payload = _call_provider(
                         body,
                         self.timeout_seconds,
-                        on_message_update=on_message_update,
+                        # Drawing candidates remain private between remote
+                        # stages. Only the final audited result is sent to the
+                        # browser after the pipeline completes.
+                        on_message_update=None if files_tuple else on_message_update,
                     )
                     # A vision model may include descriptive, non-CAD keys
                     # (for example ``overall_length``) alongside allow-listed
@@ -1281,14 +1948,265 @@ class AIProxy:
                         payload,
                         tolerate_patch_errors=bool(files_tuple),
                     )
-                    if on_message_update is not None:
+                    if on_message_update is not None and not files_tuple:
                         on_message_update(remote_result.message)
                     remote_error = None
+                    _LOGGER.info(
+                        "AI relay stage=%s attempt=%d succeeded in %.2fs (attachment=%s, detail=%s, parameters=%d)",
+                        stage_name,
+                        attempts_made,
+                        time.monotonic() - started_at,
+                        bool(files_tuple),
+                        image_detail or "none",
+                        len(remote_result.parameter_patch),
+                    )
                     break
                 except AIProxyError as exc:
                     remote_error = exc
+                    _LOGGER.warning(
+                        "AI relay stage=%s attempt=%d failed in %.2fs (attachment=%s, detail=%s, code=%s)",
+                        stage_name,
+                        attempts_made,
+                        time.monotonic() - started_at,
+                        bool(files_tuple),
+                        image_detail or "none",
+                        _provider_error_code(exc),
+                    )
                     if attempt_index + 1 >= len(attempt_specs) or not _provider_error_is_retryable(exc):
                         break
+
+            if files_tuple and remote_result is not None:
+                extraction_result = remote_result
+                review_result: AIConversationResult | None = None
+                review_detail_files = _review_detail_files(files_tuple)
+                if on_status is not None:
+                    on_status("阶段 2/3：远程模型正在审校尺寸链与视图关系…")
+                attempts_made += 1
+                started_at = time.monotonic()
+                try:
+                    review_body = _provider_body(
+                        _review_stage_prompt("audit", (extraction_result,)),
+                        None,
+                        files_tuple,
+                        None,
+                        history=(),
+                        include_schema=False,
+                        force_store=False,
+                        image_detail=_image_detail(),
+                    )
+                    review_payload = _call_provider(
+                        review_body,
+                        self.timeout_seconds,
+                        on_message_update=None,
+                    )
+                    review_result = _parse_result(
+                        review_payload,
+                        tolerate_patch_errors=True,
+                    )
+                    remote_error = None
+                    _LOGGER.info(
+                        "AI relay stage=audit attempt=%d succeeded in %.2fs (attachment=True, parameters=%d)",
+                        attempts_made,
+                        time.monotonic() - started_at,
+                        len(review_result.parameter_patch),
+                    )
+                except AIProxyError as exc:
+                    remote_error = exc
+                    _LOGGER.warning(
+                        "AI relay stage=audit attempt=%d failed in %.2fs (attachment=True, code=%s)",
+                        attempts_made,
+                        time.monotonic() - started_at,
+                        _provider_error_code(exc),
+                    )
+
+                needs_arbitration = (
+                    review_result is None
+                    or _candidate_needs_arbitration(extraction_result, review_result)
+                )
+                can_arbitrate = review_result is not None or (
+                    remote_error is not None and _provider_error_is_retryable(remote_error)
+                )
+                arbitration_result: AIConversationResult | None = None
+                if needs_arbitration and can_arbitrate:
+                    if on_status is not None:
+                        on_status("阶段 3/3：远程模型正在裁决冲突并补全候选…")
+                    attempts_made += 1
+                    started_at = time.monotonic()
+                    candidates = (
+                        (extraction_result, review_result)
+                        if review_result is not None
+                        else (extraction_result,)
+                    )
+                    try:
+                        arbitration_body = _provider_body(
+                            _review_stage_prompt("arbitrate", candidates),
+                            None,
+                            files_tuple,
+                            None,
+                            history=(),
+                            include_schema=False,
+                            force_store=False,
+                            image_detail=_image_detail(),
+                        )
+                        arbitration_payload = _call_provider(
+                            arbitration_body,
+                            self.timeout_seconds,
+                            on_message_update=None,
+                        )
+                        arbitration_result = _parse_result(
+                            arbitration_payload,
+                            tolerate_patch_errors=True,
+                        )
+                        remote_error = None
+                        _LOGGER.info(
+                            "AI relay stage=arbitrate attempt=%d succeeded in %.2fs (attachment=True, parameters=%d)",
+                            attempts_made,
+                            time.monotonic() - started_at,
+                            len(arbitration_result.parameter_patch),
+                        )
+                    except AIProxyError as exc:
+                        remote_error = exc
+                        _LOGGER.warning(
+                            "AI relay stage=arbitrate attempt=%d failed in %.2fs (attachment=True, code=%s)",
+                            attempts_made,
+                            time.monotonic() - started_at,
+                            _provider_error_code(exc),
+                        )
+
+                if needs_arbitration:
+                    if arbitration_result is not None and arbitration_result.parameter_patch:
+                        prior_remote = review_result or extraction_result
+                        remote_result = _merge_remote_review_result(
+                            prior_remote,
+                            arbitration_result,
+                        )
+                    else:
+                        # A complex recipe explicitly requires this blind
+                        # remote stage. Do not silently relabel stage-two data
+                        # as fully audited when the required call failed.
+                        remote_result = None
+                elif review_result is not None and review_result.parameter_patch:
+                    remote_result = review_result
+                else:
+                    # Never expose an unaudited first-pass drawing candidate.
+                    remote_result = None
+
+                focused_reviews = (
+                    (
+                        "位置基准专项复核",
+                        "bottom-left",
+                        _focused_position_review_prompt,
+                    ),
+                    (
+                        "高度基准专项复核",
+                        "top-right",
+                        _focused_height_review_prompt,
+                    ),
+                )
+                for focused_label, tile_label, prompt_builder in focused_reviews:
+                    focused_spec = (
+                        prompt_builder(remote_result)
+                        if remote_result is not None
+                        else None
+                    )
+                    if focused_spec is None:
+                        continue
+                    focused_prompt, focused_fields = focused_spec
+                    focused_results: list[AIConversationResult] = []
+                    consensus: AIConversationResult | None = None
+                    unresolved_fields = focused_fields
+                    fatal_focused_error = False
+                    for focused_index in range(3):
+                        if on_status is not None:
+                            on_status(
+                                f"{focused_label} {focused_index + 1}/2：远程模型正在独立核对尺寸界线…"
+                                if focused_index < 2
+                                else f"{focused_label}分歧：远程模型正在进行第三次独立裁决…"
+                            )
+                        attempts_made += 1
+                        started_at = time.monotonic()
+                        stage_log_name = (
+                            "position-datum"
+                            if tile_label == "bottom-left"
+                            else "height-datum"
+                        )
+                        focus_files = _focused_review_files(
+                            review_detail_files,
+                            tile_label,
+                            focused_index,
+                        )
+                        prompt_variant = (
+                            "本票先从原始全图定位目标视图，再以局部块核对尺寸界线。"
+                            if focused_index == 0
+                            else "本票只按局部放大块逐像素追踪箭头和延长线，不沿用其他票的结论。"
+                            if focused_index == 1
+                            else "这是分歧裁决票；请从局部块重新独立追踪，不采纳多数猜测。"
+                        )
+                        try:
+                            focused_body = _provider_body(
+                                focused_prompt + prompt_variant,
+                                None,
+                                focus_files,
+                                None,
+                                history=(),
+                                include_schema=False,
+                                force_store=False,
+                                image_detail=_image_detail(),
+                            )
+                            focused_payload = _call_provider(
+                                focused_body,
+                                self.timeout_seconds,
+                                on_message_update=None,
+                            )
+                            focused_result = _parse_result(
+                                focused_payload,
+                                tolerate_patch_errors=True,
+                            )
+                            focused_results.append(focused_result)
+                            remote_error = None
+                            _LOGGER.info(
+                                "AI relay stage=%s attempt=%d succeeded in %.2fs (attachment=True, parameters=%d)",
+                                stage_log_name,
+                                attempts_made,
+                                time.monotonic() - started_at,
+                                len(focused_result.parameter_patch),
+                            )
+                        except AIProxyError as exc:
+                            remote_error = exc
+                            _LOGGER.warning(
+                                "AI relay stage=%s attempt=%d failed in %.2fs (attachment=True, code=%s)",
+                                stage_log_name,
+                                attempts_made,
+                                time.monotonic() - started_at,
+                                _provider_error_code(exc),
+                            )
+                            if not _provider_error_is_retryable(exc):
+                                fatal_focused_error = True
+                                break
+                        consensus, unresolved_fields = _focused_consensus(
+                            tuple(focused_results), focused_fields,
+                        )
+                        if focused_index >= 1 and not unresolved_fields:
+                            break
+                    if fatal_focused_error:
+                        remote_result = None
+                        break
+                    if consensus is not None:
+                        remote_result = _merge_focused_remote_result(
+                            remote_result,
+                            consensus,
+                            focused_fields,
+                            focused_label,
+                        )
+                    if unresolved_fields:
+                        remote_result = _drop_unconfirmed_remote_fields(
+                            remote_result,
+                            unresolved_fields,
+                            focused_label,
+                        )
+
+                if remote_result is not None and on_message_update is not None:
+                    on_message_update(remote_result.message)
 
         if remote_result is not None:
             # For an uploaded drawing, the model patch is the only automatic
@@ -1302,8 +2220,11 @@ class AIProxy:
                 parameter_patch=patch,
                 needs_review=needs_review,
                 questions=remote_result.questions,
+                part_type=remote_result.part_type,
+                recipe_id=remote_result.recipe_id,
+                parameter_evidence=remote_result.parameter_evidence,
                 drawing=drawing,
-                provider=_safe_provider_info("remote", True),
+                provider=_safe_provider_info("remote", True, attempts=attempts_made),
                 attachments=tuple(attachment_meta),
             )
 
@@ -1316,14 +2237,21 @@ class AIProxy:
                 message=(
                     "已收到并保留原图；当前未配置远程大模型，因此没有写入任何自动候选参数。"
                     if remote_error is None
-                    else "已收到并保留原图；远程大模型已分别用高清与兼容视觉模式分析，"
-                    "但本次仍未返回可靠参数。系统没有用本地 OCR 或模板值替代，可直接再次分析。"
+                    else "已收到并保留原图；远程大模型已完成自动重试与多阶段审校，"
+                    "但本次仍未形成可用候选。系统没有用本地 OCR 或模板值替代，可直接再次分析。"
                 ),
                 parameter_patch={},
                 needs_review=True,
                 questions=(),
+                part_type="unknown",
+                recipe_id="",
                 drawing=drawing,
-                provider=_safe_provider_info("local-fallback", configured),
+                provider=_safe_provider_info(
+                    "local-fallback",
+                    configured,
+                    last_error=remote_error,
+                    attempts=attempts_made,
+                ),
                 attachments=tuple(attachment_meta),
             )
 

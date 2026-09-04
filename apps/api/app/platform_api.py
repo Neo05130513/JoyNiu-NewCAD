@@ -522,6 +522,18 @@ async def _finalize_ai_conversation_result(
     into the editable candidate record.
     """
 
+    remote_part_type = str(getattr(result, "part_type", "unknown") or "unknown")
+    remote_recipe_id = str(getattr(result, "recipe_id", "") or "")
+    supported_recipe = (
+        remote_part_type == "split_clamp_support"
+        and remote_recipe_id == "split_clamp_support_v1"
+    ) or (
+        remote_part_type == "bracket"
+        and remote_recipe_id == "bracket_support_v1"
+    )
+    candidate_part_type = remote_part_type if supported_recipe else "unknown"
+    candidate_recipe_id = remote_recipe_id if supported_recipe else ""
+    parameter_evidence = getattr(result, "parameter_evidence", None)
     registered_drawing = None
     canonical_attachments: list[dict[str, Any]] = []
     for attachment in attachments:
@@ -553,7 +565,7 @@ async def _finalize_ai_conversation_result(
             candidate = DrawingRecognition(
                 id=f"drw_ai_{uuid.uuid4().hex[:16]}",
                 status="needs_review",
-                part_type="unknown",
+                part_type=candidate_part_type,
                 source_filename=attachment.filename,
                 source_sha256=hashlib.sha256(attachment.data).hexdigest(),
                 image_width=None,
@@ -561,7 +573,12 @@ async def _finalize_ai_conversation_result(
                 confidence=0.0,
                 dimensions=(),
                 features=(),
-                model_recipe={"parameters": {}, "source": "ai-candidate"},
+                model_recipe={
+                    "parameters": {},
+                    "source": "ai-candidate",
+                    "recipeId": candidate_recipe_id,
+                    "parameterEvidence": dict(parameter_evidence or {}),
+                },
                 assumptions=("候选字段来自多模态 AI，尚未由 OCR/几何配方确认",),
                 warnings=("OCR 识别不可用；以下为 AI 候选数据，需人工确认",),
                 unresolved=("feature_topology",),
@@ -584,10 +601,13 @@ async def _finalize_ai_conversation_result(
         recipe["parameters"] = {}
         recipe["source"] = "ai-multimodal-candidate" if candidate_patch else "ai-multimodal-no-result"
         recipe["evidenceEngine"] = evidence_engine
+        recipe["recipeId"] = candidate_recipe_id
+        if parameter_evidence:
+            recipe["parameterEvidence"] = dict(parameter_evidence)
         candidate = replace(
             candidate,
             status="needs_review",
-            part_type="unknown",
+            part_type=candidate_part_type,
             engine="ai-candidate" if candidate_patch else "ai-no-candidate",
             model_recipe=recipe,
             candidate_parameters=dict(candidate_patch),
@@ -746,6 +766,18 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             # platform OCR service's own DrawingRecognition object. Register
             # one per uploaded file in the same service graph and return that
             # canonical id so ``sourceDrawingId`` can be resumed safely.
+            remote_part_type = str(getattr(result, "part_type", "unknown") or "unknown")
+            remote_recipe_id = str(getattr(result, "recipe_id", "") or "")
+            supported_recipe = (
+                remote_part_type == "split_clamp_support"
+                and remote_recipe_id == "split_clamp_support_v1"
+            ) or (
+                remote_part_type == "bracket"
+                and remote_recipe_id == "bracket_support_v1"
+            )
+            candidate_part_type = remote_part_type if supported_recipe else "unknown"
+            candidate_recipe_id = remote_recipe_id if supported_recipe else ""
+            parameter_evidence = getattr(result, "parameter_evidence", None)
             registered_drawing = None
             canonical_attachments: list[dict[str, Any]] = []
             for attachment in attachments:
@@ -786,7 +818,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     candidate = DrawingRecognition(
                         id=f"drw_ai_{uuid.uuid4().hex[:16]}",
                         status="needs_review",
-                        part_type="unknown",
+                        part_type=candidate_part_type,
                         source_filename=attachment.filename,
                         source_sha256=hashlib.sha256(attachment.data).hexdigest(),
                         image_width=None,
@@ -794,7 +826,12 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                         confidence=0.0,
                         dimensions=(),
                         features=(),
-                        model_recipe={"parameters": {}, "source": "ai-candidate"},
+                        model_recipe={
+                            "parameters": {},
+                            "source": "ai-candidate",
+                            "recipeId": candidate_recipe_id,
+                            "parameterEvidence": dict(parameter_evidence or {}),
+                        },
                         assumptions=("候选字段来自多模态 AI，尚未由 OCR/几何配方确认",),
                         warnings=("OCR 识别不可用；以下为 AI 候选数据，需人工确认",),
                         unresolved=("feature_topology",),
@@ -824,10 +861,13 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 recipe["parameters"] = {}
                 recipe["source"] = "ai-multimodal-candidate" if candidate_patch else "ai-multimodal-no-result"
                 recipe["evidenceEngine"] = evidence_engine
+                recipe["recipeId"] = candidate_recipe_id
+                if parameter_evidence:
+                    recipe["parameterEvidence"] = dict(parameter_evidence)
                 candidate = replace(
                     candidate,
                     status="needs_review",
-                    part_type="unknown",
+                    part_type=candidate_part_type,
                     engine="ai-candidate" if candidate_patch else "ai-no-candidate",
                     model_recipe=recipe,
                     candidate_parameters=dict(candidate_patch),

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import io
 import time
 import urllib.error
 
@@ -14,7 +15,14 @@ httpx = pytest.importorskip("httpx")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.ai_proxy import AIConversationResult, AIFile, AIProviderNotConfigured, AIProxy, AIProxyError  # noqa: E402
+from app.ai_proxy import (  # noqa: E402
+    AIConversationResult,
+    AIFile,
+    AIProviderNotConfigured,
+    AIProxy,
+    AIProxyError,
+    _parse_result,
+)
 from app.platform_api import build_platform_services, create_platform_router  # noqa: E402
 
 
@@ -30,6 +38,180 @@ class _Response:
 
     def read(self, _limit=-1):
         return self.payload
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (None, 600.0),
+        ("1800", 1800.0),
+        ("10", 30.0),
+        ("not-a-number", 600.0),
+    ],
+)
+def test_proxy_default_timeout_is_long_and_configurable(monkeypatch, configured, expected):
+    if configured is None:
+        monkeypatch.delenv("JOYNIU_AI_TIMEOUT_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("JOYNIU_AI_TIMEOUT_SECONDS", configured)
+
+    assert AIProxy().timeout_seconds == expected
+
+
+@pytest.mark.parametrize(
+    ("part_type", "recipe_id"),
+    [
+        ("circular_clamp", ""),
+        ("circular_clamp_v1", ""),
+        ("split_clamp_support_v1", ""),
+        ("unknown", "circular_clamp"),
+        ("unknown", "circular_clamp_v1"),
+        ("unknown", "split_clamp_support"),
+    ],
+)
+def test_parse_result_normalizes_split_clamp_identity_aliases(part_type, recipe_id):
+    result = _parse_result(
+        {
+            "id": "resp_split_alias",
+            "output_text": json.dumps(
+                {
+                    "message": "已识别开口夹紧座",
+                    "part_type": part_type,
+                    "recipe_id": recipe_id,
+                    "parameter_patch": {"pedestalOuterRadius": 33},
+                    "needs_review": True,
+                    "questions": [],
+                }
+            ),
+        }
+    )
+
+    assert result.part_type == "split_clamp_support"
+    assert result.recipe_id == "split_clamp_support_v1"
+    assert result.parameter_patch == {"pedestalOuterRadius": 33.0}
+
+
+def test_parse_result_infers_split_identity_from_recipe_unique_remote_fields():
+    result = _parse_result(
+        {
+            "id": "resp_split_inferred",
+            "output_text": json.dumps(
+                {
+                    "message": "识别到圆筒座和独立安装孔后缘基准",
+                    "parameter_patch": {
+                        "pedestalOuterRadius": 33,
+                        "mountHoleCenterFromRear": 40,
+                    },
+                    "needs_review": True,
+                    "questions": [],
+                }
+            ),
+        }
+    )
+
+    assert result.part_type == "split_clamp_support"
+    assert result.recipe_id == "split_clamp_support_v1"
+    assert result.parameter_patch == {
+        "pedestalOuterRadius": 33.0,
+        "mountHoleCenterFromRear": 40.0,
+    }
+
+
+def test_parse_result_does_not_infer_split_identity_from_shared_fields_only():
+    result = _parse_result(
+        {
+            "id": "resp_identity_unknown",
+            "output_text": json.dumps(
+                {
+                    "message": "只识别到底板",
+                    "parameter_patch": {"baseLength": 125},
+                    "needs_review": True,
+                    "questions": [],
+                }
+            ),
+        }
+    )
+
+    assert result.part_type == "unknown"
+    assert result.recipe_id == ""
+
+
+def test_parse_result_infers_split_after_discarding_unsupported_identity_alias():
+    result = _parse_result(
+        {
+            "id": "resp_descriptive_split_alias",
+            "output_text": json.dumps(
+                {
+                    "message": "识别到开口夹紧座",
+                    "part_type": "open_split_clamp",
+                    "recipe_id": "open_split_clamp_v1",
+                    "parameter_patch": {
+                        "pedestalOuterRadius": 33,
+                        "mountHoleCenterFromRear": 40,
+                    },
+                    "needs_review": True,
+                    "questions": [],
+                }
+            ),
+        }
+    )
+
+    assert result.part_type == "split_clamp_support"
+    assert result.recipe_id == "split_clamp_support_v1"
+
+
+def test_parse_result_does_not_override_explicit_non_split_identity():
+    result = _parse_result(
+        {
+            "id": "resp_explicit_bracket",
+            "output_text": json.dumps(
+                {
+                    "message": "显式分类仍需复核",
+                    "part_type": "bracket",
+                    "recipe_id": "unsupported_bracket_variant",
+                    "parameter_patch": {"pedestalOuterRadius": 33},
+                    "needs_review": True,
+                    "questions": [],
+                }
+            ),
+        }
+    )
+
+    assert result.part_type == "unknown"
+    assert result.recipe_id == ""
+
+
+def test_stream_recovers_complete_json_when_connection_ends_before_terminal_event():
+    from app.ai_proxy import _stream_payload
+
+    structured = json.dumps(
+        {
+            "message": "完整候选已到达",
+            "parameter_patch": {"pedestalOuterRadius": 33},
+            "needs_review": True,
+            "questions": [],
+        },
+        ensure_ascii=False,
+    )
+    event = (
+        "event: response.output_text.delta\n"
+        f"data: {json.dumps({'type': 'response.output_text.delta', 'delta': structured}, ensure_ascii=False)}\n\n"
+    ).encode()
+
+    class AbruptStream:
+        def __init__(self):
+            self.lines = iter(event.splitlines(keepends=True))
+
+        def readline(self):
+            try:
+                return next(self.lines)
+            except StopIteration:
+                raise TimeoutError("socket ended before response.completed")
+
+    payload = _stream_payload(AbruptStream())
+    result = _parse_result(payload)
+    assert result.message == "完整候选已到达"
+    assert result.parameter_patch == {"pedestalOuterRadius": 33}
 
 
 def test_proxy_sends_responses_schema_reasoning_and_previous_id(monkeypatch):
@@ -516,17 +698,503 @@ def test_drawing_retry_uses_original_image_high_then_low_and_only_remote_patch(m
         files=(AIFile("drawing.png", "image/png", png),),
     )
 
-    assert len(requests) == 2
+    assert len(requests) == 4
     first_image = next(item for item in requests[0][0]["input"][0]["content"] if item["type"] == "input_image")
     second_image = next(item for item in requests[1][0]["input"][0]["content"] if item["type"] == "input_image")
+    audit_image = next(item for item in requests[2][0]["input"][0]["content"] if item["type"] == "input_image")
+    arbitration_image = next(item for item in requests[3][0]["input"][0]["content"] if item["type"] == "input_image")
     assert first_image["detail"] == "high"
     assert second_image["detail"] == "low"
-    assert first_image["image_url"] == second_image["image_url"]
+    assert audit_image["detail"] == "high"
+    assert arbitration_image["detail"] == "high"
+    assert len({first_image["image_url"], second_image["image_url"], audit_image["image_url"], arbitration_image["image_url"]}) == 1
     assert all(body["stream"] is True for body, _timeout in requests)
     assert all(timeout == 7 for _body, timeout in requests)
     assert result.provider["mode"] == "remote"
     assert result.parameter_patch == {"baseLength": 123, "baseWidth": 49}
     assert result.parameter_patch != local_parameters
+
+
+def test_drawing_pipeline_audits_and_arbitrates_remote_candidates_before_emitting(monkeypatch):
+    from app import ai_proxy
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    final_patch = {
+        "baseLength": 125,
+        "baseWidth": 95,
+        "baseThickness": 15,
+        "baseMainDepth": 80,
+        "frontTongueWidth": 80,
+        "rearBridgeWidth": 86,
+        "totalHeight": 75,
+        "pedestalOuterRadius": 33,
+        "pedestalCenterFromRear": 35,
+        "pedestalHeight": 40,
+        "rearClampRise": 20,
+        "boreDiameter": 36,
+        "boreFloorZ": 40,
+        "splitWidth": 12,
+        "mountHoleCount": 2,
+        "mountHoleDiameter": 12,
+        "mountHoleCenterDistance": 96,
+        "mountHoleCenterFromRear": 40,
+        "crossHoleDiameter": 12,
+        "crossHoleCenterZ": 55,
+        "ribHeight": 20,
+        "ribThickness": 10,
+        "outerCornerRadius": 8,
+        "neckConcaveRadius": 5,
+        "neckConvexRadius": 8,
+    }
+    extraction_patch = {
+        "pedestalCenterFromRear": 40,
+        "pedestalHeight": 25,
+        "rearClampRise": 35,
+        "mountHoleCenterFromRear": 35,
+    }
+    arbitration_patch = {
+        **final_patch,
+        "boreFloorZ": 35,
+        "crossHoleCenterZ": 40,
+        "pedestalCenterFromRear": 40,
+        "mountHoleCenterFromRear": 35,
+    }
+    remote_payloads = [
+        {
+            "id": "resp_extract",
+            "message": "首轮视觉提取",
+            "part_type": "split_clamp_support",
+            "recipe_id": "split_clamp_support_v1",
+            "parameter_patch": extraction_patch,
+        },
+        {
+            "id": "resp_audit",
+            "message": "二轮尺寸链审校",
+            "part_type": "split_clamp_support",
+            "recipe_id": "split_clamp_support_v1",
+            "parameter_patch": final_patch,
+        },
+        {
+            "id": "resp_arbitrate",
+            "message": "三轮远程裁决完成",
+            "part_type": "split_clamp_support",
+            "recipe_id": "split_clamp_support_v1",
+            "parameter_patch": arbitration_patch,
+        },
+        {
+            "id": "resp_position_datum_1",
+            "message": "第一次位置尺寸线专项复核完成",
+            "part_type": "split_clamp_support",
+            "recipe_id": "split_clamp_support_v1",
+            "parameter_patch": {
+                "pedestalCenterFromRear": 35,
+                "mountHoleCenterFromRear": 40,
+            },
+        },
+        {
+            "id": "resp_position_datum_2",
+            "message": "第二次位置尺寸线专项复核完成",
+            "part_type": "split_clamp_support",
+            "recipe_id": "split_clamp_support_v1",
+            "parameter_patch": {
+                "pedestalCenterFromRear": 35,
+                "mountHoleCenterFromRear": 40,
+            },
+        },
+        {
+            "id": "resp_height_datum_1",
+            "message": "第一次高度尺寸线专项复核完成",
+            "part_type": "split_clamp_support",
+            "recipe_id": "split_clamp_support_v1",
+            "parameter_patch": {
+                "boreFloorZ": 40,
+                "crossHoleCenterZ": 55,
+                "pedestalHeight": 40,
+                "rearClampRise": 20,
+            },
+        },
+        {
+            "id": "resp_height_datum_2",
+            "message": "第二次高度尺寸线专项复核完成",
+            "part_type": "split_clamp_support",
+            "recipe_id": "split_clamp_support_v1",
+            "parameter_patch": {
+                "boreFloorZ": 40,
+                "crossHoleCenterZ": 55,
+                "pedestalHeight": 40,
+                "rearClampRise": 20,
+            },
+        },
+    ]
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(json.loads(request.data.decode()))
+        item = remote_payloads[len(requests) - 1]
+        return _Response(
+            {
+                "id": item["id"],
+                "output_text": json.dumps(
+                    {
+                        "message": item["message"],
+                        "part_type": item["part_type"],
+                        "recipe_id": item["recipe_id"],
+                        "parameter_patch": item["parameter_patch"],
+                        "parameter_evidence": {},
+                        "needs_review": True,
+                        "questions": [],
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
+
+    # Local recognition is audit-only and must never enter either remote
+    # candidate or a later-stage prompt.
+    monkeypatch.setattr(
+        ai_proxy,
+        "_recognize_attachment",
+        lambda _item: {"status": "confirmed", "parameters": {"pedestalHeight": 999}},
+    )
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    statuses = []
+    updates = []
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析图纸",
+        files=(AIFile("drawing.png", "image/png", png),),
+        on_status=statuses.append,
+        on_message_update=updates.append,
+    )
+
+    assert len(requests) == 7
+    assert statuses == [
+        "阶段 1/3：远程模型正在提取图纸候选…",
+        "阶段 2/3：远程模型正在审校尺寸链与视图关系…",
+        "阶段 3/3：远程模型正在裁决冲突并补全候选…",
+        "位置基准专项复核 1/2：远程模型正在独立核对尺寸界线…",
+        "位置基准专项复核 2/2：远程模型正在独立核对尺寸界线…",
+        "高度基准专项复核 1/2：远程模型正在独立核对尺寸界线…",
+        "高度基准专项复核 2/2：远程模型正在独立核对尺寸界线…",
+    ]
+    assert updates == [
+        "三轮远程裁决完成\n\n"
+        "位置基准专项复核：远程独立复读已对 mountHoleCenterFromRear、"
+        "pedestalCenterFromRear 形成两票一致。\n\n"
+        "高度基准专项复核：远程独立复读已对 boreFloorZ、crossHoleCenterZ、"
+        "pedestalHeight、rearClampRise 形成两票一致。"
+    ]
+    assert result.response_id == "resp_height_datum_2"
+    assert result.parameter_patch == final_patch
+    assert result.provider["mode"] == "remote"
+    assert result.provider["attempts"] == 7
+    assert all(body["stream"] is True for body in requests)
+    assert all("max_output_tokens" not in body for body in requests)
+    audit_text = "\n".join(
+        item["text"]
+        for item in requests[1]["input"][0]["content"]
+        if item["type"] == "input_text"
+    )
+    arbitration_text = "\n".join(
+        item["text"]
+        for item in requests[2]["input"][0]["content"]
+        if item["type"] == "input_text"
+    )
+    focused_text = "\n".join(
+        item["text"]
+        for item in requests[3]["input"][0]["content"]
+        if item["type"] == "input_text"
+    )
+    assert "远程第二阶段尺寸审校" in audit_text
+    assert '"pedestalHeight":25' in audit_text
+    assert "远程第三阶段盲审裁决" in arbitration_text
+    assert "本轮刻意不提供其数值以避免锚定" in arbitration_text
+    assert '"pedestalHeight":25' not in arbitration_text
+    assert '"pedestalHeight":40' not in arbitration_text
+    assert "独立的位置基准视觉校验" in focused_text
+    assert '"pedestalCenterFromRear":40' not in focused_text
+    assert '"mountHoleCenterFromRear":35' not in focused_text
+    height_text = "\n".join(
+        item["text"]
+        for item in requests[5]["input"][0]["content"]
+        if item["type"] == "input_text"
+    )
+    assert "独立的高度基准视觉校验" in height_text
+    assert '"boreFloorZ":35' not in height_text
+    assert '"crossHoleCenterZ":40' not in height_text
+    assert "999" not in audit_text
+    assert "999" not in arbitration_text
+
+
+def test_drawing_pipeline_skips_arbitration_when_remote_audit_is_complete_and_consistent(monkeypatch):
+    from app import ai_proxy
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    shaft_patch = {
+        "outerDiameter": 24,
+        "length": 70,
+        "holeDiameter": 10,
+        "keywayWidth": 10,
+        "keywayDepth": 20,
+        "keywayLength": 20,
+    }
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(json.loads(request.data.decode()))
+        return _Response(
+            {
+                "id": f"resp_shaft_{len(requests)}",
+                "output_text": json.dumps(
+                    {
+                        "message": "尺寸链一致" if len(requests) == 2 else "首轮轴候选",
+                        "part_type": "shaft",
+                        "recipe_id": "shaft_v1",
+                        "parameter_patch": shaft_patch,
+                        "parameter_evidence": {},
+                        "needs_review": True,
+                        "questions": [],
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
+
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _item: None)
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    statuses = []
+    updates = []
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析轴图纸",
+        files=(AIFile("shaft.png", "image/png", png),),
+        on_status=statuses.append,
+        on_message_update=updates.append,
+    )
+
+    assert len(requests) == 2
+    assert statuses == [
+        "阶段 1/3：远程模型正在提取图纸候选…",
+        "阶段 2/3：远程模型正在审校尺寸链与视图关系…",
+    ]
+    assert updates == ["尺寸链一致"]
+    assert result.response_id == "resp_shaft_2"
+    assert result.parameter_patch == shaft_patch
+    assert result.provider["attempts"] == 2
+
+
+def test_complex_split_clamp_always_enters_third_remote_arbitration_when_first_two_agree(monkeypatch):
+    from app import ai_proxy
+    from app.schemas import SplitClampSupportParameters
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    split_patch = SplitClampSupportParameters().model_dump(by_alias=True)
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append(json.loads(request.data.decode()))
+        stage = len(requests)
+        return _Response(
+            {
+                "id": f"resp_consistent_split_{stage}",
+                "output_text": json.dumps(
+                    {
+                        "message": f"一致的开口夹紧座候选，第 {stage} 轮",
+                        "part_type": "split_clamp_support",
+                        "recipe_id": "split_clamp_support_v1",
+                        "parameter_patch": split_patch,
+                        "parameter_evidence": {},
+                        "needs_review": True,
+                        "questions": [],
+                    },
+                    ensure_ascii=False,
+                ),
+            }
+        )
+
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _item: None)
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    statuses = []
+    updates = []
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析复杂夹紧座图纸",
+        files=(AIFile("split-clamp.png", "image/png", png),),
+        on_status=statuses.append,
+        on_message_update=updates.append,
+    )
+
+    assert len(requests) == 7
+    assert statuses == [
+        "阶段 1/3：远程模型正在提取图纸候选…",
+        "阶段 2/3：远程模型正在审校尺寸链与视图关系…",
+        "阶段 3/3：远程模型正在裁决冲突并补全候选…",
+        "位置基准专项复核 1/2：远程模型正在独立核对尺寸界线…",
+        "位置基准专项复核 2/2：远程模型正在独立核对尺寸界线…",
+        "高度基准专项复核 1/2：远程模型正在独立核对尺寸界线…",
+        "高度基准专项复核 2/2：远程模型正在独立核对尺寸界线…",
+    ]
+    assert updates == [
+        "一致的开口夹紧座候选，第 3 轮\n\n"
+        "位置基准专项复核：远程独立复读已对 mountHoleCenterFromRear、"
+        "pedestalCenterFromRear 形成两票一致。\n\n"
+        "高度基准专项复核：远程独立复读已对 boreFloorZ、crossHoleCenterZ、"
+        "pedestalHeight、rearClampRise 形成两票一致。"
+    ]
+    assert result.response_id == "resp_consistent_split_7"
+    assert result.parameter_patch == split_patch
+    assert result.provider["attempts"] == 7
+    arbitration_text = "\n".join(
+        item["text"]
+        for item in requests[2]["input"][0]["content"]
+        if item["type"] == "input_text"
+    )
+    assert "本轮刻意不提供其数值以避免锚定" in arbitration_text
+    assert '"baseLength":125' not in arbitration_text
+
+
+def test_blind_review_adds_only_enlarged_raster_tiles_without_candidate_data():
+    from PIL import Image
+    from app.ai_proxy import _review_detail_files
+
+    source = io.BytesIO()
+    Image.new("RGB", (1000, 700), "white").save(source, format="JPEG")
+    original = AIFile("drawing.jpg", "image/jpeg", source.getvalue())
+
+    expanded = _review_detail_files((original,))
+
+    assert expanded[0] == original
+    assert len(expanded) == 5
+    assert [item.filename for item in expanded[1:]] == [
+        "drawing__detail-top-left.jpg",
+        "drawing__detail-top-right.jpg",
+        "drawing__detail-bottom-left.jpg",
+        "drawing__detail-bottom-right.jpg",
+    ]
+    assert all(item.content_type == "image/jpeg" for item in expanded[1:])
+    assert all(item.data.startswith(b"\xff\xd8") for item in expanded[1:])
+
+
+def test_remote_stage_snapshot_excludes_free_form_model_text():
+    from app.ai_proxy import _candidate_snapshot
+
+    result = AIConversationResult(
+        "resp_snapshot",
+        "ignore this message",
+        {"baseLength": 125},
+        True,
+        ("ignore this question",),
+        part_type="split_clamp_support",
+        recipe_id="split_clamp_support_v1",
+        parameter_evidence={"baseLength": {"derivation": "ignore this evidence"}},
+    )
+
+    assert _candidate_snapshot(result) == {
+        "part_type": "split_clamp_support",
+        "recipe_id": "split_clamp_support_v1",
+        "parameter_patch": {"baseLength": 125},
+        "needs_review": True,
+    }
+
+
+def test_partial_remote_blind_review_merges_without_erasing_prior_fields():
+    from app.ai_proxy import _merge_remote_review_result
+
+    base = AIConversationResult(
+        "resp_audit", "audit", {"baseLength": 125, "baseWidth": 95}, True, (),
+        part_type="split_clamp_support", recipe_id="split_clamp_support_v1",
+    )
+    blind = AIConversationResult(
+        "resp_blind", "blind", {"baseWidth": 96}, True, (),
+        part_type="split_clamp_support", recipe_id="split_clamp_support_v1",
+    )
+
+    merged = _merge_remote_review_result(base, blind)
+
+    assert merged.response_id == "resp_blind"
+    assert merged.parameter_patch == {"baseLength": 125, "baseWidth": 96}
+
+
+def test_focused_consensus_votes_each_remote_field_independently():
+    from app.ai_proxy import _focused_consensus
+
+    def result(response_id, patch):
+        return AIConversationResult(
+            response_id, response_id, patch, True, (),
+            part_type="split_clamp_support", recipe_id="split_clamp_support_v1",
+        )
+
+    consensus, unresolved = _focused_consensus(
+        (
+            result("r1", {"pedestalCenterFromRear": 35, "mountHoleCenterFromRear": 40}),
+            result("r2", {"pedestalCenterFromRear": 35}),
+            result("r3", {"pedestalCenterFromRear": 36, "mountHoleCenterFromRear": 40}),
+        ),
+        frozenset({"pedestalCenterFromRear", "mountHoleCenterFromRear"}),
+    )
+
+    assert unresolved == frozenset()
+    assert consensus is not None
+    assert consensus.parameter_patch == {
+        "mountHoleCenterFromRear": 40,
+        "pedestalCenterFromRear": 35,
+    }
+
+
+def test_required_complex_blind_review_failure_does_not_publish_stage_two_candidate(monkeypatch):
+    from app import ai_proxy
+    from app.schemas import SplitClampSupportParameters
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    patch = SplitClampSupportParameters().model_dump(by_alias=True)
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(timeout)
+        if len(calls) == 3:
+            raise urllib.error.HTTPError(request.full_url, 401, "unauthorized", {}, None)
+        return _Response(
+            {
+                "id": f"resp_stage_{len(calls)}",
+                "output_text": json.dumps(
+                    {
+                        "message": "remote candidate",
+                        "part_type": "split_clamp_support",
+                        "recipe_id": "split_clamp_support_v1",
+                        "parameter_patch": patch,
+                        "parameter_evidence": {},
+                        "needs_review": True,
+                        "questions": [],
+                    }
+                ),
+            }
+        )
+
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _item: None)
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析复杂夹紧座图纸",
+        files=(AIFile("split-clamp.png", "image/png", png),),
+    )
+
+    assert len(calls) == 3
+    assert result.provider["mode"] == "local-fallback"
+    assert result.provider["lastErrorCode"] == "http_401"
+    assert result.parameter_patch == {}
 
 
 def test_proxy_retries_transient_http_failure_but_not_auth_failure(monkeypatch):
@@ -716,10 +1384,12 @@ def test_unknown_drawing_degraded_message_is_request_scoped_and_retryable(monkey
 
     assert len(calls) == 2
     assert result.provider["mode"] == "local-fallback"
+    assert result.provider["lastErrorCode"] == "empty_response"
+    assert result.provider["attempts"] == 2
     assert result.needs_review is True
     assert result.questions == ()
     assert "中转站不可用" not in result.message
-    assert "高清与兼容视觉模式" in result.message
+    assert "自动重试与多阶段审校" in result.message
     assert "没有用本地 OCR 或模板值替代" in result.message
     assert "可直接再次分析" in result.message
 
