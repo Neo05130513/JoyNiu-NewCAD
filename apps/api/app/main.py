@@ -361,12 +361,24 @@ def _reconcile_model_validation_with_artifacts(
 @app.get("/api/v1/health", tags=["system"])
 async def health() -> dict[str, Any]:
     cq = cadquery_status()
+    try:
+        from .dwg_preprocessor import dwg_preprocessor_status
+
+        dwg = dwg_preprocessor_status()
+    except Exception as exc:  # pragma: no cover - defensive health isolation
+        dwg = {
+            "available": False,
+            "engine": "unavailable",
+            "error": f"{type(exc).__name__}: {exc}",
+            "rawDwgSentToAI": False,
+        }
     return {
         "status": "ok" if cq["available"] else "degraded",
         "service": "joyniu-cad-api",
         "version": __version__,
         "checkedAt": datetime.now(timezone.utc).isoformat(),
         "geometry": cq,
+        "dwg": dwg,
         "capabilities": {
             "drawingRecognition": True,
             "drawingResultSubmission": True,
@@ -374,6 +386,7 @@ async def health() -> dict[str, Any]:
             "stepExport": True,
             "glbExport": True,
             "cadqueryBRep": bool(cq["available"]),
+            "dwgVectorParsing": bool(dwg.get("available")),
             "ocr": _ocr_capability(),
         },
         "notes": (
@@ -385,6 +398,68 @@ async def health() -> dict[str, Any]:
                 "but productionReady=false.",
             ]
         ),
+    }
+
+
+@app.post("/api/dwg/inspect", tags=["drawings"])
+@app.post("/api/v1/dwg/inspect", tags=["drawings"], include_in_schema=False)
+async def inspect_dwg(file: UploadFile = File(..., description="Binary DWG drawing")) -> dict[str, Any]:
+    """Decode one DWG locally and return bounded native vector evidence.
+
+    The original binary never leaves this process.  The same preprocessor is
+    used by the AI conversation path before it sends the derived PNG and safe
+    numeric summary to the configured model provider.
+    """
+
+    from .dwg_preprocessor import (
+        DWGConversionTimeoutError,
+        DWGConverterUnavailableError,
+        DWGInputError,
+        DWGInputTooLargeError,
+        DWGParserUnavailableError,
+        DWGPreprocessError,
+        preprocess_dwg,
+    )
+
+    data = await file.read(MAX_DRAWING_BYTES + 1)
+    if len(data) > MAX_DRAWING_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "errorType": "dwg_input_too_large",
+                "message": f"DWG exceeds {MAX_DRAWING_BYTES} byte upload limit",
+            },
+        )
+    try:
+        result = preprocess_dwg(data, file.filename or "drawing.dwg")
+    except DWGInputTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=exc.to_dict()) from exc
+    except DWGInputError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+    except (DWGConverterUnavailableError, DWGParserUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=exc.to_dict()) from exc
+    except DWGConversionTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=exc.to_dict()) from exc
+    except DWGPreprocessError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+    metadata = result.original_metadata.to_dict()
+    return {
+        "status": "parsed",
+        "source": metadata,
+        "converter": result.converter,
+        "units": result.summary.get("units"),
+        "sourceEntityCount": result.summary.get("sourceEntityCount", 0),
+        "entityCount": result.summary.get("entityCount", 0),
+        "dimensionCount": len(result.summary.get("dimensions") or []),
+        "vectorSummary": result.summary,
+        "derived": {
+            "dxfSizeBytes": len(result.dxf_bytes),
+            "dxfSha256": hashlib.sha256(result.dxf_bytes).hexdigest(),
+            "previewSizeBytes": len(result.png_bytes),
+            "previewSha256": hashlib.sha256(result.png_bytes).hexdigest(),
+            "previewContentType": "image/png",
+        },
+        "rawDwgSentToAI": False,
     }
 
 

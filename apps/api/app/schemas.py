@@ -242,6 +242,95 @@ class SplitClampSupportParameters(ApiModel):
         return float(self.base_thickness + self.pedestal_height)
 
 
+class SteppedTaperedNozzleParameters(ApiModel):
+    """Two-solid axisymmetric nozzle and removable insert from DWG ``1(1)``.
+
+    All axial positions use the main part's left face as ``x=0``.  The insert
+    remains a separate solid in the candidate assembly; ``M12`` is represented
+    by its nominal 12 mm straight clearance only and is never presented as a
+    generated thread form.
+    """
+
+    main_length: float = Field(98.0, alias="mainLength")
+    head_length: float = Field(50.0, alias="headLength")
+    neck_length: float = Field(20.0, alias="neckLength")
+    head_left_diameter: float = Field(54.25449350717895, alias="headLeftDiameter")
+    head_right_diameter: float = Field(56.0, alias="headRightDiameter")
+    neck_diameter: float = Field(30.0, alias="neckDiameter")
+    tip_diameter: float = Field(25.0, alias="tipDiameter")
+    counterbore_diameter: float = Field(40.0, alias="counterboreDiameter")
+    counterbore_depth: float = Field(40.0, alias="counterboreDepth")
+    axial_bore_diameter: float = Field(13.0, alias="axialBoreDiameter")
+    outlet_diameter: float = Field(17.0, alias="outletDiameter")
+    outlet_taper_half_angle: float = Field(15.0, alias="outletTaperHalfAngle")
+    insert_outer_diameter: float = Field(39.4, alias="insertOuterDiameter")
+    insert_length: float = Field(40.0, alias="insertLength")
+    insert_thread_designation: str = Field("M12", alias="insertThreadDesignation")
+    insert_axial_offset: float = Field(0.0, alias="insertAxialOffset")
+    material: str = "45# 钢"
+    units: Literal["mm"] = "mm"
+
+    @field_validator(
+        "main_length",
+        "head_length",
+        "neck_length",
+        "head_left_diameter",
+        "head_right_diameter",
+        "neck_diameter",
+        "tip_diameter",
+        "counterbore_diameter",
+        "counterbore_depth",
+        "axial_bore_diameter",
+        "outlet_diameter",
+        "outlet_taper_half_angle",
+        "insert_outer_diameter",
+        "insert_length",
+        "insert_axial_offset",
+    )
+    @classmethod
+    def finite_number(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("dimension must be finite")
+        return value
+
+    @field_validator("insert_thread_designation")
+    @classmethod
+    def metric_thread_designation(cls, value: str) -> str:
+        normalized = value.strip().upper().replace("×", "X")
+        if not normalized or len(normalized) > 32:
+            raise ValueError("insertThreadDesignation must be a short metric thread designation")
+        import re
+
+        if re.fullmatch(r"M\d+(?:\.\d+)?(?:X\d+(?:\.\d+)?)?", normalized) is None:
+            raise ValueError("insertThreadDesignation must use metric syntax such as M12")
+        return normalized
+
+    @property
+    def tip_length(self) -> float:
+        return float(self.main_length - self.head_length - self.neck_length)
+
+    @property
+    def outlet_taper_length(self) -> float:
+        radius_delta = (self.outlet_diameter - self.axial_bore_diameter) / 2
+        tangent = math.tan(math.radians(self.outlet_taper_half_angle))
+        if tangent <= 0:
+            return float("inf")
+        return float(radius_delta / tangent)
+
+    @property
+    def outlet_taper_start_x(self) -> float:
+        return float(self.main_length - self.outlet_taper_length)
+
+    @property
+    def radial_clearance(self) -> float:
+        return float((self.counterbore_diameter - self.insert_outer_diameter) / 2)
+
+    @property
+    def insert_thread_nominal_diameter(self) -> float:
+        numeric = self.insert_thread_designation[1:].split("X", 1)[0]
+        return float(numeric)
+
+
 class Severity(str, Enum):
     error = "error"
     warning = "warning"
@@ -372,8 +461,12 @@ class GeometryResponse(ApiModel):
 class ModelGeometryRequest(ApiModel):
     """Recipe-dispatched geometry request used by the generic model API."""
 
-    part_type: Literal["bracket", "split_clamp_support"] = Field(alias="partType")
-    recipe_id: Literal["bracket_support_v1", "split_clamp_support_v1"] = Field(alias="recipeId")
+    part_type: Literal["bracket", "split_clamp_support", "stepped_tapered_nozzle"] = Field(alias="partType")
+    recipe_id: Literal[
+        "bracket_support_v1",
+        "split_clamp_support_v1",
+        "stepped_tapered_nozzle_with_insert_v1",
+    ] = Field(alias="recipeId")
     parameters: dict[str, Any]
     formats: list[Literal["step", "glb"]] = Field(default_factory=lambda: ["step", "glb"])
     source_drawing_id: str | None = Field(None, alias="sourceDrawingId")
@@ -391,6 +484,7 @@ class ModelGeometryRequest(ApiModel):
         expected = {
             "bracket_support_v1": "bracket",
             "split_clamp_support_v1": "split_clamp_support",
+            "stepped_tapered_nozzle_with_insert_v1": "stepped_tapered_nozzle",
         }[self.recipe_id]
         if self.part_type != expected:
             raise ValueError(f"recipeId {self.recipe_id!r} requires partType {expected!r}")
@@ -400,8 +494,12 @@ class ModelGeometryRequest(ApiModel):
 class ModelGeometryResponse(ApiModel):
     request_id: str = Field(alias="requestId")
     status: Literal["completed", "failed"]
-    part_type: Literal["bracket", "split_clamp_support"] = Field(alias="partType")
-    recipe_id: Literal["bracket_support_v1", "split_clamp_support_v1"] = Field(alias="recipeId")
+    part_type: Literal["bracket", "split_clamp_support", "stepped_tapered_nozzle"] = Field(alias="partType")
+    recipe_id: Literal[
+        "bracket_support_v1",
+        "split_clamp_support_v1",
+        "stepped_tapered_nozzle_with_insert_v1",
+    ] = Field(alias="recipeId")
     engine: str
     parameters: dict[str, Any]
     validation: dict[str, Any]

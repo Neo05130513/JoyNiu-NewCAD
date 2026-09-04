@@ -33,6 +33,12 @@ const isClampSupportKind = (kind) => [
   'clamp_pedestal',
   'circular_clamp',
 ].includes(String(kind || '').toLowerCase())
+const isSteppedTaperedNozzleKind = (kind) => [
+  'stepped_tapered_nozzle',
+  'stepped_tapered_nozzle_with_insert_v1',
+  'stepped_tapered_nozzle_v1',
+  'tapered_nozzle_with_insert',
+].includes(String(kind || '').toLowerCase())
 
 // Fit the bounding sphere against the narrower frustum axis.  The workbench
 // is a three-column layout and can become much narrower than it is tall; a
@@ -619,6 +625,117 @@ function makeClampSupportFallback(model) {
   return root
 }
 
+function makeSteppedTaperedNozzleFallback(model) {
+  const mainLength = Math.max(6, number(model?.mainLength, 98))
+  const headLength = clamp(number(model?.headLength, 50), 1, mainLength - 2)
+  const neckLength = clamp(number(model?.neckLength, 20), 1, mainLength - headLength - 1)
+  const tipLength = Math.max(1, mainLength - headLength - neckLength)
+  const headLeftDiameter = Math.max(2, number(model?.headLeftDiameter, 54.25449350717895))
+  const headRightDiameter = Math.max(2, number(model?.headRightDiameter, 56))
+  const neckDiameter = Math.max(2, number(model?.neckDiameter, 30))
+  const tipDiameter = Math.max(2, number(model?.tipDiameter, 25))
+  const counterboreDiameter = clamp(number(model?.counterboreDiameter, 40), 1, Math.min(headLeftDiameter, headRightDiameter) - 0.4)
+  const counterboreDepth = clamp(number(model?.counterboreDepth, 40), 0.5, mainLength - 0.5)
+  const axialBoreDiameter = clamp(number(model?.axialBoreDiameter, 13), 0.5, Math.min(neckDiameter, tipDiameter) - 0.4)
+  const outletDiameter = clamp(number(model?.outletDiameter, 17), axialBoreDiameter + 0.2, tipDiameter - 0.2)
+  const outletHalfAngle = clamp(number(model?.outletTaperHalfAngle, 15), 0.1, 89)
+  const calculatedOutletTaperLength = (outletDiameter - axialBoreDiameter)
+    / (2 * Math.tan(THREE.MathUtils.degToRad(outletHalfAngle)))
+  const outletTaperLength = clamp(calculatedOutletTaperLength, 0.2, tipLength)
+  const insertOuterDiameter = clamp(number(model?.insertOuterDiameter, 39.4), axialBoreDiameter + 0.4, counterboreDiameter - 0.1)
+  const insertLength = Math.max(1, number(model?.insertLength, 40))
+  const insertAxialOffset = Math.max(0, number(model?.insertAxialOffset, 0))
+  const threadMatch = String(model?.insertThreadDesignation || 'M12').match(/M\s*(\d+(?:\.\d+)?)/i)
+  const nominalThreadDiameter = clamp(Number(threadMatch?.[1] || 12), 0.5, insertOuterDiameter - 0.4)
+  const explodedGap = Math.max(7, Math.min(14, mainLength * 0.1))
+
+  const root = new THREE.Group()
+  root.name = 'JoyNiu stepped tapered nozzle · two-solid candidate assembly'
+  root.userData.componentMode = 'two_solid_assembly_candidate'
+  root.userData.realThreadGeometry = false
+
+  const mainGroup = new THREE.Group()
+  mainGroup.name = 'Main stepped tapered nozzle body'
+  const addBodySegment = (name, startX, length, leftDiameter, rightDiameter, color) => {
+    // CylinderGeometry's local top becomes the left face after rotating its Y
+    // axis onto world X, so the two radii preserve the drawing's direction.
+    const geometry = new THREE.CylinderGeometry(leftDiameter / 2, rightDiameter / 2, length, 72, 1, false)
+    const mesh = new THREE.Mesh(geometry, material(color))
+    mesh.rotateZ(Math.PI / 2)
+    mesh.position.x = startX + length / 2
+    mesh.name = name
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    addEdgeOverlay(mesh)
+    mainGroup.add(mesh)
+  }
+  addBodySegment(`Shallow taper Ø${headLeftDiameter.toFixed(3)} to Ø${headRightDiameter}`, 0, headLength, headLeftDiameter, headRightDiameter, 0xb9c7d5)
+  addBodySegment(`Neck Ø${neckDiameter}`, headLength, neckLength, neckDiameter, neckDiameter, 0xaebdcb)
+  addBodySegment(`Tip Ø${tipDiameter}`, headLength + neckLength, tipLength, tipDiameter, tipDiameter, 0xc6d0da)
+
+  // Dark, slightly protruding analytic surfaces make the subtractive bores
+  // legible before a true OCCT GLB exists. They are visual cavity cues only;
+  // the status badge continues to identify this scene as a fallback preview.
+  const counterbore = new THREE.Mesh(
+    new THREE.CylinderGeometry(counterboreDiameter / 2, counterboreDiameter / 2, counterboreDepth + 0.35, 64),
+    new THREE.MeshStandardMaterial({ color: 0x4e5e6d, metalness: 0.06, roughness: 0.82, side: THREE.DoubleSide }),
+  )
+  counterbore.rotateZ(Math.PI / 2)
+  counterbore.position.x = counterboreDepth / 2 - 0.16
+  counterbore.name = `Counterbore Ø${counterboreDiameter} × ${counterboreDepth}`
+  mainGroup.add(counterbore)
+
+  const throughLength = Math.max(0.5, mainLength - counterboreDepth)
+  const axialBore = new THREE.Mesh(
+    new THREE.CylinderGeometry(axialBoreDiameter / 2, axialBoreDiameter / 2, throughLength + 0.45, 56),
+    new THREE.MeshStandardMaterial({ color: 0x41515f, metalness: 0.04, roughness: 0.86, side: THREE.DoubleSide }),
+  )
+  axialBore.rotateZ(Math.PI / 2)
+  axialBore.position.x = counterboreDepth + throughLength / 2 + 0.16
+  axialBore.name = `Axial through bore Ø${axialBoreDiameter}`
+  mainGroup.add(axialBore)
+
+  const outletTaper = new THREE.Mesh(
+    new THREE.CylinderGeometry(axialBoreDiameter / 2, outletDiameter / 2, outletTaperLength + 0.28, 56),
+    new THREE.MeshStandardMaterial({ color: 0x536574, metalness: 0.05, roughness: 0.8, side: THREE.DoubleSide }),
+  )
+  outletTaper.rotateZ(Math.PI / 2)
+  outletTaper.position.x = mainLength - outletTaperLength / 2 + 0.12
+  outletTaper.name = `Outlet taper Ø${axialBoreDiameter} to Ø${outletDiameter} · half angle ${outletHalfAngle}°`
+  mainGroup.add(outletTaper)
+  root.add(mainGroup)
+
+  const insertGroup = new THREE.Group()
+  insertGroup.name = `Separate insert Ø${insertOuterDiameter} × ${insertLength} · ${model?.insertThreadDesignation || 'M12'} designation`
+  const insertProfile = new THREE.Shape()
+  insertProfile.absarc(0, 0, insertOuterDiameter / 2, 0, Math.PI * 2, false)
+  const insertBorePath = new THREE.Path()
+  insertBorePath.absarc(0, 0, nominalThreadDiameter / 2, 0, Math.PI * 2, true)
+  insertProfile.holes.push(insertBorePath)
+  const insertGeometry = extrudedLocalShape(insertProfile, 0, insertLength, 64)
+  insertGeometry.rotateY(Math.PI / 2)
+  insertGeometry.translate(insertAxialOffset - insertLength - explodedGap, 0, 0)
+  const insert = new THREE.Mesh(insertGeometry, material(0xc69d65))
+  insert.name = `Unthreaded insert envelope · ${model?.insertThreadDesignation || 'M12'} label only`
+  insert.castShadow = true
+  insert.receiveShadow = true
+  addEdgeOverlay(insert, 0x765736)
+  insertGroup.add(insert)
+  root.add(insertGroup)
+
+  const centreLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-insertLength - explodedGap - 5, 0, 0),
+      new THREE.Vector3(mainLength + 7, 0, 0),
+    ]),
+    new THREE.LineDashedMaterial({ color: 0x3975ba, dashSize: 2.4, gapSize: 1.8, transparent: true, opacity: 0.48 }),
+  )
+  centreLine.computeLineDistances()
+  centreLine.name = 'Candidate assembly coaxial datum'
+  root.add(centreLine)
+  return root
+}
+
 function makeShaftFallback(model) {
   const length = Math.max(5, number(model?.length, 70))
   const diameter = Math.max(2, number(model?.outerDiameter, 24))
@@ -650,6 +767,7 @@ function makeShaftFallback(model) {
 }
 
 function makeFallback(model) {
+  if (isSteppedTaperedNozzleKind(model?.kind)) return makeSteppedTaperedNozzleFallback(model)
   if (isClampSupportKind(model?.kind)) return makeClampSupportFallback(model)
   return model?.kind === 'bracket' ? makeBracketFallback(model) : makeShaftFallback(model)
 }
@@ -663,10 +781,12 @@ function prepareLoadedScene(root) {
     const preparedMaterials = sourceMaterials.map((source) => {
       const next = source?.clone ? source.clone() : material(0xb9c5d2)
       if (!next.color) next.color = new THREE.Color(0xb9c5d2)
-      // The generated GLB has no user texture; a neutral cool metal finish
-      // keeps the actual mesh readable on the light CAD canvas while retaining any
-      // texture/color that a future exporter provides.
-      if (!source?.map && !source?.vertexColors) next.color.set(0xb9c5d2)
+      // Preserve authored GLB material colours.  The two-solid DWG recipe uses
+      // a steel/bronze pair so the insert remains distinguishable when it is
+      // enclosed by the counterbore and inspected with the section plane.
+      // Older anonymous meshes still receive the neutral CAD finish.
+      const hasAuthoredColor = Boolean(source?.name) && Boolean(source?.color?.isColor)
+      if (!source?.map && !source?.vertexColors && !hasAuthoredColor) next.color.set(0xb9c5d2)
       next.metalness = 0.42
       next.roughness = 0.34
       next.side = THREE.DoubleSide
@@ -738,7 +858,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
   const glbArtifact = generation?.stale ? null : generation?.artifacts?.find((item) => String(item.format || '').toLowerCase() === 'glb')
   const glbUrl = artifactUrl(glbArtifact)
   const productionCadGlb = Boolean(
-    ['bracket', 'split_clamp_support', 'clamp_pedestal'].includes(model?.kind)
+    (['bracket', 'split_clamp_support', 'clamp_pedestal'].includes(model?.kind) || isSteppedTaperedNozzleKind(model?.kind))
     && !generation?.stale
     && generation?.validation?.productionReady === true
     && glbArtifact,
@@ -828,6 +948,22 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     keywayWidth: model?.keywayWidth,
     keywayDepth: model?.keywayDepth,
     keywayLength: model?.keywayLength,
+    mainLength: model?.mainLength,
+    headLength: model?.headLength,
+    neckLength: model?.neckLength,
+    headLeftDiameter: model?.headLeftDiameter,
+    headRightDiameter: model?.headRightDiameter,
+    neckDiameter: model?.neckDiameter,
+    tipDiameter: model?.tipDiameter,
+    counterboreDiameter: model?.counterboreDiameter,
+    counterboreDepth: model?.counterboreDepth,
+    axialBoreDiameter: model?.axialBoreDiameter,
+    outletDiameter: model?.outletDiameter,
+    outletTaperHalfAngle: model?.outletTaperHalfAngle,
+    insertOuterDiameter: model?.insertOuterDiameter,
+    insertLength: model?.insertLength,
+    insertThreadDesignation: model?.insertThreadDesignation,
+    insertAxialOffset: model?.insertAxialOffset,
   }), [model])
 
   // Scene, renderer and controls are created once per mounted workbench.

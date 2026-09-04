@@ -91,6 +91,86 @@ def test_parse_result_normalizes_split_clamp_identity_aliases(part_type, recipe_
     assert result.parameter_patch == {"pedestalOuterRadius": 33.0}
 
 
+def test_parse_result_accepts_complete_stepped_nozzle_candidate_and_zero_offset():
+    patch = {
+        "mainLength": 98,
+        "headLength": 50,
+        "neckLength": 20,
+        "headLeftDiameter": 54.25449350717895,
+        "headRightDiameter": 56,
+        "neckDiameter": 30,
+        "tipDiameter": 25,
+        "counterboreDiameter": 40,
+        "counterboreDepth": 40,
+        "axialBoreDiameter": 13,
+        "outletDiameter": 17,
+        "outletTaperHalfAngle": 15,
+        "insertOuterDiameter": 39.4,
+        "insertLength": 40,
+        "insertThreadDesignation": "M12",
+        "insertAxialOffset": 0,
+        "units": "mm",
+    }
+    result = _parse_result(
+        {
+            "id": "resp_stepped_nozzle",
+            "output_text": json.dumps(
+                {
+                    "message": "已从DWG尺寸与轮廓形成两实体候选",
+                    "part_type": "stepped_tapered_nozzle",
+                    "recipe_id": "stepped_tapered_nozzle_with_insert_v1",
+                    "parameter_patch": patch,
+                    "parameter_evidence": [
+                        {
+                            "parameter": "mainLength",
+                            "sourceType": "direct_dimension",
+                            "dimensionId": "dimension_00013",
+                        },
+                        {
+                            "parameter": "outletTaperHalfAngle",
+                            "sourceType": "vector_derived",
+                            "dimensionId": "dimension_00015",
+                        },
+                    ],
+                    "needs_review": True,
+                    "questions": [],
+                }
+            ),
+        }
+    )
+
+    assert result.part_type == "stepped_tapered_nozzle"
+    assert result.recipe_id == "stepped_tapered_nozzle_with_insert_v1"
+    assert result.parameter_patch == patch
+    assert result.parameter_patch["insertAxialOffset"] == 0.0
+    assert result.parameter_evidence["mainLength"]["sourceType"] == "direct_dimension"
+    assert result.parameter_evidence["outletTaperHalfAngle"]["sourceType"] == "vector_derived"
+
+
+def test_parse_result_infers_stepped_nozzle_from_recipe_unique_fields():
+    result = _parse_result(
+        {
+            "id": "resp_stepped_inferred",
+            "output_text": json.dumps(
+                {
+                    "message": "识别到独立镶件与出口锥",
+                    "parameter_patch": {
+                        "mainLength": 98,
+                        "insertOuterDiameter": 39.4,
+                        "insertThreadDesignation": "M12",
+                        "insertAxialOffset": 0,
+                    },
+                    "needs_review": True,
+                    "questions": [],
+                }
+            ),
+        }
+    )
+
+    assert result.part_type == "stepped_tapered_nozzle"
+    assert result.recipe_id == "stepped_tapered_nozzle_with_insert_v1"
+
+
 def test_parse_result_infers_split_identity_from_recipe_unique_remote_fields():
     result = _parse_result(
         {
@@ -1124,6 +1204,67 @@ def test_partial_remote_blind_review_merges_without_erasing_prior_fields():
     assert merged.parameter_patch == {"baseLength": 125, "baseWidth": 96}
 
 
+def test_nozzle_pipeline_keeps_ai_candidate_field_when_later_reviews_do_not_repeat_it(
+    monkeypatch,
+):
+    """Every shown value may come from the model, while later passes refine it."""
+
+    from app import ai_proxy
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(json.loads(request.data.decode()))
+        patch = {
+            "mainLength": 98,
+            "insertOuterDiameter": 39.4,
+            "insertThreadDesignation": "M12",
+        }
+        if len(calls) == 1:
+            patch["insertAxialOffset"] = 0
+        return _Response(
+            {
+                "id": f"resp_nozzle_merge_{len(calls)}",
+                "output_text": json.dumps(
+                    {
+                        "message": "AI候选，待人工确认",
+                        "part_type": "stepped_tapered_nozzle",
+                        "recipe_id": "stepped_tapered_nozzle_with_insert_v1",
+                        "parameter_patch": patch,
+                        "parameter_evidence": {
+                            "insertAxialOffset": {
+                                "sourceType": "ai_interpreted",
+                                "confidence": 0.5,
+                            }
+                        }
+                        if len(calls) == 1
+                        else {},
+                        "needs_review": True,
+                        "questions": ["请确认装配轴向基准"],
+                    }
+                ),
+            }
+        )
+
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _item: None)
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析阶梯锥体",
+        files=(AIFile("drawing.png", "image/png", png),),
+    )
+
+    assert len(calls) == 3
+    assert result.parameter_patch["insertAxialOffset"] == 0
+    assert result.parameter_evidence["insertAxialOffset"]["sourceType"] == "ai_interpreted"
+    assert result.needs_review is True
+
+
 def test_focused_consensus_votes_each_remote_field_independently():
     from app.ai_proxy import _focused_consensus
 
@@ -1150,7 +1291,7 @@ def test_focused_consensus_votes_each_remote_field_independently():
     }
 
 
-def test_required_complex_blind_review_failure_does_not_publish_stage_two_candidate(monkeypatch):
+def test_required_complex_blind_review_failure_keeps_remote_candidate_for_human_review(monkeypatch):
     from app import ai_proxy
     from app.schemas import SplitClampSupportParameters
 
@@ -1191,10 +1332,124 @@ def test_required_complex_blind_review_failure_does_not_publish_stage_two_candid
         files=(AIFile("split-clamp.png", "image/png", png),),
     )
 
-    assert len(calls) == 3
-    assert result.provider["mode"] == "local-fallback"
+    # The split-clamp recipe may still run its focused datum checks after the
+    # blind arbitration failed; the already validated candidate must survive.
+    assert len(calls) >= 3
+    assert result.provider["mode"] == "remote"
+    assert result.provider["reviewComplete"] is False
     assert result.provider["lastErrorCode"] == "http_401"
-    assert result.parameter_patch == {}
+    assert result.parameter_patch == patch
+    assert result.needs_review is True
+    assert "远程复核未完成" in result.message
+    assert any("远程复核未完成" in question for question in result.questions)
+
+
+def test_dwg_invalid_audit_and_transport_failed_arbitration_keep_extraction_candidate(
+    monkeypatch,
+):
+    """A later relay failure must not erase a validated DWG extraction."""
+
+    from app import ai_proxy
+    from app.dwg_preprocessor import DWGPreprocessResult, DWGSourceMetadata
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    raw_dwg = b"AC1021" + b"validated-extraction-review-failure"
+    patch = {
+        "mainLength": 98,
+        "headLength": 50,
+        "neckLength": 20,
+        "headLeftDiameter": 54.25449350717895,
+        "headRightDiameter": 56,
+        "neckDiameter": 30,
+        "tipDiameter": 25,
+        "counterboreDiameter": 40,
+        "counterboreDepth": 40,
+        "axialBoreDiameter": 13,
+        "outletDiameter": 17,
+        "outletTaperHalfAngle": 15,
+        "insertOuterDiameter": 39.4,
+        "insertLength": 40,
+        "insertThreadDesignation": "M12",
+        "insertAxialOffset": 0,
+    }
+
+    def fake_preprocess(payload, filename):
+        return DWGPreprocessResult(
+            original_metadata=DWGSourceMetadata(
+                filename=filename,
+                size_bytes=len(payload),
+                sha256=hashlib.sha256(payload).hexdigest(),
+                signature="AC1021",
+                version="AutoCAD 2007/2009",
+            ),
+            converter="libredwg-dwgread",
+            dxf_bytes=b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n",
+            png_bytes=png,
+            summary={
+                "schemaVersion": "joyniu.dwg-vector-summary.v1",
+                "units": {"code": 4, "name": "Millimeters"},
+                "sourceEntityCount": 47,
+                "entityCount": 46,
+                "dimensions": [{"id": "dimension_00001", "measurement": 98.0}],
+                "geometry": [],
+            },
+            audit_summary={"source": {"filename": filename}},
+        )
+
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(json.loads(request.data.decode()))
+        if len(calls) == 1:
+            return _Response(
+                {
+                    "id": "resp_dwg_extraction",
+                    "output_text": json.dumps(
+                        {
+                            "message": "DWG 远程提取候选",
+                            "part_type": "stepped_tapered_nozzle",
+                            "recipe_id": "stepped_tapered_nozzle_with_insert_v1",
+                            "parameter_patch": patch,
+                            "parameter_evidence": {
+                                "mainLength": {
+                                    "sourceType": "direct_dimension",
+                                    "evidenceId": "dimension_00001",
+                                }
+                            },
+                            "needs_review": True,
+                            "questions": [],
+                        }
+                    ),
+                }
+            )
+        if len(calls) == 2:
+            return _Response({"id": "resp_bad_audit", "output_text": "not valid JSON"})
+        raise urllib.error.URLError("relay disconnected during arbitration")
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("app.dwg_preprocessor.preprocess_dwg", fake_preprocess)
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _item: None)
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析这个 DWG",
+        files=(AIFile("1(1).dwg", "application/acad", raw_dwg),),
+    )
+
+    assert len(calls) == 3
+    assert result.part_type == "stepped_tapered_nozzle"
+    assert result.recipe_id == "stepped_tapered_nozzle_with_insert_v1"
+    assert result.parameter_patch == patch
+    assert result.parameter_evidence["mainLength"]["sourceType"] == "direct_dimension"
+    assert result.provider["mode"] == "remote"
+    assert result.provider["reviewComplete"] is False
+    assert result.provider["lastErrorCode"] == "transport"
+    assert result.needs_review is True
+    assert "远程复核未完成" in result.message
+    assert any("逐项确认" in question for question in result.questions)
 
 
 def test_proxy_retries_transient_http_failure_but_not_auth_failure(monkeypatch):
@@ -1257,6 +1512,196 @@ def test_provider_image_normalization_keeps_original_audit_metadata():
     assert octet_metadata["contentType"] == "application/octet-stream"
     assert octet_attachment["type"] == "input_image"
     assert octet_attachment["image_url"].startswith("data:image/jpeg;base64,")
+
+
+def test_raw_dwg_attachment_cannot_be_serialized_to_provider():
+    """Defence in depth prevents reintroducing opaque DWG pass-through."""
+    from app.ai_proxy import _attachment_content
+
+    with pytest.raises(AIProxyError, match="must be preprocessed"):
+        _attachment_content(
+            AIFile("source.dwg", "application/acad", b"AC1021opaque-binary")
+        )
+
+
+def test_dwg_is_preprocessed_once_and_every_remote_stage_uses_image_and_vector_evidence(
+    monkeypatch,
+):
+    from app import ai_proxy
+    from app.dwg_preprocessor import DWGPreprocessResult, DWGSourceMetadata
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    raw_dwg = b"AC1021" + b"opaque-dwg-binary-that-must-never-reach-the-relay"
+    preprocess_calls = []
+
+    def fake_preprocess(payload, filename):
+        preprocess_calls.append((payload, filename))
+        return DWGPreprocessResult(
+            original_metadata=DWGSourceMetadata(
+                filename=filename,
+                size_bytes=len(payload),
+                sha256=hashlib.sha256(payload).hexdigest(),
+                signature="AC1021",
+                version="AutoCAD 2007/2009",
+            ),
+            converter="libredwg-dwgread",
+            dxf_bytes=b"0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n",
+            png_bytes=png,
+            summary={
+                "schemaVersion": "joyniu.dwg-vector-summary.v1",
+                "units": {"code": 4, "name": "Millimeters"},
+                "sourceEntityCount": 2,
+                "entityCount": 2,
+                "dimensions": [
+                    {
+                        "id": "dimension_00001",
+                        "measurement": 98.0,
+                        "text": "<>",
+                        "textMode": "measurement-placeholder",
+                        "dimensionType": 0,
+                        "defpoints": {
+                            "defpoint2": [0.0, 0.0, 0.0],
+                            "defpoint3": [98.0, 0.0, 0.0],
+                        },
+                    }
+                ],
+                "geometry": [
+                    {"type": "LINE", "start": [0.0, 0.0, 0.0], "end": [98.0, 0.0, 0.0]}
+                ],
+            },
+            audit_summary={"source": {"filename": filename}},
+        )
+
+    remote_answer = {
+        "message": "已结合DWG尺寸对象和渲染图形成候选",
+        "part_type": "shaft",
+        "recipe_id": "shaft_v1",
+        "parameter_patch": {
+            "outerDiameter": 54.2545,
+            "length": 98,
+            "holeDiameter": 13,
+            "keywayWidth": 7.4641,
+            "keywayDepth": 2,
+            "keywayLength": 20,
+        },
+        "parameter_evidence": {
+            "length": {"sourceType": "direct_dimension", "evidenceId": "dimension_00001"}
+        },
+        "needs_review": True,
+        "questions": [],
+    }
+    bodies = []
+
+    def fake_urlopen(request, timeout):
+        bodies.append(json.loads(request.data.decode()))
+        return _Response(
+            {
+                "id": f"resp_dwg_{len(bodies)}",
+                "output_text": json.dumps(remote_answer),
+            }
+        )
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("app.dwg_preprocessor.preprocess_dwg", fake_preprocess)
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _item: None)
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析这个DWG",
+        files=(AIFile("part.dwg", "application/octet-stream", raw_dwg),),
+    )
+
+    assert preprocess_calls == [(raw_dwg, "part.dwg")]
+    assert len(bodies) == 2  # extraction plus independent audit
+    raw_base64 = base64.b64encode(raw_dwg).decode()
+    for body in bodies:
+        serialized = json.dumps(body, ensure_ascii=False)
+        assert raw_base64 not in serialized
+        assert "input_file" not in serialized
+        assert "CAD_VECTOR_EVIDENCE" in serialized
+        assert "dimension_00001" in serialized
+        attachments = [
+            item
+            for item in body["input"][-1]["content"]
+            if item.get("type") == "input_image"
+        ]
+        assert len(attachments) == 1
+        assert attachments[0]["image_url"].startswith("data:image/jpeg;base64,")
+    assert result.provider["mode"] == "remote"
+    assert result.attachments[0]["filename"] == "part.dwg"
+    assert result.attachments[0]["sha256"] == hashlib.sha256(raw_dwg).hexdigest()
+    assert result.attachments[0]["dwgPreprocessing"]["dimensionCount"] == 1
+    assert result.attachments[0]["dwgPreprocessing"]["derivedFromSha256"] == hashlib.sha256(raw_dwg).hexdigest()
+
+
+def test_dwg_preprocess_failure_makes_zero_provider_calls(monkeypatch):
+    from app import ai_proxy
+    from app.dwg_preprocessor import DWGInputError
+
+    provider_calls = []
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr(
+        "app.dwg_preprocessor.preprocess_dwg",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DWGInputError("hostile detail")),
+    )
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *_args, **_kwargs: provider_calls.append(True),
+    )
+
+    result = AIProxy(timeout_seconds=7).converse(
+        "解析",
+        files=(AIFile("bad.dwg", "application/octet-stream", b"AC1021bad"),),
+    )
+
+    assert provider_calls == []
+    assert result.provider["mode"] == "dwg-preprocess-error"
+    assert result.provider["lastErrorCode"] == "invalid_dwg_input"
+    assert "hostile detail" not in result.message
+
+
+def test_platform_attachment_finalizer_preserves_dwg_derivative_provenance():
+    from app.platform_api import _canonical_ai_attachment_metadata
+
+    raw = b"AC1021raw-source"
+    digest = hashlib.sha256(raw).hexdigest()
+    result = AIConversationResult(
+        response_id="resp_metadata",
+        message="ok",
+        parameter_patch={},
+        needs_review=True,
+        questions=(),
+        attachments=(
+            {
+                "filename": "provider-must-not-override.dwg",
+                "contentType": "application/x-dwg",
+                "sizeBytes": 1,
+                "sha256": digest,
+                "dwgPreprocessing": {
+                    "status": "parsed",
+                    "engine": "libredwg-dwgread",
+                    "dimensionCount": 15,
+                    "previewSha256": "a" * 64,
+                    "derivedFromSha256": digest,
+                },
+            },
+        ),
+    )
+
+    metadata = _canonical_ai_attachment_metadata(
+        result,
+        [AIFile("original.dwg", "application/octet-stream", raw)],
+    )
+
+    assert metadata[0]["filename"] == "original.dwg"
+    assert metadata[0]["contentType"] == "application/octet-stream"
+    assert metadata[0]["sizeBytes"] == len(raw)
+    assert metadata[0]["sha256"] == digest
+    assert metadata[0]["dwgPreprocessing"]["dimensionCount"] == 15
+    assert metadata[0]["dwgPreprocessing"]["derivedFromSha256"] == digest
 
 
 def test_proxy_reads_key_file_without_requiring_environment(monkeypatch, tmp_path):
@@ -1332,8 +1777,8 @@ def test_proxy_does_not_consume_generic_openai_environment_key(monkeypatch):
     assert "generic-key-must-not-forward" not in str(error.value)
 
 
-def test_unknown_drawing_returns_review_envelope_without_provider(monkeypatch):
-    """Missing relay configuration must not turn unknown evidence into 503."""
+def test_invalid_dwg_returns_typed_preprocess_envelope_without_provider(monkeypatch):
+    """Opaque DWG bytes never reach OCR/provider fallback paths."""
     from app import ai_proxy
 
     for name in (
@@ -1341,18 +1786,19 @@ def test_unknown_drawing_returns_review_envelope_without_provider(monkeypatch):
         "JOYNIU_AI_API_KEY_FILE", "OPENAI_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(
-        ai_proxy,
-        "_recognize_attachment",
-        lambda _item: {"id": "compat_unknown", "status": "needs_review", "parameters": {}},
-    )
+    recognizer_calls = []
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda item: recognizer_calls.append(item))
     result = AIProxy().converse(
         "解析这份图纸",
         files=(AIFile("unknown.dwg", "application/octet-stream", b"AC10"),),
     )
     assert result.needs_review is True
     assert result.parameter_patch == {}
-    assert result.drawing["id"] == "compat_unknown"
+    assert result.drawing is None
+    assert result.provider["mode"] == "dwg-preprocess-error"
+    assert result.provider["lastErrorCode"] == "invalid_dwg_input"
+    assert result.attachments[0]["dwgPreprocessing"]["status"] == "failed"
+    assert recognizer_calls == []
 
 
 def test_unknown_drawing_degraded_message_is_request_scoped_and_retryable(monkeypatch):
@@ -1717,6 +2163,84 @@ def test_ai_stream_route_emits_live_updates_and_terminal_validated_result(monkey
     assert '"baseLength":120' in response.text
     assert "event: turn.done" in response.text
     assert fake.history[0]["text"] == "当前底板多长？"
+
+
+def test_ai_stream_terminal_result_preserves_partial_review_dwg_candidate(monkeypatch):
+    """SSE must deliver a validated extraction even if later review failed."""
+
+    services = build_platform_services(":memory:", auth_secret="r" * 32)
+    candidate_patch = {
+        "mainLength": 98,
+        "headLength": 50,
+        "neckLength": 20,
+        "headLeftDiameter": 54.25449350717895,
+        "headRightDiameter": 56,
+        "neckDiameter": 30,
+        "tipDiameter": 25,
+        "counterboreDiameter": 40,
+        "counterboreDepth": 40,
+        "axialBoreDiameter": 13,
+        "outletDiameter": 17,
+        "outletTaperHalfAngle": 15,
+        "insertOuterDiameter": 39.4,
+        "insertLength": 40,
+        "insertThreadDesignation": "M12",
+        "insertAxialOffset": 0,
+    }
+
+    class PartialReviewAI:
+        allow_anonymous = True
+
+        def status(self):
+            return {"mode": "remote", "model": "gpt-5.6-sol", "streaming": True, "configured": True}
+
+        def converse(self, _message, **kwargs):
+            kwargs["on_status"]("阶段 3/3：远程复核未完成，正在保留提取候选…")
+            return AIConversationResult(
+                "resp_partial_dwg",
+                "远程复核未完成；以下参数必须逐项人工确认。",
+                candidate_patch,
+                True,
+                ("远程复核未完成，请逐项确认当前 AI 候选参数。",),
+                part_type="stepped_tapered_nozzle",
+                recipe_id="stepped_tapered_nozzle_with_insert_v1",
+                parameter_evidence={
+                    "mainLength": {"sourceType": "direct_dimension"},
+                },
+                provider={
+                    **self.status(),
+                    "reviewComplete": False,
+                    "lastErrorCode": "transport",
+                },
+            )
+
+    class BrokenOCR:
+        def analyze(self, *_args, **_kwargs):
+            raise RuntimeError("DWG OCR intentionally unavailable")
+
+    services.ai = PartialReviewAI()
+    services.ocr = BrokenOCR()
+    monkeypatch.setenv("JOYNIU_AI_ALLOW_ANONYMOUS", "1")
+    monkeypatch.setenv("JOYNIU_ENV", "development")
+
+    response = _client_for(services).post(
+        "/api/v1/ai/conversation/stream",
+        data={"message": "解析 DWG"},
+        files={"files": ("1(1).dwg", b"AC1021test-dwg", "application/acad")},
+    )
+
+    assert response.status_code == 200, response.text
+    blocks = [block for block in response.text.split("\n\n") if block.strip()]
+    result_block = next(block for block in blocks if block.startswith("event: turn.result\n"))
+    result = json.loads(next(line[6:] for line in result_block.splitlines() if line.startswith("data: ")))
+    assert result["partType"] == "stepped_tapered_nozzle"
+    assert result["recipeId"] == "stepped_tapered_nozzle_with_insert_v1"
+    assert result["parameterPatch"] == candidate_patch
+    assert result["provider"]["mode"] == "remote"
+    assert result["provider"]["reviewComplete"] is False
+    assert result["drawingRecognition"]["engine"] == "ai-candidate"
+    assert result["drawingRecognition"]["candidateParameters"] == candidate_patch
+    assert "event: turn.done" in response.text
 
 
 def test_ai_route_drops_unregistered_compatibility_recognition(monkeypatch):

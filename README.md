@@ -10,9 +10,10 @@ CurrentCAD 线程中验证过的交互，并在 v0.5.0 将“工作台 AI 对话
 
 - AI 参数化零件 Agent：解析中文描述、编辑参数、同步特征树和三维预览。
 - 多模态 AI Copilot：在设计工作台对话框上传图片、PDF、DXF 或 DWG，携带当前模型状态进行
-  多轮尺寸编辑；服务端通过 GPTX Responses 兼容端点调用 `gpt-5.6-sol` / `high`，并只把
-  白名单参数补丁交给 CAD 编辑器。结果可携带 `partType`、`recipeId` 和
-  `parameterEvidence`，工作台据此切换正确的参数面板、特征树与三维草稿。
+  多轮尺寸编辑；DWG 先在服务端转换为 DXF、提取矢量/尺寸并渲染高清图，原始 DWG 二进制
+  不直接发送给中转站。服务端通过 GPTX Responses 兼容端点调用
+  `gpt-5.6-sol` / `high`，并只把白名单参数补丁交给 CAD 编辑器。结果可携带
+  `partType`、`recipeId` 和 `parameterEvidence`，工作台据此切换正确的参数面板、特征树与三维草稿。
 - Three.js WebGL 三维查看器：优先加载 FastAPI 生成的真实 GLB 网格，支持 OrbitControls
   旋转/缩放、等轴/前/俯视相机、剖切平面和可见的参数化 fallback 状态。
 - 三视图/2D 工程图、装配、标准件库、项目文件和导出交互。
@@ -83,7 +84,7 @@ VITE_API_BASE=http://127.0.0.1:8011/api/v1 npm run dev -- --port 5175
 
 ```bash
 cd apps/api
-python3 -m pip install -e '.[dev,geometry,ocr]'
+python3 -m pip install -e '.[dev,geometry,ocr,dwg]'
 export JOYNIU_AUTH_SECRET='use-a-random-secret-of-at-least-24-bytes'
 export JOYNIU_DB="$PWD/data/joyniu.sqlite3"
 # AI key stays on the API process; point this at a restrictive local file or
@@ -109,11 +110,56 @@ OCR/几何结果仅作为人工复核证据，模型未返回的字段保持空�
 ```bash
 python3 -m pip install -e '.[geometry]'  # CadQuery/OCCT 原生 B-Rep STEP
 python3 -m pip install -e '.[ocr]'       # Pillow + pytesseract；还需 tesseract binary
+python3 -m pip install -e '.[dwg]'       # ezdxf + Matplotlib + Pillow；还需系统级 DWG 转换器
 ```
 
 首次运行没有 CadQuery 时仍可生成可审计的 GLB/三角面 STEP；响应中的 `engine`、
 `warnings` 和 `productionReady` 会说明降级状态。需要生产 B-Rep 交付时应使用
 `requireCadQuery=true`，OCCT 不可用会明确返回 503，而不是静默降级。
+
+### DWG 原生矢量预处理
+
+`dwg` extra 只负责读取转换后的 DXF、提取 `DIMENSION`/基础矢量图元并生成高清预览；
+`ezdxf` 本身不能直接解码 DWG。因此部署机器还必须安装以下任一种转换器：
+
+- GNU LibreDWG：确保 `dwgread`（优先）或 `dwg2dxf` 在 `PATH`。macOS/Homebrew
+  通常可用 `brew install libredwg`；Linux 包名依发行版而定，常见为
+  `libredwg-tools`，也可从 GNU LibreDWG 源码构建。
+- ODA File Converter / Drawings SDK：按 ODA 授权安装，并提供一个由管理员维护的包装器，
+  接收“输入 DWG 文件、输出 DXF 文件”两个参数；应用不会拼接或执行 shell 字符串。
+
+默认会依次发现 `dwgread`、`dwg2dxf`。需要指定固定版本或 ODA 包装器时，配置 JSON argv
+数组；仅支持 `{input_dwg}` 和 `{output_dxf}` 占位符：
+
+```bash
+# GNU LibreDWG
+export JOYNIU_DWG_CONVERTER_COMMAND_JSON='["/usr/local/bin/dwgread","-O","DXF","-o","{output_dxf}","{input_dwg}"]'
+
+# ODA 包装器（必须生成 {output_dxf}）
+export JOYNIU_DWG_CONVERTER_COMMAND_JSON='["/opt/joyniu/bin/oda-dwg-to-dxf","{input_dwg}","{output_dxf}"]'
+```
+
+该变量必须是非空字符串数组并包含 `{input_dwg}`；生产环境建议使用转换器的绝对路径。
+转换命令不经过 shell，在隔离临时目录中执行，并受超时、文件大小和进程资源限制。
+原始 DWG 不会直接上传中转站；远程 AI 只接收高清渲染图和受大小/字段白名单限制的结构化摘要。
+
+DWG 矢量层可以提供两类可追溯数据：原生 `DIMENSION` measurement，以及根据端点、圆心、
+半径计算的几何量测。但二维尺寸无法唯一决定任意三维拓扑：视图对应与特征语义仍须由 AI
+或人工映射到已审核的配方/特征树，经人工确认后才能进入 CadQuery/OCCT 实体生成。
+
+可以不经过 AI，先单独验证本机 DWG 读取链路：
+
+```bash
+curl -F 'file=@/absolute/path/drawing.dwg;type=application/acad' \
+  http://127.0.0.1:8011/api/v1/dwg/inspect
+```
+
+响应包含 `source.signature/version`、`units`、`sourceEntityCount`、`dimensionCount`、
+`vectorSummary`、派生 DXF/PNG 哈希以及 `rawDwgSentToAI=false`。
+
+用户提供的 `1(1).dwg` 已有专用白名单配方
+`stepped_tapered_nozzle_with_insert_v1`：左侧 98 mm 主件与右侧 Ø39.4×40 M12 镶件保持为
+两个独立实体；M12 因缺少螺距/公差只显示名义直孔，不会伪造真实牙型。
 
 ## 图纸验收：安装支架（`bracket_support_v1` 兼容配方）
 
@@ -229,8 +275,9 @@ R33、后半直边延伸至后缘的 D 形，后高墙为矩形直边后半体�
 
 未知图纸仍会显示 `needs_review`，但这只表示“候选数据待确认”，不会停在只有 reviewer
 入口的页面：AI 会把可识别字段和不确定项展示出来，客户/设计师可补全 `parameterOverrides`
-后确认，再进入 3D 生成。PDF/DXF/DWG 已纳入上传和远程文件输入协议，但当前版本不承诺
-DWG 原生实体拓扑重建或多页 PDF 视图自动对齐。
+后确认，再进入 3D 生成。PDF/DXF 已纳入远程文件输入协议；DWG 则先进行本地原生转换、
+矢量提取与高清渲染，原始二进制不直接发送给中转站。当前版本仍不承诺从任意二维 DWG
+自动重建唯一三维拓扑，未知零件需要建立或选择已审核配方/特征树。
 
 ## 测试与文件化开发
 

@@ -510,6 +510,48 @@ def _validate_members_payload(raw: Any) -> list[Any]:
     return result
 
 
+def _canonical_ai_attachment_metadata(
+    result: Any,
+    attachments: list[AIFile],
+) -> list[dict[str, Any]]:
+    """Anchor attachment identity to raw bytes while retaining safe derivatives."""
+
+    existing_by_sha: dict[str, Mapping[str, Any]] = {}
+    for item in getattr(result, "attachments", ()) or ():
+        if not isinstance(item, Mapping):
+            continue
+        digest = str(item.get("sha256", ""))
+        if digest:
+            existing_by_sha[digest] = item
+    canonical: list[dict[str, Any]] = []
+    for attachment in attachments:
+        digest = hashlib.sha256(attachment.data).hexdigest()
+        metadata = {
+            "filename": attachment.filename,
+            "contentType": attachment.content_type,
+            "sizeBytes": len(attachment.data),
+            "sha256": digest,
+        }
+        existing = existing_by_sha.get(digest)
+        if existing is not None:
+            preprocessing = existing.get("dwgPreprocessing")
+            if isinstance(preprocessing, Mapping):
+                metadata["dwgPreprocessing"] = dict(preprocessing)
+            for key in ("recognitionStatus", "recognitionEngine"):
+                if existing.get(key) is not None:
+                    metadata[key] = existing[key]
+        canonical.append(metadata)
+    return canonical
+
+
+def _supported_ai_recipe_identity(part_type: str, recipe_id: str) -> bool:
+    return (part_type, recipe_id) in {
+        ("bracket", "bracket_support_v1"),
+        ("split_clamp_support", "split_clamp_support_v1"),
+        ("stepped_tapered_nozzle", "stepped_tapered_nozzle_with_insert_v1"),
+    }
+
+
 async def _finalize_ai_conversation_result(
     services: PlatformServices,
     result: Any,
@@ -524,27 +566,13 @@ async def _finalize_ai_conversation_result(
 
     remote_part_type = str(getattr(result, "part_type", "unknown") or "unknown")
     remote_recipe_id = str(getattr(result, "recipe_id", "") or "")
-    supported_recipe = (
-        remote_part_type == "split_clamp_support"
-        and remote_recipe_id == "split_clamp_support_v1"
-    ) or (
-        remote_part_type == "bracket"
-        and remote_recipe_id == "bracket_support_v1"
-    )
+    supported_recipe = _supported_ai_recipe_identity(remote_part_type, remote_recipe_id)
     candidate_part_type = remote_part_type if supported_recipe else "unknown"
     candidate_recipe_id = remote_recipe_id if supported_recipe else ""
     parameter_evidence = getattr(result, "parameter_evidence", None)
     registered_drawing = None
-    canonical_attachments: list[dict[str, Any]] = []
+    canonical_attachments = _canonical_ai_attachment_metadata(result, attachments)
     for attachment in attachments:
-        canonical_attachments.append(
-            {
-                "filename": attachment.filename,
-                "contentType": attachment.content_type,
-                "sizeBytes": len(attachment.data),
-                "sha256": hashlib.sha256(attachment.data).hexdigest(),
-            }
-        )
         try:
             candidate = await asyncio.to_thread(
                 services.ocr.analyze,
@@ -768,27 +796,13 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             # canonical id so ``sourceDrawingId`` can be resumed safely.
             remote_part_type = str(getattr(result, "part_type", "unknown") or "unknown")
             remote_recipe_id = str(getattr(result, "recipe_id", "") or "")
-            supported_recipe = (
-                remote_part_type == "split_clamp_support"
-                and remote_recipe_id == "split_clamp_support_v1"
-            ) or (
-                remote_part_type == "bracket"
-                and remote_recipe_id == "bracket_support_v1"
-            )
+            supported_recipe = _supported_ai_recipe_identity(remote_part_type, remote_recipe_id)
             candidate_part_type = remote_part_type if supported_recipe else "unknown"
             candidate_recipe_id = remote_recipe_id if supported_recipe else ""
             parameter_evidence = getattr(result, "parameter_evidence", None)
             registered_drawing = None
-            canonical_attachments: list[dict[str, Any]] = []
+            canonical_attachments = _canonical_ai_attachment_metadata(result, attachments)
             for attachment in attachments:
-                canonical_attachments.append(
-                    {
-                        "filename": attachment.filename,
-                        "contentType": attachment.content_type,
-                        "sizeBytes": len(attachment.data),
-                        "sha256": hashlib.sha256(attachment.data).hexdigest(),
-                    }
-                )
                 try:
                     candidate = await asyncio.to_thread(
                         services.ocr.analyze,
@@ -1739,21 +1753,43 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 },
             )
 
-            from .geometry import generate_artifacts, validate_bracket
-            from .schemas import BracketParameters
-
-            parameters = BracketParameters.model_validate(
-                recognition.model_recipe.get("parameters", {})
+            from .model_recipes import (
+                generate_model_recipe_artifacts,
+                parse_model_parameters,
+                validate_model_recipe,
             )
-            report = validate_bracket(parameters)
-            if not report.valid:
+
+            recipe_id = str(
+                recognition.model_recipe.get("recipeId")
+                or recognition.model_recipe.get("recipe_id")
+                or ""
+            ).strip()
+            supported_recipe = _supported_ai_recipe_identity(
+                recognition.part_type,
+                recipe_id,
+            )
+            if not supported_recipe:
+                raise ValidationError(
+                    "confirmed recognition does not identify a supported model recipe"
+                )
+            normalized_part_type = recognition.part_type
+            try:
+                parameters = parse_model_parameters(
+                    recipe_id,
+                    recognition.model_recipe.get("parameters", {}),
+                )
+                report = validate_model_recipe(recipe_id, parameters)
+            except ValueError as exc:
+                raise ValidationError(f"recognized parameters are invalid: {exc}") from exc
+            if not bool(report.get("valid")):
                 raise ValidationError("recognized parameters failed geometry validation")
             formats = data.get("formats", ["step", "glb"])
             if not isinstance(formats, (list, tuple)):
                 raise ValidationError("formats must be an array")
-            generated = generate_artifacts(
+            generated = generate_model_recipe_artifacts(
+                recipe_id,
                 parameters,
-                formats,
+                list(formats),
                 require_cadquery=bool(data.get("requireCadQuery", data.get("require_cadquery", True))),
             )
             # Validation audits the requested shape before the exporters run.
@@ -1769,13 +1805,13 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 and step_artifact.production_ready
                 and step_artifact.engine == "cadquery-occt"
             )
-            workflow_production = bool(report.production_ready and step_production)
+            workflow_production = bool(report.get("productionReady") and step_production)
             workflow_engine = (
                 "cadquery-occt"
                 if workflow_production
                 else primary_artifact.engine
                 if primary_artifact is not None
-                else report.engine
+                else str(report.get("engine") or "no-artifact")
             )
             workflow_reason = (
                 "OCCT STEP artifact passed the production delivery gate"
@@ -1784,7 +1820,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 if step_artifact is not None
                 else "no STEP artifact was requested; emitted artifacts are preview-only"
             )
-            report_metrics = dict(report.metrics)
+            report_metrics = dict(report.get("metrics") or {})
             report_metrics.update(
                 {
                     "artifactProductionReady": workflow_production,
@@ -1794,9 +1830,10 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     "previewOnly": not workflow_production,
                 }
             )
-            report = report.model_copy(
-                update={
-                    "production_ready": workflow_production,
+            report = dict(report)
+            report.update(
+                {
+                    "productionReady": workflow_production,
                     "engine": workflow_engine,
                     "metrics": report_metrics,
                 }
@@ -1807,7 +1844,12 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 f"{Path(filename).stem}-parameters-{run_id}.json",
                 "model",
                 actor.id,
-                metadata={"recognitionId": recognition.id, "sourceVersionId": source_version.id},
+                metadata={
+                    "recognitionId": recognition.id,
+                    "sourceVersionId": source_version.id,
+                    "partType": normalized_part_type,
+                    "recipeId": recipe_id,
+                },
             )
             parameter_version = services.pdm.create_version(
                 parameter_document.id,
@@ -1815,7 +1857,13 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 actor.id,
                 file_name=parameter_document.name,
                 content_type="application/json",
-                metadata={"recognitionId": recognition.id, "sourceVersionId": source_version.id, "validation": report.metrics},
+                metadata={
+                    "recognitionId": recognition.id,
+                    "sourceVersionId": source_version.id,
+                    "partType": normalized_part_type,
+                    "recipeId": recipe_id,
+                    "validation": report_metrics,
+                },
             )
             artifact_records: list[dict[str, Any]] = []
             for artifact in generated:
@@ -1827,6 +1875,8 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     metadata={
                         "recognitionId": recognition.id,
                         "parameterVersionId": parameter_version.id,
+                        "partType": normalized_part_type,
+                        "recipeId": recipe_id,
                         "engine": artifact.engine,
                         "productionReady": artifact.production_ready,
                     },
@@ -1840,6 +1890,8 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                     metadata={
                         "recognitionId": recognition.id,
                         "parameterVersionId": parameter_version.id,
+                        "partType": normalized_part_type,
+                        "recipeId": recipe_id,
                         "engine": artifact.engine,
                         "productionReady": artifact.production_ready,
                         "sha256": artifact.sha256,
@@ -1849,9 +1901,11 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
 
             return {
                 "workflow": "drawing-to-model",
+                "partType": normalized_part_type,
+                "recipeId": recipe_id,
                 "project": project.to_dict(),
                 "recognition": recognition.to_dict(),
-                "validation": report.model_dump(mode="json", by_alias=True),
+                "validation": report,
                 "pdm": {
                     "sourceDocument": source_document.to_dict(),
                     "sourceVersion": source_version.to_dict(),

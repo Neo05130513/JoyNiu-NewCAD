@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_BASE } from './api.js'
+import {
+  normalizeAiParameterEvidence,
+  normalizeAiParameterPatch,
+  shouldProtectConcurrentModelEdit,
+} from './candidateSync.js'
 import ThreeDViewer from './ThreeDViewer.jsx'
 
 const defaultModel = {
@@ -88,6 +93,35 @@ const splitClampModel = {
   updatedAt: '刚刚',
 }
 
+// Two-solid candidate assembly reconstructed from the uploaded AC1021 DWG.
+// The insert stays a separate visible component until its fit/fixing method is
+// confirmed; M12 is a designation only and is never rendered as a real thread.
+const steppedTaperedNozzleModel = {
+  name: '阶梯锥管嘴组件 · AI 候选',
+  kind: 'stepped_tapered_nozzle',
+  recipeId: 'stepped_tapered_nozzle_with_insert_v1',
+  type: '候选装配',
+  mainLength: 98,
+  headLength: 50,
+  neckLength: 20,
+  headLeftDiameter: 54.25449350717895,
+  headRightDiameter: 56,
+  neckDiameter: 30,
+  tipDiameter: 25,
+  counterboreDiameter: 40,
+  counterboreDepth: 40,
+  axialBoreDiameter: 13,
+  outletDiameter: 17,
+  outletTaperHalfAngle: 15,
+  insertOuterDiameter: 39.4,
+  insertLength: 40,
+  insertThreadDesignation: 'M12',
+  insertAxialOffset: 0,
+  material: '45# 钢',
+  units: 'mm',
+  updatedAt: '刚刚',
+}
+
 const acceptanceDrawingSha256 = 'ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366'
 const mainModes = ['首页', '3D 建模', '2D 工程图', '装配']
 const workflowSteps = [
@@ -137,14 +171,40 @@ const splitClampGroups = [
   { title: '孔与开缝', fields: ['boreDiameter', 'boreFloorZ', 'splitWidth', 'mountHoleCount', 'mountHoleDiameter', 'mountHoleCenterDistance', 'mountHoleCenterFromRear', 'crossHoleDiameter', 'crossHoleCenterZ'] },
   { title: '加强与圆角', fields: ['ribHeight', 'ribThickness', 'outerCornerRadius', 'neckConcaveRadius', 'neckConvexRadius'] },
 ]
+const steppedTaperedNozzleParameterKeys = [
+  'mainLength', 'headLength', 'neckLength', 'headLeftDiameter', 'headRightDiameter',
+  'neckDiameter', 'tipDiameter', 'counterboreDiameter', 'counterboreDepth',
+  'axialBoreDiameter', 'outletDiameter', 'outletTaperHalfAngle',
+  'insertOuterDiameter', 'insertLength', 'insertThreadDesignation', 'insertAxialOffset',
+  'material', 'units',
+]
+const steppedTaperedNozzleRequiredParameterKeys = steppedTaperedNozzleParameterKeys.filter((key) => !['material', 'units'].includes(key))
+const steppedTaperedNozzleParameterLabels = {
+  mainLength: '主件总长', headLength: '前端浅锥段长度', neckLength: '中间颈段长度',
+  headLeftDiameter: '浅锥左端直径', headRightDiameter: '浅锥右端直径',
+  neckDiameter: '颈段直径', tipDiameter: '末段直径', counterboreDiameter: '左端沉孔直径',
+  counterboreDepth: '左端沉孔深度', axialBoreDiameter: '轴向贯通孔直径',
+  outletDiameter: '末端锥口直径', outletTaperHalfAngle: '出口锥半角',
+  insertOuterDiameter: '镶件外径', insertLength: '镶件长度',
+  insertThreadDesignation: '镶件螺纹标注', insertAxialOffset: '镶件轴向偏置',
+}
+const steppedTaperedNozzleGroups = [
+  { title: '主件轴向尺寸', fields: ['mainLength', 'headLength', 'neckLength'] },
+  { title: '主件外轮廓', fields: ['headLeftDiameter', 'headRightDiameter', 'neckDiameter', 'tipDiameter'] },
+  { title: '内孔与出口锥', fields: ['counterboreDiameter', 'counterboreDepth', 'axialBoreDiameter', 'outletDiameter', 'outletTaperHalfAngle'] },
+  { title: '独立 M12 镶件', fields: ['insertOuterDiameter', 'insertLength', 'insertThreadDesignation', 'insertAxialOffset'] },
+]
 const shaftParameterKeys = ['outerDiameter', 'length', 'holeDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength', 'material']
-const allPartParameterKeys = [...new Set([...bracketParameterKeys, ...splitClampParameterKeys, ...shaftParameterKeys])]
+const allPartParameterKeys = [...new Set([...bracketParameterKeys, ...splitClampParameterKeys, ...steppedTaperedNozzleParameterKeys, ...shaftParameterKeys])]
 const partKindAliases = {
   circular_clamp: 'split_clamp_support',
   circular_clamp_v1: 'split_clamp_support',
   clamp_pedestal: 'split_clamp_support',
   split_clamp_pedestal: 'split_clamp_support',
   split_clamp_support_v1: 'split_clamp_support',
+  stepped_tapered_nozzle_with_insert_v1: 'stepped_tapered_nozzle',
+  tapered_nozzle_with_insert: 'stepped_tapered_nozzle',
+  stepped_tapered_nozzle_v1: 'stepped_tapered_nozzle',
   bracket_support_v1: 'bracket',
   shaft_v1: 'shaft',
 }
@@ -152,8 +212,17 @@ const canonicalPartKind = (value) => {
   const raw = String(value || '').trim().toLowerCase()
   return partKindAliases[raw] || raw
 }
+const productionPartKinds = ['bracket', 'split_clamp_support', 'stepped_tapered_nozzle']
 const partDefinition = (kind) => {
   const normalized = canonicalPartKind(kind)
+  if (normalized === 'stepped_tapered_nozzle') return {
+    kind: normalized,
+    recipeId: 'stepped_tapered_nozzle_with_insert_v1',
+    preview: steppedTaperedNozzleModel,
+    keys: steppedTaperedNozzleParameterKeys,
+    required: steppedTaperedNozzleRequiredParameterKeys,
+    labels: steppedTaperedNozzleParameterLabels,
+  }
   if (normalized === 'split_clamp_support') return {
     kind: normalized,
     recipeId: 'split_clamp_support_v1',
@@ -182,7 +251,7 @@ const partKindFromEnvelope = (value, fallback = 'bracket') => {
     value?.recipeId, value?.recipe_id,
     value?.modelRecipe?.recipeId, value?.modelRecipe?.recipe_id,
     value?.model_recipe?.recipeId, value?.model_recipe?.recipe_id,
-  ].map(canonicalPartKind).find((item) => ['split_clamp_support', 'bracket', 'shaft'].includes(item))
+  ].map(canonicalPartKind).find((item) => [...productionPartKinds, 'shaft'].includes(item))
   if (direct) return direct
   // A provider may place values in more than one compatible container.  An
   // empty parameterPatch must not hide a populated candidateParameters map.
@@ -196,8 +265,10 @@ const partKindFromEnvelope = (value, fallback = 'bracket') => {
     .flatMap((item) => Object.keys(item))
     .map((key) => recognitionParameterAliases?.[key] || key))]
   const splitUnique = new Set(splitClampParameterKeys.filter((key) => !bracketParameterKeys.includes(key) && !shaftParameterKeys.includes(key)))
+  const nozzleUnique = new Set(steppedTaperedNozzleParameterKeys.filter((key) => !bracketParameterKeys.includes(key) && !splitClampParameterKeys.includes(key) && !shaftParameterKeys.includes(key)))
   const bracketUnique = new Set(bracketParameterKeys.filter((key) => !splitClampParameterKeys.includes(key) && !shaftParameterKeys.includes(key)))
   const shaftUnique = new Set(shaftParameterKeys.filter((key) => !bracketParameterKeys.includes(key) && !splitClampParameterKeys.includes(key)))
+  if (keys.some((key) => nozzleUnique.has(key))) return 'stepped_tapered_nozzle'
   if (keys.some((key) => splitUnique.has(key))) return 'split_clamp_support'
   if (keys.some((key) => bracketUnique.has(key))) return 'bracket'
   if (keys.some((key) => shaftUnique.has(key))) return 'shaft'
@@ -206,6 +277,11 @@ const partKindFromEnvelope = (value, fallback = 'bracket') => {
 const parameterKeysForKind = (kind) => partDefinition(kind).keys
 const requiredKeysForKind = (kind) => partDefinition(kind).required
 const parameterLabelsForKind = (kind) => partDefinition(kind).labels
+const requiredParameterPresent = (key, value) => {
+  if (key === 'insertThreadDesignation') return Boolean(String(value || '').trim())
+  if (key === 'insertAxialOffset') return Number.isFinite(Number(value)) && Number(value) >= 0
+  return Number.isFinite(Number(value)) && Number(value) > 0
+}
 const splitClampParametersValid = (value) => {
   const n = (key) => Number(value?.[key])
   if (!splitClampRequiredParameterKeys.every((key) => Number.isFinite(n(key)) && n(key) > 0)) return false
@@ -248,12 +324,45 @@ const splitClampParametersValid = (value) => {
     && n('ribHeight') <= n('pedestalHeight')
     && Math.abs(n('totalHeight') - n('baseThickness') - n('pedestalHeight') - n('rearClampRise')) < 0.01
 }
+const steppedTaperedNozzleParametersValid = (value) => {
+  if (!steppedTaperedNozzleRequiredParameterKeys.every((key) => requiredParameterPresent(key, value?.[key]))) return false
+  const n = (key) => Number(value?.[key])
+  const threadMatch = String(value?.insertThreadDesignation || '').trim().toUpperCase().replace('×', 'X').match(/^M(\d+(?:\.\d+)?)(?:X\d+(?:\.\d+)?)?$/)
+  const threadNominalDiameter = Number(threadMatch?.[1])
+  const tipLength = n('mainLength') - n('headLength') - n('neckLength')
+  const taperLength = (n('outletDiameter') - n('axialBoreDiameter')) / (2 * Math.tan((Math.PI / 180) * n('outletTaperHalfAngle')))
+  return tipLength > 0
+    && Boolean(threadMatch)
+    && threadNominalDiameter < n('insertOuterDiameter')
+    && n('tipDiameter') <= n('neckDiameter')
+    && n('neckDiameter') < Math.min(n('headLeftDiameter'), n('headRightDiameter'))
+    && n('headLeftDiameter') > n('counterboreDiameter')
+    && n('headRightDiameter') > n('counterboreDiameter')
+    && n('counterboreDiameter') > n('insertOuterDiameter')
+    && n('insertOuterDiameter') > n('axialBoreDiameter')
+    && n('neckDiameter') > n('axialBoreDiameter')
+    && n('tipDiameter') > n('outletDiameter')
+    && n('outletDiameter') > n('axialBoreDiameter')
+    && n('counterboreDepth') <= n('headLength')
+    && n('insertAxialOffset') + n('insertLength') <= n('counterboreDepth')
+    && n('outletTaperHalfAngle') < 90
+    && Number.isFinite(taperLength)
+    && taperLength > 0
+    && taperLength < tipLength
+}
 const candidateSourceLabels = {
   drawing: '图纸识别',
   ai: 'AI 候选',
   derived: 'AI 推导',
+  direct_dimension: 'DWG 原生尺寸',
+  vector_derived: 'DWG 矢量量测',
+  ai_interpreted: 'AI 语义映射',
   template_default: '模板默认',
   manual: '人工修改',
+}
+const normalizedCandidateSource = (value, fallback = 'ai') => {
+  const source = String(value || '').trim().toLowerCase()
+  return Object.hasOwn(candidateSourceLabels, source) ? source : fallback
 }
 const normalizedConfidence = (value) => {
   if (typeof value === 'string') {
@@ -282,6 +391,13 @@ const recognitionParameterAliases = {
   cross_hole_diameter: 'crossHoleDiameter', cross_hole_center_z: 'crossHoleCenterZ',
   rib_height: 'ribHeight', rib_thickness: 'ribThickness', outer_corner_radius: 'outerCornerRadius',
   neck_concave_radius: 'neckConcaveRadius', neck_convex_radius: 'neckConvexRadius',
+  main_length: 'mainLength', head_length: 'headLength', neck_length: 'neckLength',
+  head_left_diameter: 'headLeftDiameter', head_right_diameter: 'headRightDiameter',
+  neck_diameter: 'neckDiameter', tip_diameter: 'tipDiameter', counterbore_diameter: 'counterboreDiameter',
+  counterbore_depth: 'counterboreDepth', axial_bore_diameter: 'axialBoreDiameter',
+  outlet_diameter: 'outletDiameter', outlet_taper_half_angle: 'outletTaperHalfAngle',
+  insert_outer_diameter: 'insertOuterDiameter', insert_length: 'insertLength',
+  insert_thread_designation: 'insertThreadDesignation', insert_axial_offset: 'insertAxialOffset',
 }
 
 let chatSequence = 0
@@ -358,6 +474,9 @@ function recognitionCandidateFields(recognition) {
 }
 function normalizeStoredModel(value) {
   if (!value || typeof value !== 'object') return value
+  if (canonicalPartKind(value.kind || value.recipeId) === 'stepped_tapered_nozzle') {
+    return { ...steppedTaperedNozzleModel, ...value, kind: 'stepped_tapered_nozzle', recipeId: 'stepped_tapered_nozzle_with_insert_v1' }
+  }
   if (canonicalPartKind(value.kind || value.recipeId) === 'split_clamp_support') {
     return { ...splitClampModel, ...value, kind: 'split_clamp_support', recipeId: 'split_clamp_support_v1' }
   }
@@ -497,7 +616,7 @@ function hydratePendingCandidateDefaults(job) {
     humanFields.has(key) ? 'manual' : engine.includes('ai') ? 'ai' : 'drawing',
   ]))
   const defaultedFields = []
-  const missingFields = definition.required.filter((key) => !(Number(completeCandidates[key]) > 0))
+  const missingFields = definition.required.filter((key) => !requiredParameterPresent(key, completeCandidates[key]))
   const candidateParameterMeta = Object.fromEntries(Object.entries(candidateSources).map(([key, source]) => [key, {
     source,
     confidence: source === 'drawing' ? Number(job.evidence.confidence || 0) : null,
@@ -571,7 +690,35 @@ function dxfForModel(model) {
   const lines = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES']
   const line = (x1, y1, x2, y2, layer = 'OBJECT') => lines.push('0', 'LINE', '8', layer, '10', String(x1), '20', String(y1), '30', '0', '11', String(x2), '21', String(y2), '31', '0')
   const circle = (x, y, radius, layer = 'OBJECT') => lines.push('0', 'CIRCLE', '8', layer, '10', String(x), '20', String(y), '30', '0', '40', String(radius))
-  if (canonicalPartKind(model.kind) === 'split_clamp_support') {
+  if (canonicalPartKind(model.kind) === 'stepped_tapered_nozzle') {
+    const mainLength = Number(model.mainLength)
+    const headLength = Number(model.headLength)
+    const neckLength = Number(model.neckLength)
+    const tipStart = headLength + neckLength
+    const radii = {
+      headLeft: Number(model.headLeftDiameter) / 2,
+      headRight: Number(model.headRightDiameter) / 2,
+      neck: Number(model.neckDiameter) / 2,
+      tip: Number(model.tipDiameter) / 2,
+      bore: Number(model.axialBoreDiameter) / 2,
+      counterbore: Number(model.counterboreDiameter) / 2,
+    }
+    line(0, radii.headLeft, headLength, radii.headRight)
+    line(headLength, radii.headRight, headLength, radii.neck)
+    line(headLength, radii.neck, tipStart, radii.neck)
+    line(tipStart, radii.neck, tipStart, radii.tip)
+    line(tipStart, radii.tip, mainLength, radii.tip)
+    line(0, -radii.headLeft, headLength, -radii.headRight)
+    line(headLength, -radii.headRight, headLength, -radii.neck)
+    line(headLength, -radii.neck, tipStart, -radii.neck)
+    line(tipStart, -radii.neck, tipStart, -radii.tip)
+    line(tipStart, -radii.tip, mainLength, -radii.tip)
+    line(0, radii.counterbore, Number(model.counterboreDepth), radii.counterbore, 'BORE')
+    line(0, -radii.counterbore, Number(model.counterboreDepth), -radii.counterbore, 'BORE')
+    line(0, radii.bore, mainLength, radii.bore, 'BORE')
+    line(0, -radii.bore, mainLength, -radii.bore, 'BORE')
+    line(0, 0, mainLength, 0, 'CENTER')
+  } else if (canonicalPartKind(model.kind) === 'split_clamp_support') {
     const length = Number(model.baseLength); const width = Number(model.baseWidth)
     const mainDepth = Number(model.baseMainDepth); const tongueWidth = Number(model.frontTongueWidth)
     const rearY = width / 2; const mainFrontY = rearY - mainDepth; const frontY = -width / 2
@@ -667,6 +814,23 @@ function getSplitClampFeatures(model) {
   ]
 }
 
+function getSteppedTaperedNozzleFeatures(model) {
+  const value = (key, fallback) => Number.isFinite(Number(model?.[key])) ? Number(model[key]) : fallback
+  const tipLength = value('mainLength', 98) - value('headLength', 50) - value('neckLength', 20)
+  const taperLength = (value('outletDiameter', 17) - value('axialBoreDiameter', 13))
+    / (2 * Math.tan((Math.PI / 180) * value('outletTaperHalfAngle', 15)))
+  return [
+    { id: 'origin', icon: '◎', label: '同轴基准', meta: 'X 轴' },
+    { id: 'head-taper', icon: '◒', label: `浅锥主段 · ${value('headLength', 50)} mm · Ø${value('headLeftDiameter', 54.25449350717895).toFixed(3)} → Ø${value('headRightDiameter', 56)}`, meta: '主件实体' },
+    { id: 'neck', icon: '▰', label: `颈段 · Ø${value('neckDiameter', 30)} × ${value('neckLength', 20)}`, meta: '主件实体' },
+    { id: 'tip', icon: '▰', label: `末段 · Ø${value('tipDiameter', 25)} × ${Number(tipLength.toFixed(3))}`, meta: '主件实体 · 派生长度' },
+    { id: 'counterbore', icon: '◌', label: `左端沉孔 · Ø${value('counterboreDiameter', 40)} × ${value('counterboreDepth', 40)}`, meta: '切除' },
+    { id: 'axial-bore', icon: '◌', label: `轴向贯通孔 · Ø${value('axialBoreDiameter', 13)}`, meta: '切除' },
+    { id: 'outlet-taper', icon: '◇', label: `出口锥口 · Ø${value('outletDiameter', 17)} · 半角 ${value('outletTaperHalfAngle', 15)}°`, meta: `切除 · 深 ${Number(taperLength.toFixed(9))} mm` },
+    { id: 'insert', icon: '◎', label: `独立镶件 · Ø${value('insertOuterDiameter', 39.4)} × ${value('insertLength', 40)} · ${model?.insertThreadDesignation || 'M12'}`, meta: '第二组件 · 装配关系待确认' },
+  ]
+}
+
 const libraryItems = [
   { icon: '⬡', name: '六角螺栓', spec: 'M8 × 30', group: '紧固件' },
   { icon: '◉', name: '深沟球轴承', spec: '6204 · 20 × 47 × 14', group: '轴承' },
@@ -677,6 +841,37 @@ const libraryItems = [
 
 function parsePrompt(prompt, current) {
   const next = { ...current }
+  if (canonicalPartKind(current.kind) === 'stepped_tapered_nozzle') {
+    next.kind = 'stepped_tapered_nozzle'
+    next.recipeId = 'stepped_tapered_nozzle_with_insert_v1'
+    const editNumber = (patterns, fallback) => {
+      for (const pattern of patterns) {
+        const result = prompt.match(pattern)
+        if (result) return Number(result[result.length - 1])
+      }
+      return fallback
+    }
+    next.mainLength = editNumber([/主件总长(?:度)?[^\d]*(\d+(?:\.\d+)?)/i, /总长(?:度)?[^\d]*(\d+(?:\.\d+)?)/i], current.mainLength)
+    next.headLength = editNumber([/(?:前端)?浅锥(?:段)?长(?:度)?[^\d]*(\d+(?:\.\d+)?)/i], current.headLength)
+    next.neckLength = editNumber([/(?:中间)?颈段长(?:度)?[^\d]*(\d+(?:\.\d+)?)/i], current.neckLength)
+    next.headLeftDiameter = editNumber([/浅锥左端(?:直径|外径|Ø|φ)?[^\d]*(\d+(?:\.\d+)?)/i], current.headLeftDiameter)
+    next.headRightDiameter = editNumber([/浅锥右端(?:直径|外径|Ø|φ)?[^\d]*(\d+(?:\.\d+)?)/i], current.headRightDiameter)
+    next.neckDiameter = editNumber([/颈段(?:直径|外径|Ø|φ)[^\d]*(\d+(?:\.\d+)?)/i], current.neckDiameter)
+    next.tipDiameter = editNumber([/末段(?:直径|外径|Ø|φ)[^\d]*(\d+(?:\.\d+)?)/i], current.tipDiameter)
+    next.counterboreDiameter = editNumber([/沉孔(?:直径|Ø|φ)[^\d]*(\d+(?:\.\d+)?)/i], current.counterboreDiameter)
+    next.counterboreDepth = editNumber([/沉孔深(?:度)?[^\d]*(\d+(?:\.\d+)?)/i], current.counterboreDepth)
+    next.axialBoreDiameter = editNumber([/(?:轴向)?贯通孔(?:直径|Ø|φ)[^\d]*(\d+(?:\.\d+)?)/i], current.axialBoreDiameter)
+    next.outletDiameter = editNumber([/(?:末端|出口)锥口(?:直径|Ø|φ)[^\d]*(\d+(?:\.\d+)?)/i], current.outletDiameter)
+    next.outletTaperHalfAngle = editNumber([/(?:出口|末端)锥(?:口)?半角[^\d]*(\d+(?:\.\d+)?)/i], current.outletTaperHalfAngle)
+    next.insertOuterDiameter = editNumber([/镶件(?:外径|直径|Ø|φ)[^\d]*(\d+(?:\.\d+)?)/i], current.insertOuterDiameter)
+    next.insertLength = editNumber([/镶件长(?:度)?[^\d]*(\d+(?:\.\d+)?)/i], current.insertLength)
+    next.insertAxialOffset = editNumber([/镶件轴向偏置[^\d-]*(-?\d+(?:\.\d+)?)/i], current.insertAxialOffset)
+    const thread = prompt.match(/\bM\s*(\d+(?:\.\d+)?(?:\s*[x×]\s*\d+(?:\.\d+)?)?)/i)
+    if (thread) next.insertThreadDesignation = `M${thread[1].replace(/\s+/g, '').replace('×', 'X')}`
+    if (/铝|al6061/i.test(prompt)) next.material = 'AL6061 铝合金'
+    if (/不锈钢|304/i.test(prompt)) next.material = 'SUS304 不锈钢'
+    return next
+  }
   // The drawing-to-3D workflow can hand the copilot a bracket model. Keep
   // bracket dimensions separate from the shaft grammar so a follow-up prompt
   // never overwrites the model with undefined shaft fields.
@@ -788,7 +983,7 @@ function App() {
       // demo residue, not a recoverable customer project. Start clean rather
       // than pairing a stale bracket with a fresh AI conversation.
       const hasSession = Boolean(localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation'))
-      return stored && (!['bracket', 'split_clamp_support'].includes(canonicalPartKind(stored.kind)) || hasSession) ? stored : defaultModel
+      return stored && (!productionPartKinds.includes(canonicalPartKind(stored.kind)) || hasSession) ? stored : defaultModel
     } catch { return defaultModel }
   })
   const [projects, setProjects] = useState(() => {
@@ -867,7 +1062,7 @@ function App() {
     // model while the multimodal analysis is still running.
     if (['queued', 'analyzing'].includes(drawingJob?.status)) return
     const evidenceKind = partKindFromEnvelope(evidence || drawingJob?.analysis, model.kind)
-    if (!['bracket', 'split_clamp_support'].includes(evidenceKind) || evidenceKind === canonicalPartKind(model.kind)) return
+    if (!productionPartKinds.includes(evidenceKind) || evidenceKind === canonicalPartKind(model.kind)) return
     const definition = partDefinition(evidenceKind)
     const candidate = rawParametersFromRecognition(evidence) || {}
     const restored = { ...definition.preview, ...candidate, kind: definition.kind, recipeId: definition.recipeId, name: definition.preview.name, updatedAt: '刚刚' }
@@ -933,7 +1128,7 @@ function App() {
   const showToast = (text) => setToast(text)
   const updateModel = (key, value) => {
     modelInteractionRevisionRef.current += 1
-    const nextValue = key === 'material' ? value : value === '' ? '' : Number(value)
+    const nextValue = ['material', 'insertThreadDesignation'].includes(key) ? value : value === '' ? '' : Number(value)
     setModel((prev) => {
       const updated = { ...prev, [key]: nextValue, updatedAt: '刚刚' }
       modelRef.current = updated
@@ -958,7 +1153,7 @@ function App() {
       }
       const humanEditedFields = [...new Set([...(current.humanEditedFields || []), key])]
       const candidateKind = partKindFromEnvelope(current.evidence || current.analysis, modelRef.current.kind)
-      const missingFields = requiredKeysForKind(candidateKind).filter((field) => !(Number(candidateParameters[field]) > 0))
+      const missingFields = requiredKeysForKind(candidateKind).filter((field) => !requiredParameterPresent(field, candidateParameters[field]))
       const candidateSources = { ...(current.analysis?.candidateSources || {}), [key]: 'manual' }
       const candidateParameterMeta = {
         ...(current.evidence.candidateParameterMeta || {}),
@@ -982,8 +1177,16 @@ function App() {
     ? bracketRequiredParameterKeys.every((key) => Number(model[key]) > 0) && Number(model.upperLength) <= Number(model.baseLength) && Number(model.upperWidth) <= Number(model.baseWidth) && Number(model.slotLength) <= Number(model.baseWidth) && Number(model.pocketDepth) <= Number(model.upperHeight) && Number(model.baseThickness) < Number(model.totalHeight) && Math.abs(Number(model.totalHeight) - Number(model.baseThickness) - Number(model.upperHeight)) < 1e-6 && Number(model.notchOpening) >= Number(model.notchRadius) * 2
     : modelKind === 'split_clamp_support'
       ? splitClampParametersValid(model)
-      : shaftParameterKeys.filter((key) => key !== 'material').every((key) => Number(model[key]) > 0)
-  const currentFeatures = modelKind === 'bracket' ? getBracketFeatures(model) : modelKind === 'split_clamp_support' ? getSplitClampFeatures(model) : features
+      : modelKind === 'stepped_tapered_nozzle'
+        ? steppedTaperedNozzleParametersValid(model)
+        : shaftParameterKeys.filter((key) => key !== 'material').every((key) => Number(model[key]) > 0)
+  const currentFeatures = modelKind === 'bracket'
+    ? getBracketFeatures(model)
+    : modelKind === 'split_clamp_support'
+      ? getSplitClampFeatures(model)
+      : modelKind === 'stepped_tapered_nozzle'
+        ? getSteppedTaperedNozzleFeatures(model)
+        : features
   const filteredLibrary = useMemo(() => libraryItems.filter((item) => (libraryGroup === '全部' || item.group === libraryGroup) && `${item.name}${item.spec}`.includes(libraryQuery)), [libraryGroup, libraryQuery])
 
   const applyAiPatch = (base, patch) => {
@@ -991,9 +1194,10 @@ function App() {
     const allowed = new Set(allPartParameterKeys)
     const safe = Object.fromEntries(Object.entries(patch).filter(([key, value]) => {
       if (!allowed.has(key) || value === null || value === undefined) return false
-      if (key === 'material') return typeof value === 'string'
+      if (['material', 'insertThreadDesignation'].includes(key)) return typeof value === 'string' && Boolean(value.trim())
       if (key === 'units') return String(value).toLowerCase() === 'mm'
       if (key === 'holeThrough') return typeof value === 'boolean'
+      if (key === 'insertAxialOffset') return Number.isFinite(Number(value)) && Number(value) >= 0
       return Number.isFinite(Number(value)) && Number(value) > 0
     }))
     return { ...base, ...safe, updatedAt: '刚刚' }
@@ -1016,7 +1220,7 @@ function App() {
   })
   const generateAiArtifact = async (next, sourceDrawingId = '', options = {}) => {
     const kind = canonicalPartKind(next?.kind)
-    if (!['bracket', 'split_clamp_support'].includes(kind) || backend.status === 'offline') return null
+    if (!productionPartKinds.includes(kind) || backend.status === 'offline') return null
     const payload = {
       partType: kind,
       recipeId: partDefinition(kind).recipeId,
@@ -1029,9 +1233,9 @@ function App() {
       // fallback and leave the workbench looking complete.
       requireCadQuery: backend.status !== 'offline',
     }
-    const generated = kind === 'split_clamp_support'
-      ? await api.generateModel(payload, options.signal)
-      : await api.generateBracket(payload, options.signal)
+    const generated = kind === 'bracket'
+      ? await api.generateBracket(payload, options.signal)
+      : await api.generateModel(payload, options.signal)
     if (options.signal?.aborted || (options.commitGuard && !options.commitGuard())) return null
     const step = generated.artifacts?.find((item) => item.format === 'step')
     if (!step || generated.validation?.valid !== true) throw new Error('实体校验未通过，未生成可交付文件')
@@ -1047,9 +1251,15 @@ function App() {
     const sourceRequestId = failure.requestId || currentGeneration?.requestId || ''
     const parameters = modelParametersForApi(currentModel)
     const generationParameters = currentGeneration?.parameters || {}
-    const generationDoesNotMatchModel = requiredKeysForKind(currentModel?.kind).some((key) => (
-      Number(generationParameters[key]) !== Number(parameters[key])
-    ))
+    const generationDoesNotMatchModel = requiredKeysForKind(currentModel?.kind).some((key) => {
+      const generatedValue = generationParameters[key]
+      const currentValue = parameters[key]
+      const generatedNumber = Number(generatedValue)
+      const currentNumber = Number(currentValue)
+      return Number.isFinite(generatedNumber) && Number.isFinite(currentNumber)
+        ? generatedNumber !== currentNumber
+        : String(generatedValue ?? '') !== String(currentValue ?? '')
+    })
     if (!currentGeneration || (sourceRequestId && currentGeneration.requestId !== sourceRequestId)) return
 
     // The old FastAPI process no longer owns this artifact. Mark it
@@ -1061,7 +1271,7 @@ function App() {
       : current)
 
     if (
-      !['bracket', 'split_clamp_support'].includes(canonicalPartKind(currentModel?.kind))
+      !productionPartKinds.includes(canonicalPartKind(currentModel?.kind))
       || currentGeneration.stale
       || currentGeneration.validation?.productionReady !== true
       || currentGeneration.pendingDrawing
@@ -1098,9 +1308,9 @@ function App() {
         formats: ['step', 'glb'],
         requireCadQuery: true,
       }
-      const generated = canonicalPartKind(currentModel.kind) === 'split_clamp_support'
-        ? await api.generateModel(recoveryPayload)
-        : await api.generateBracket(recoveryPayload)
+      const generated = canonicalPartKind(currentModel.kind) === 'bracket'
+        ? await api.generateBracket(recoveryPayload)
+        : await api.generateModel(recoveryPayload)
       const step = generated.artifacts?.find((item) => item.format === 'step')
       const glb = generated.artifacts?.find((item) => item.format === 'glb')
       if (
@@ -1146,7 +1356,7 @@ function App() {
   const rebuildCurrentModel = async () => {
     if (generation?.pendingDrawing || (drawingJob?.evidence && drawingJob.evidence.status !== 'confirmed')) return showToast('请先确认 AI 候选数据，再重建生产实体')
     if (!modelValid) return showToast('请先修正参数，再重建实体')
-    if (!['bracket', 'split_clamp_support'].includes(canonicalPartKind(model.kind))) return showToast('当前轴类模型可直接继续编辑；生产实体重建将在对应内核接入后开放')
+    if (!productionPartKinds.includes(canonicalPartKind(model.kind))) return showToast('当前轴类模型可直接继续编辑；生产实体重建将在对应内核接入后开放')
     setIsGenerating(true)
     try {
       const generated = await generateAiArtifact(model, drawingJob?.evidence?.status === 'confirmed' ? drawingJob.evidence.id : '')
@@ -1209,15 +1419,22 @@ function App() {
         setAiConversation((current) => ({ ...current, turnStatus: 'submitting', statusMessage: '正在登记图纸并准备视觉分析…' }))
         setGeneration((current) => current ? { ...current, stale: true, pendingDrawing: true } : current)
         setDrawingJob((current) => ({ ...current, file: files[0], status: 'analyzing', evidence: null, customerAccepted: false, humanConfirmed: false, analysis: null, candidateFields: [], humanEditedFields: [], questions: [], error: '', warning: '' }))
-        try {
-          recognition = await api.recognizeDrawing(files[0], controller.signal)
-        } catch (error) {
-          if (error?.name === 'AbortError') throw error
-          recognitionError = error
+        const primaryExtension = files[0].name?.split('.').pop()?.toLowerCase()
+        // DWG uses the dedicated LibreDWG/ezdxf path inside the AI turn.  The
+        // legacy /drawings/recognize endpoint is raster/bracket-oriented and
+        // must not run opaque DWG bytes through OCR or return its old demo
+        // bracket as if it were vector evidence.
+        if (primaryExtension !== 'dwg') {
           try {
-            const digest = await sha256File(files[0])
-            if (digest === acceptanceDrawingSha256) recognition = browserFixtureRecognition(files[0], digest)
-          } catch { /* no browser crypto in older contexts */ }
+            recognition = await api.recognizeDrawing(files[0], controller.signal)
+          } catch (error) {
+            if (error?.name === 'AbortError') throw error
+            recognitionError = error
+            try {
+              const digest = await sha256File(files[0])
+              if (digest === acceptanceDrawingSha256) recognition = browserFixtureRecognition(files[0], digest)
+            } catch { /* no browser crypto in older contexts */ }
+          }
         }
         if (!turnStillCurrent()) throw chatAbortError()
         if (recognition) {
@@ -1311,8 +1528,7 @@ function App() {
       // visible model or appearing in the chat as an AI CAD suggestion.
       const resultPatch = remoteUploadFailed
         ? {}
-        : Object.fromEntries(Object.entries(result?.parameterPatch || {})
-            .map(([key, value]) => [recognitionParameterAliases[key] || key, value]))
+        : normalizeAiParameterPatch(result, recognitionParameterAliases)
       const drawingKind = partKindFromEnvelope(platformDrawing || drawing || recognition, baseModel.kind)
       const resultKind = files.length > 0
         ? partKindFromEnvelope({ ...result, candidateParameters: resultPatch }, drawingKind)
@@ -1353,6 +1569,16 @@ function App() {
           invalid_stream: '流式响应异常',
           invalid_response: '模型返回格式异常',
           not_configured: '远程大模型未配置',
+          invalid_dwg_input: 'DWG 文件签名无效或文件已损坏',
+          dwg_input_too_large: 'DWG 文件超过本地解析上限',
+          dwg_converter_unavailable: '服务器未安装 DWG 转换引擎',
+          dwg_conversion_timeout: 'DWG 本地转换超时',
+          dwg_conversion_failed: 'DWG 本地转换失败',
+          dxf_parser_unavailable: '服务器未安装 DXF 矢量解析组件',
+          dxf_parse_failed: '转换后的 DXF 无法解析',
+          dxf_render_failed: 'DWG 工程图预览生成失败',
+          dwg_resource_limit_exceeded: 'DWG 实体数量或输出超过安全上限',
+          dwg_preprocessor_unavailable: '服务器 DWG 解析组件不可用',
         }
         const failureMessage = `${errorLabels[errorCode] || `中转站请求失败（${errorCode}）`}${attempts ? `；已自动尝试 ${attempts} 次` : ''}。原图已保留，可直接重新分析。`
         setDrawingJob((current) => ({
@@ -1383,8 +1609,12 @@ function App() {
         setDrawingJob((current) => ({ ...current, status: 'error', evidence: null, error: aiError?.message || recognitionError?.message || 'AI 未返回可用尺寸候选', warning: '' }))
       }
       const patchChanged = !remoteUploadFailed && (Boolean(Object.keys(resultPatch).length) || Boolean(recognizedParameters))
-      const modelChangedDuringTurn = modelInteractionRevisionRef.current !== baseModelInteractionRevision
-      if (files.length === 0 && patchChanged && modelChangedDuringTurn) {
+      if (shouldProtectConcurrentModelEdit({
+        hasAttachments: files.length > 0,
+        patchChanged,
+        baseRevision: baseModelInteractionRevision,
+        currentRevision: modelInteractionRevisionRef.current,
+      })) {
         const provider = result?.provider || aiConversation.status || null
         setMessages((current) => current.map((item) => item.id === assistantMessageId
           ? { ...item, text: `${result?.message || 'AI 已返回修改建议。'}\n检测到你在回复期间编辑了当前模型，因此本轮建议未自动覆盖你的修改。`, status: 'complete', statusText: '', candidate }
@@ -1403,12 +1633,15 @@ function App() {
         return false
       }
       const patchKeys = Object.keys(resultPatch)
+      const patchLooksNozzle = resultKind === 'stepped_tapered_nozzle' || patchKeys.some((key) => steppedTaperedNozzleParameterKeys.includes(key))
       const patchLooksSplitClamp = resultKind === 'split_clamp_support' || patchKeys.some((key) => splitClampParameterKeys.includes(key) && !bracketParameterKeys.includes(key))
       const patchLooksBracket = resultKind === 'bracket' || patchKeys.some((key) => ['baseLength', 'baseWidth', 'upperLength', 'notchRadius', 'slotLength', 'pocketDepth', 'bossDiameter'].includes(key))
       const patchLooksShaft = patchKeys.some((key) => ['outerDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'].includes(key))
       const wantsShaft = /轴|外径|键槽|通孔|内径/.test(userText) && !/支架|底板|鞍槽|浅槽|凹槽/.test(userText)
       const seed = recognizedParameters
         ? { ...recognizedParameters, kind: resultDefinition.kind, recipeId: resultDefinition.recipeId, name: recognizedParameters.name || resultDefinition.preview.name, updatedAt: '刚刚' }
+        : patchLooksNozzle
+          ? { ...steppedTaperedNozzleModel, ...(files.length === 0 && canonicalPartKind(baseModel.kind) === 'stepped_tapered_nozzle' ? baseModel : {}), kind: 'stepped_tapered_nozzle', recipeId: 'stepped_tapered_nozzle_with_insert_v1' }
         : patchLooksSplitClamp
           ? { ...splitClampModel, ...(files.length === 0 && canonicalPartKind(baseModel.kind) === 'split_clamp_support' ? baseModel : {}), kind: 'split_clamp_support', recipeId: 'split_clamp_support_v1' }
         : patchLooksBracket
@@ -1425,7 +1658,7 @@ function App() {
               ? { ...bracketModel, kind: 'bracket', name: 'AI 候选 · 待确认' }
               : { ...baseModel }
       const identityChanged = !remoteUploadFailed
-        && ['bracket', 'split_clamp_support', 'shaft'].includes(resultKind)
+        && [...productionPartKinds, 'shaft'].includes(resultKind)
         && canonicalPartKind(baseModel.kind) !== resultKind
       // Topology identity is useful even when the provider cannot yet fill a
       // dimension.  Switch to the correct parameter surface/scaffold and let
@@ -1460,7 +1693,7 @@ function App() {
       const attachmentGenerationAllowed = (files.length === 0 && !pendingDrawingReview)
         || (files.length === 1 && drawing?.status === 'confirmed')
       const canAutoGenerate = files.length === 0
-        && ['bracket', 'split_clamp_support'].includes(canonicalPartKind(next.kind))
+        && productionPartKinds.includes(canonicalPartKind(next.kind))
         && !effectiveNeedsReview
         && attachmentGenerationAllowed
         && (Boolean(recognizedParameters) || patchChanged)
@@ -1495,6 +1728,12 @@ function App() {
           : `（AI/实体服务提示：${aiError.message}，已保留本地明确参数）`
         : ''
       const resultMessage = result?.message || ''
+      const parsedDwg = Array.isArray(result?.attachments)
+        ? result.attachments.find((item) => item?.dwgPreprocessing?.status === 'parsed')
+        : null
+      const dwgEvidenceNote = parsedDwg
+        ? `\nDWG 已由 ${parsedDwg.dwgPreprocessing.engine || '本地矢量引擎'} 解析：${parsedDwg.dwgPreprocessing.entityCount ?? '—'} 个实体、${parsedDwg.dwgPreprocessing.dimensionCount ?? '—'} 个原生尺寸；AI 已同时读取高清渲染与坐标证据。`
+        : ''
       const reviewQuestions = result?.provider?.mode === 'local-fallback' ? [] : (result?.questions || [])
       const review = remoteUploadFailed || !effectiveNeedsReview
         ? ''
@@ -1503,7 +1742,9 @@ function App() {
           : /确认|候选/.test(resultMessage)
             ? ''
             : '\n候选数据待确认。'
-      const localText = canonicalPartKind(next.kind) === 'split_clamp_support'
+      const localText = canonicalPartKind(next.kind) === 'stepped_tapered_nozzle'
+        ? `参数已更新：同轴主件总长 ${next.mainLength} mm，浅锥 Ø${Number(next.headLeftDiameter).toFixed(3)}→Ø${next.headRightDiameter}、颈段 Ø${next.neckDiameter}、末段 Ø${next.tipDiameter}；Ø${next.counterboreDiameter}×${next.counterboreDepth} 沉孔、Ø${next.axialBoreDiameter} 贯通孔与独立 Ø${next.insertOuterDiameter}×${next.insertLength} ${next.insertThreadDesignation} 镶件。`
+        : canonicalPartKind(next.kind) === 'split_clamp_support'
         ? `参数已更新：异形底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；R${next.pedestalOuterRadius} 圆筒夹座、Ø${next.boreDiameter} 中央盲孔、${next.splitWidth} mm 径向开缝、${next.mountHoleCount}×Ø${next.mountHoleDiameter} 安装孔。`
         : next.kind === 'bracket'
           ? `参数已更新：底板 ${next.baseLength} × ${next.baseWidth} × ${next.baseThickness} mm；上部 ${next.upperLength} × ${next.upperWidth} × ${next.upperHeight} mm；R${next.notchRadius} 鞍槽、两条 ${next.slotWidth} × ${next.slotLength} × ${next.pocketDepth} 浅槽、2×Ø${next.bossDiameter} 贯穿凹槽。`
@@ -1524,12 +1765,19 @@ function App() {
             .filter(([key, value]) => candidateDefinition.keys.includes(key) && value !== undefined && value !== null && value !== '')
         )
         const candidateParameters = recognizedCandidateParameters
-        const missingCandidateFields = candidateDefinition.required.filter((key) => !(Number(candidateParameters[key]) > 0))
+        const missingCandidateFields = candidateDefinition.required.filter((key) => !requiredParameterPresent(key, candidateParameters[key]))
         const candidateFields = Object.keys(candidateParameters)
         const aiCandidateFields = new Set(Object.keys(aiDrawingPatch))
-        const remoteParameterEvidence = result?.parameterEvidence && typeof result.parameterEvidence === 'object' ? result.parameterEvidence : {}
+        const remoteParameterEvidence = normalizeAiParameterEvidence(
+          result?.parameterEvidence || result?.parameter_evidence,
+          recognitionParameterAliases,
+        )
         const candidateSources = Object.fromEntries(Object.keys(candidateParameters).map((key) => {
-          if (aiCandidateFields.has(key)) return [key, remoteParameterEvidence[key]?.derivation ? 'derived' : 'ai']
+          if (aiCandidateFields.has(key)) {
+            const parameterEvidence = remoteParameterEvidence[key] || {}
+            const declaredSource = parameterEvidence.sourceType || parameterEvidence.source_type || parameterEvidence.source
+            return [key, normalizedCandidateSource(declaredSource, parameterEvidence.derivation ? 'derived' : 'ai')]
+          }
           return [key, 'manual']
         }))
         const defaultedFields = []
@@ -1628,6 +1876,7 @@ function App() {
               candidateParameters,
               candidateSources,
               parameterEvidence: remoteParameterEvidence,
+              dwgPreprocessing: parsedDwg?.dwgPreprocessing || null,
               recognizedFields: candidateFields,
               defaultedFields,
               missingFields: missingCandidateFields,
@@ -1637,7 +1886,7 @@ function App() {
         })
       }
       const conflictNote = modelConflictAfterApply ? '\n你在实体生成期间又编辑了模型；旧生成结果已丢弃，当前参数未被覆盖。' : ''
-      const responseText = `${result?.message || localText}${generated?.validation?.productionReady ? ' 已生成并通过 OCCT 拓扑检查。' : generated ? ' 已生成可交互 GLB 预览。' : ''}${review}${fallbackNote}${conflictNote}`
+      const responseText = `${result?.message || localText}${dwgEvidenceNote}${generated?.validation?.productionReady ? ' 已生成并通过 OCCT 拓扑检查。' : generated ? ' 已生成可交互 GLB 预览。' : ''}${review}${fallbackNote}${conflictNote}`
       setMessages((prev) => prev.map((item) => item.id === assistantMessageId
         ? { ...item, text: responseText, status: 'complete', statusText: '', candidate }
         : item))
@@ -1738,7 +1987,7 @@ function App() {
       const candidateParameterMeta = Object.fromEntries(Object.keys(candidateParameters).map((key) => [key, {
         source: 'manual', confidence: null, requiresConfirmation: true,
       }]))
-      const missingFields = definition.required.filter((key) => !(Number(candidateParameters[key]) > 0))
+      const missingFields = definition.required.filter((key) => !requiredParameterPresent(key, candidateParameters[key]))
       return {
         ...current,
         status: 'ready',
@@ -1763,7 +2012,7 @@ function App() {
         },
       }
     })
-    showToast(canonicalPartKind(model.kind) === 'split_clamp_support' ? '已恢复开口夹紧座预览基准' : model.kind === 'bracket' ? '已恢复支架基准参数' : '已恢复基准参数')
+    showToast(canonicalPartKind(model.kind) === 'stepped_tapered_nozzle' ? '已恢复阶梯锥管嘴候选基准' : canonicalPartKind(model.kind) === 'split_clamp_support' ? '已恢复开口夹紧座预览基准' : model.kind === 'bracket' ? '已恢复支架基准参数' : '已恢复基准参数')
   }
   const createProject = () => {
     const name = `新建项目 · ${projects.length + 1}`
@@ -1780,7 +2029,7 @@ function App() {
       let currentGeneration = generation
       if (currentGeneration?.artifactStatus === 'recovering') return showToast('生产文件正在自动恢复，请稍候再导出')
       let artifact = productionArtifactsAvailable(currentGeneration) ? currentGeneration?.artifacts?.find((item) => item.format === format) : null
-      if (!artifact && ['bracket', 'split_clamp_support'].includes(canonicalPartKind(model.kind)) && backend.status !== 'offline') {
+      if (!artifact && productionPartKinds.includes(canonicalPartKind(model.kind)) && backend.status !== 'offline') {
         showToast(`正在通过 CadQuery/OCCT 生成 ${format.toUpperCase()}…`)
         try {
           const confirmedDrawing = drawingJob?.evidence?.status === 'confirmed' ? drawingJob.evidence : null
@@ -1793,9 +2042,9 @@ function App() {
             ...(confirmedDrawing?.id && !String(confirmedDrawing.id).startsWith('offline_') ? { sourceDrawingId: confirmedDrawing.id, confirmed: true } : {}),
             requireCadQuery: backend.status !== 'offline',
           }
-          currentGeneration = definition.kind === 'split_clamp_support'
-            ? await api.generateModel(payload)
-            : await api.generateBracket(payload)
+          currentGeneration = definition.kind === 'bracket'
+            ? await api.generateBracket(payload)
+            : await api.generateModel(payload)
           setGeneration(currentGeneration)
           artifact = currentGeneration.artifacts?.find((item) => item.format === format)
         } catch (error) {
@@ -2132,26 +2381,37 @@ function App() {
       // template so the customer sees a complete editable snapshot, while
       // preserving field-level provenance and the confirmation gate.
       const candidate = { ...sanitiseRecognitionForCandidate(result), status: 'pending' }
+      const candidateKind = partKindFromEnvelope(candidate, modelRef.current.kind || 'bracket')
+      const definition = partDefinition(candidateKind)
       const recognizedCandidateParameters = rawParametersFromRecognition(candidate) || {}
       const parameters = parametersFromRecognition(candidate) || {
-        ...bracketModel,
+        ...definition.preview,
         ...recognizedCandidateParameters,
-        kind: 'bracket',
-        name: 'AI 候选 · 待确认',
+        kind: definition.kind,
+        recipeId: definition.recipeId,
+        name: `${definition.preview.name.replace(/\s*·\s*AI\s*候选/g, '')} · AI 候选`,
       }
-      const candidateParameters = modelParametersForApi({ ...bracketModel, ...parameters, ...recognizedCandidateParameters, kind: 'bracket' })
-      const missingFields = bracketRequiredParameterKeys.filter((key) => !(Number(candidateParameters[key]) > 0))
-      const candidateFields = recognitionCandidateFields(candidate)
+      // Keep the private preview scaffold in `parameters`, but only values
+      // actually returned by the recognizer belong in the confirmable
+      // candidate envelope. Missing dimensions stay visibly empty.
+      const candidateParameters = Object.fromEntries(Object.entries(recognizedCandidateParameters)
+        .filter(([key, value]) => definition.keys.includes(key) && value !== undefined && value !== null && value !== ''))
+      const missingFields = definition.required.filter((key) => !requiredParameterPresent(key, candidateParameters[key]))
+      const candidateFields = recognitionCandidateFields(candidate).filter((key) => Object.hasOwn(candidateParameters, key))
       const candidateFieldSet = new Set(candidateFields)
       const sourceEngine = String(candidate.engine || '').toLowerCase()
+      const returnedMeta = candidate.candidateParameterMeta || candidate.candidate_parameter_meta || {}
       const candidateSources = Object.fromEntries(Object.keys(candidateParameters).map((key) => [
         key,
-        candidateFieldSet.has(key) ? (sourceEngine.includes('ai-candidate') ? 'ai' : 'drawing') : 'template_default',
+        normalizedCandidateSource(
+          returnedMeta[key]?.source || returnedMeta[key]?.sourceType || returnedMeta[key]?.source_type,
+          candidateFieldSet.has(key) && sourceEngine.includes('ai-candidate') ? 'ai' : 'drawing',
+        ),
       ]))
-      const defaultedFields = bracketRequiredParameterKeys.filter((key) => candidateSources[key] === 'template_default')
+      const defaultedFields = []
       const candidateParameterMeta = Object.fromEntries(Object.entries(candidateSources).map(([key, sourceType]) => [key, {
         source: sourceType,
-        confidence: sourceType === 'drawing' ? Number(candidate.confidence || 0) : null,
+        confidence: returnedMeta[key]?.confidence ?? (['drawing', 'direct_dimension', 'vector_derived'].includes(sourceType) ? Number(candidate.confidence || 0) : null),
         requiresConfirmation: true,
       }]))
       const localCandidateEngine = ['heuristic-review', 'tesseract-compatible', 'compatibility-recognizer', 'deterministic-calibration', 'verified-browser-fixture'].includes(String(candidate.engine || '').toLowerCase())
@@ -2167,10 +2427,11 @@ function App() {
         questions: candidate.questions || [],
         analysis: {
           message: localCandidateEngine
-            ? '识别服务已生成结构化候选；明确值已优先写入，其余字段使用支架模板默认候选，请修改或确认。'
+            ? '识别服务已返回结构化证据；只有明确读值已写入候选，其余字段保持待补全。'
             : 'AI 已完成图纸分析，以下是待确认的结构化候选数据。',
           provider: candidate.engine || 'OCR',
-          partType: candidate.partType || 'bracket',
+          partType: definition.kind,
+          recipeId: definition.recipeId,
           units: 'mm',
           confidence: candidate.confidence,
           assumptions: candidate.assumptions || [],
@@ -2188,10 +2449,12 @@ function App() {
       })
       // Show the candidate recipe immediately so every recognized value is
       // editable before the customer accepts it; no geometry is generated.
-      setModel((current) => ({ ...current, ...parameters, ...candidateParameters, kind: 'bracket', name: parameters.name || '安装支架 · AI 候选', updatedAt: '刚刚' }))
+      const nextModel = { ...definition.preview, ...parameters, ...candidateParameters, kind: definition.kind, recipeId: definition.recipeId, name: parameters.name || definition.preview.name, updatedAt: '刚刚' }
+      modelRef.current = nextModel
+      setModel(nextModel)
       setActivePanel('参数')
       setBackend((current) => ({ ...current, status: current.status === 'checking' || current.status === 'offline' ? 'connected' : current.status, engine: result.validation?.engine || current.engine, error: '' }))
-      showToast(`图纸分析完成 · 已识别 ${candidateFields.length} 项 · 默认候选 ${defaultedFields.length} 项`)
+      showToast(`图纸分析完成 · 已识别 ${candidateFields.length} 项 · 待补全 ${missingFields.length} 项`)
     } catch (error) {
       if (drawingRequestRef.current !== requestToken) return
       let digest = ''
@@ -2250,7 +2513,7 @@ function App() {
   }
   const updateDrawingEvidence = (field, value) => {
     modelInteractionRevisionRef.current += 1
-    const numeric = field === 'material' ? value : value === '' ? '' : Number(value)
+    const numeric = ['material', 'insertThreadDesignation'].includes(field) ? value : value === '' ? '' : Number(value)
     setModel((current) => {
       const updated = { ...current, [field]: numeric, updatedAt: '刚刚' }
       modelRef.current = updated
@@ -2271,7 +2534,7 @@ function App() {
         [field]: numeric,
       }
       const evidenceKind = partKindFromEnvelope(current.evidence || current.analysis, modelRef.current.kind)
-      const missingFields = requiredKeysForKind(evidenceKind).filter((key) => !(Number(candidateParameters[key]) > 0))
+      const missingFields = requiredKeysForKind(evidenceKind).filter((key) => !requiredParameterPresent(key, candidateParameters[key]))
       const candidateSources = { ...(current.analysis?.candidateSources || {}), [field]: 'manual' }
       const candidateParameterMeta = {
         ...(current.evidence.candidateParameterMeta || {}),
@@ -2308,9 +2571,9 @@ function App() {
     const candidate = rawParametersFromRecognition(currentEvidence) || {}
     const overrides = Object.fromEntries(Object.entries(candidate)
       .filter(([key, value]) => definition.keys.includes(key) && value !== undefined && value !== null && value !== ''))
-    const missing = definition.required.filter((key) => !(Number(overrides[key]) > 0))
-    if (missing.length) return showToast(`请先补全候选尺寸：${missing.slice(0, 3).join('、')}${missing.length > 3 ? '…' : ''}`)
-    if (!modelValid && ['bracket', 'split_clamp_support'].includes(canonicalPartKind(modelRef.current.kind))) return showToast('候选尺寸存在约束冲突，请先修正参数面板中的标红字段')
+    const missing = definition.required.filter((key) => !requiredParameterPresent(key, overrides[key]))
+    if (missing.length) return showToast(`请先补全候选尺寸：${missing.slice(0, 3).map((key) => definition.labels[key] || key).join('、')}${missing.length > 3 ? '…' : ''}`)
+    if (!modelValid && productionPartKinds.includes(canonicalPartKind(modelRef.current.kind))) return showToast('候选尺寸存在约束冲突，请先修正参数面板中的标红字段')
     const evidenceId = currentEvidence.id || ''
     const candidateSignature = JSON.stringify(overrides)
     const revisionAtSubmit = modelInteractionRevisionRef.current
@@ -2389,9 +2652,9 @@ function App() {
         // mistaken for a completed manufacturing artifact.
         requireCadQuery: backend.status !== 'offline',
       }
-      generated = generationDefinition.kind === 'split_clamp_support'
-        ? await api.generateModel(payload)
-        : await api.generateBracket(payload)
+      generated = generationDefinition.kind === 'bracket'
+        ? await api.generateBracket(payload)
+        : await api.generateModel(payload)
       const step = generated.artifacts?.find((item) => item.format === 'step')
       if (!step || generated.validation?.valid !== true) throw new Error('实体校验未通过，未生成可交付文件')
       if (backend.status !== 'offline' && !step.productionReady) throw new Error('OCCT 实体或 STEP 拓扑校验未达到生产交付条件')
@@ -2405,13 +2668,22 @@ function App() {
         showToast(`实体生成失败：${error.message}`)
         return
       }
+      const previewKind = generationDefinition.kind
+      const previewDiameter = Math.max(Number(recognizedParameters.headLeftDiameter), Number(recognizedParameters.headRightDiameter))
       generated = {
         requestId: `preview_${Date.now()}`,
         status: 'completed',
         engine: 'browser-preview',
         parameters: recognizedParameters,
         artifacts: [],
-        validation: { valid: true, productionReady: false, engine: 'browser-preview', metrics: { boundingLength: recognizedParameters.baseLength, boundingWidth: recognizedParameters.baseWidth, boundingHeight: recognizedParameters.totalHeight } },
+        validation: {
+          valid: true,
+          productionReady: false,
+          engine: 'browser-preview',
+          metrics: previewKind === 'stepped_tapered_nozzle'
+            ? { boundingLength: recognizedParameters.mainLength, boundingWidth: previewDiameter, boundingHeight: previewDiameter, solidCount: 2 }
+            : { boundingLength: recognizedParameters.baseLength, boundingWidth: recognizedParameters.baseWidth, boundingHeight: recognizedParameters.totalHeight },
+        },
         warnings: ['仅生成浏览器参数化预览；未生成 STEP。'],
       }
       setGeneration(generated)
@@ -2424,16 +2696,24 @@ function App() {
     const generatedModel = { ...generationDefinition.preview, ...recognizedParameters, kind: generationDefinition.kind, recipeId: generationDefinition.recipeId, name: generatedName, updatedAt: '刚刚' }
     modelRef.current = generatedModel
     setModel(generatedModel)
-    setSelectedFeature(generationDefinition.kind === 'split_clamp_support' ? 'pedestal' : 'notch')
+    setSelectedFeature(generationDefinition.kind === 'stepped_tapered_nozzle' ? 'head-taper' : generationDefinition.kind === 'split_clamp_support' ? 'pedestal' : 'notch')
     setActivePanel('参数')
     setView('isometric')
     setZoom(1)
     const metrics = generated.validation?.metrics || {}
     const productionText = generated.validation?.productionReady ? 'OCCT 实体与 STEP 已通过拓扑检查' : '当前是浏览器预览，未形成生产 STEP'
-    const generatedDescription = generationDefinition.kind === 'split_clamp_support'
-      ? `图纸已确认：${recognizedParameters.baseLength} × ${recognizedParameters.baseWidth} × ${recognizedParameters.baseThickness} 异形底板、R${recognizedParameters.pedestalOuterRadius} 圆筒夹座、Ø${recognizedParameters.boreDiameter} 中央盲孔、${recognizedParameters.splitWidth} mm 径向开缝、${recognizedParameters.mountHoleCount}×Ø${recognizedParameters.mountHoleDiameter} 安装孔及 Ø${recognizedParameters.crossHoleDiameter} 横孔。`
-      : `图纸已确认：${recognizedParameters.baseLength} × ${recognizedParameters.baseWidth} × ${recognizedParameters.baseThickness} 底板、${recognizedParameters.upperLength} × ${recognizedParameters.upperWidth} × ${recognizedParameters.upperHeight} 上部实体；R${recognizedParameters.notchRadius} 横向鞍槽、两条 ${recognizedParameters.slotWidth || 10} × ${recognizedParameters.slotLength || 30} × ${recognizedParameters.pocketDepth || 10} 浅槽、2×Ø${recognizedParameters.bossDiameter} 贯穿凹槽。`
-    setMessages((prev) => [...prev, { role: 'ai', text: `${generatedDescription}${productionText}；包络 ${metrics.boundingLength || recognizedParameters.baseLength} × ${metrics.boundingWidth || recognizedParameters.baseWidth} × ${metrics.boundingHeight || recognizedParameters.totalHeight} mm。` }])
+    const generatedDescription = generationDefinition.kind === 'stepped_tapered_nozzle'
+      ? `图纸已确认：总长 ${recognizedParameters.mainLength} mm 的阶梯锥管嘴主件，包含 Ø${recognizedParameters.counterboreDiameter}×${recognizedParameters.counterboreDepth} 沉孔、Ø${recognizedParameters.axialBoreDiameter} 贯通孔与 Ø${recognizedParameters.outletDiameter} 出口锥；Ø${recognizedParameters.insertOuterDiameter}×${recognizedParameters.insertLength} ${recognizedParameters.insertThreadDesignation} 镶件仍作为独立第二组件。未生成真实螺纹牙型。`
+      : generationDefinition.kind === 'split_clamp_support'
+        ? `图纸已确认：${recognizedParameters.baseLength} × ${recognizedParameters.baseWidth} × ${recognizedParameters.baseThickness} 异形底板、R${recognizedParameters.pedestalOuterRadius} 圆筒夹座、Ø${recognizedParameters.boreDiameter} 中央盲孔、${recognizedParameters.splitWidth} mm 径向开缝、${recognizedParameters.mountHoleCount}×Ø${recognizedParameters.mountHoleDiameter} 安装孔及 Ø${recognizedParameters.crossHoleDiameter} 横孔。`
+        : `图纸已确认：${recognizedParameters.baseLength} × ${recognizedParameters.baseWidth} × ${recognizedParameters.baseThickness} 底板、${recognizedParameters.upperLength} × ${recognizedParameters.upperWidth} × ${recognizedParameters.upperHeight} 上部实体；R${recognizedParameters.notchRadius} 横向鞍槽、两条 ${recognizedParameters.slotWidth || 10} × ${recognizedParameters.slotLength || 30} × ${recognizedParameters.pocketDepth || 10} 浅槽、2×Ø${recognizedParameters.bossDiameter} 贯穿凹槽。`
+    const fallbackBounds = generationDefinition.kind === 'stepped_tapered_nozzle'
+      ? `${recognizedParameters.mainLength} × Ø${Math.max(Number(recognizedParameters.headLeftDiameter), Number(recognizedParameters.headRightDiameter))}`
+      : `${metrics.boundingLength || recognizedParameters.baseLength} × ${metrics.boundingWidth || recognizedParameters.baseWidth} × ${metrics.boundingHeight || recognizedParameters.totalHeight}`
+    const boundingText = metrics.boundingLength
+      ? `${metrics.boundingLength} × ${metrics.boundingWidth} × ${metrics.boundingHeight}`
+      : fallbackBounds
+    setMessages((prev) => [...prev, { role: 'ai', text: `${generatedDescription}${productionText}；包络 ${boundingText} mm。` }])
     setActiveMode('3D 建模')
     setIsGenerating(false)
     showToast(generated.validation?.productionReady ? '实体与 STEP 已生成并通过 OCCT 校验' : '已生成参数预览；启动后端后可生成生产 STEP')
@@ -2677,12 +2957,22 @@ function ModelWorkspace(props) {
   const hasAnalysisConfidence = analysis.confidence !== null && analysis.confidence !== undefined && analysis.confidence !== '' && Number.isFinite(Number(analysis.confidence))
   const analysisConfidence = hasAnalysisConfidence ? `${Math.round(Number(analysis.confidence) * 100)}%` : '待评估'
   const entityGenerated = drawingJob?.status === 'generated' || Boolean(generation && !generation.stale && evidence?.status === 'confirmed')
-  const compare = (source, current, suffix = '') => source === undefined || source === null
-    ? `待确认${suffix}`
-    : Number(source) !== Number(current)
-      ? `图纸 ${source} → 当前 ${current}${suffix}`
-      : `${source}${suffix}`
-  const evidenceRows = !evidence ? [] : modelKind === 'split_clamp_support' ? [
+  const compare = (source, current, suffix = '') => {
+    if (source === undefined || source === null || source === '') return `待确认${suffix}`
+    const sourceNumber = Number(source)
+    const currentNumber = Number(current)
+    const changed = Number.isFinite(sourceNumber) && Number.isFinite(currentNumber)
+      ? sourceNumber !== currentNumber
+      : String(source) !== String(current)
+    return changed ? `图纸 ${source} → 当前 ${current}${suffix}` : `${source}${suffix}`
+  }
+  const evidenceRows = !evidence ? [] : modelKind === 'stepped_tapered_nozzle' ? [
+    ['主件轴向', `${compare(sourceParameters.mainLength, model.mainLength)} mm · 分段 ${compare(sourceParameters.headLength, model.headLength)} + ${compare(sourceParameters.neckLength, model.neckLength)} + ${Number(model.mainLength) - Number(model.headLength) - Number(model.neckLength)} mm`],
+    ['外轮廓', `Ø${compare(sourceParameters.headLeftDiameter, model.headLeftDiameter)} → Ø${compare(sourceParameters.headRightDiameter, model.headRightDiameter)} · Ø${compare(sourceParameters.neckDiameter, model.neckDiameter)} · Ø${compare(sourceParameters.tipDiameter, model.tipDiameter)}`],
+    ['轴向内孔', `沉孔 Ø${compare(sourceParameters.counterboreDiameter, model.counterboreDiameter)} × ${compare(sourceParameters.counterboreDepth, model.counterboreDepth)} · 通孔 Ø${compare(sourceParameters.axialBoreDiameter, model.axialBoreDiameter)}`],
+    ['出口锥口', `Ø${compare(sourceParameters.outletDiameter, model.outletDiameter)} · 半角 ${compare(sourceParameters.outletTaperHalfAngle, model.outletTaperHalfAngle, '°')}`],
+    ['独立镶件', `Ø${compare(sourceParameters.insertOuterDiameter, model.insertOuterDiameter)} × ${compare(sourceParameters.insertLength, model.insertLength)} · ${compare(sourceParameters.insertThreadDesignation, model.insertThreadDesignation)} · 偏置 ${compare(sourceParameters.insertAxialOffset, model.insertAxialOffset)} mm`],
+  ] : modelKind === 'split_clamp_support' ? [
     ['异形底板', `${compare(sourceParameters.baseLength, model.baseLength)} × ${compare(sourceParameters.baseWidth, model.baseWidth)} × ${compare(sourceParameters.baseThickness, model.baseThickness)} mm`],
     ['圆筒夹座', `R${compare(sourceParameters.pedestalOuterRadius, model.pedestalOuterRadius)} · 轴线距后缘 ${compare(sourceParameters.pedestalCenterFromRear, model.pedestalCenterFromRear)} mm`],
     ['盲孔 / 开缝', `Ø${compare(sourceParameters.boreDiameter, model.boreDiameter)} · 孔底 Z${compare(sourceParameters.boreFloorZ, model.boreFloorZ)} · 缝宽 ${compare(sourceParameters.splitWidth, model.splitWidth)} mm`],
@@ -2759,7 +3049,7 @@ function ModelWorkspace(props) {
       {activePanel === '参数' && <ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={isGenerating || isAccepting} />}
       {activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} />}
       {activePanel === '检查' && <CheckPanel model={model} modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} drawingJob={drawingJob} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} setActiveMode={setActiveMode} busy={isGenerating || isAccepting} />}
-      {['bracket', 'split_clamp_support'].includes(modelKind) && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产实体' : '仅预览'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{topology.boundingLength || model.baseLength} × {topology.boundingWidth || model.baseWidth} × {topology.boundingHeight || model.totalHeight}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b></div></div>}
+      {productionPartKinds.includes(modelKind) && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产实体' : '仅预览'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{topology.boundingLength || topology.bboxLength || (modelKind === 'stepped_tapered_nozzle' ? model.mainLength : model.baseLength)} × {topology.boundingWidth || topology.bboxWidth || (modelKind === 'stepped_tapered_nozzle' ? Math.max(Number(model.headLeftDiameter), Number(model.headRightDiameter)) : model.baseWidth)} × {topology.boundingHeight || topology.bboxHeight || (modelKind === 'stepped_tapered_nozzle' ? Math.max(Number(model.headLeftDiameter), Number(model.headRightDiameter)) : model.totalHeight)}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b></div></div>}
       <div className="export-card"><div><span className="eyebrow">交付状态</span><h3>{productionReady ? '可导出交付文件' : reviewRequired ? '先确认数据才能导出' : '先生成实体再导出'}</h3><p>{productionReady ? 'STEP、GLB、DXF 与参数 JSON 已集中到右上角“导出交付”。' : '当前只显示可编辑预览，避免把未校验模型误当成生产文件。'}</p></div>{productionReady ? <div className="export-card-hint">右上角 <b>导出交付</b> · 统一出口</div> : <button type="button" className="secondary-button full" onClick={primaryAction}>{reviewRequired ? '打开确认数据' : '继续当前流程'} <Icon>↗</Icon></button>}</div>
     </aside>
 
@@ -2841,9 +3131,9 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
     chooseFile(event.dataTransfer.files?.[0])
   }
   const statusText = drawingJob.status === 'analyzing' ? '识别中' : drawingJob.status === 'generating' ? '生成实体中' : drawingJob.status === 'generated' ? '实体已生成' : drawingJob.status === 'ready' ? '识别完成' : drawingJob.status === 'error' ? '识别失败' : '等待上传'
-  // The evidence envelope contains a complete editable candidate. Explicit
-  // AI/OCR values and template defaults stay distinguishable through the
-  // per-field source map; neither becomes production truth before confirmation.
+  // Only explicit evidence belongs in the editable candidate. The viewport
+  // may keep a private recipe scaffold, but missing evidence fields remain
+  // empty here until the AI or customer supplies them.
   const candidateParameters = evidence?.candidateParameters && typeof evidence.candidateParameters === 'object'
     ? evidence.candidateParameters
     : model || {}
@@ -2853,10 +3143,22 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
   const localCandidateEngine = ['heuristic-review', 'tesseract-compatible', 'compatibility-recognizer', 'deterministic-calibration', 'verified-browser-fixture'].includes(String(evidence?.engine || '').toLowerCase())
   const missingFields = new Set(Array.isArray(drawingJob.analysis?.missingFields) ? drawingJob.analysis.missingFields : [])
   const candidateSources = drawingJob.analysis?.candidateSources || {}
+  const dwgPreprocessing = drawingJob.analysis?.dwgPreprocessing || null
   const defaultedFields = new Set(Array.isArray(drawingJob.analysis?.defaultedFields) ? drawingJob.analysis.defaultedFields : [])
-  const read = (key) => candidateParameters?.[key] !== undefined ? candidateParameters[key] : model?.[key] ?? ''
+  const read = (key) => {
+    if (evidence && !evidenceAcceptedForPreview(evidence)) return candidateParameters?.[key] ?? ''
+    return candidateParameters?.[key] ?? model?.[key] ?? ''
+  }
   const sourceLabel = (key) => candidateSourceLabels[candidateSources[key]] || (defaultedFields.has(key) ? candidateSourceLabels.template_default : '待确认')
-  const evidenceRows = [
+  const evidenceKind = partKindFromEnvelope(evidence || drawingJob.analysis, model?.kind)
+  const evidenceDefinition = partDefinition(evidenceKind)
+  const evidenceRows = evidenceKind === 'stepped_tapered_nozzle' ? [
+    ['主件轴向', [['mainLength', '总长'], ['headLength', '浅锥段'], ['neckLength', '颈段']], sourceFor('mainLength', 'DWG 轴向剖视')],
+    ['主件外轮廓', [['headLeftDiameter', '浅锥左端 Ø'], ['headRightDiameter', '浅锥右端 Ø'], ['neckDiameter', '颈段 Ø'], ['tipDiameter', '末段 Ø']], sourceFor('headLeftDiameter', 'DWG 轴向剖视')],
+    ['沉孔 / 通孔', [['counterboreDiameter', '沉孔 Ø'], ['counterboreDepth', '沉孔深'], ['axialBoreDiameter', '通孔 Ø']], sourceFor('counterboreDiameter', 'DWG 剖视尺寸')],
+    ['出口锥口', [['outletDiameter', '出口 Ø'], ['outletTaperHalfAngle', '半角']], sourceFor('outletDiameter', '末端详图')],
+    ['独立镶件', [['insertOuterDiameter', '外径 Ø'], ['insertLength', '长度'], ['insertThreadDesignation', '螺纹标注'], ['insertAxialOffset', '轴向偏置']], sourceFor('insertOuterDiameter', 'DWG 第二回转件')],
+  ] : [
     ['底板', [['baseLength', '长'], ['baseWidth', '宽'], ['baseThickness', '厚']], sourceFor('baseLength', '俯视 / 主视')],
     ['上部实体', [['upperLength', '长'], ['upperWidth', '宽'], ['upperHeight', '高']], sourceFor('upperLength', '主视 / 右视')],
     ['总高度', [['totalHeight', '高度']], sourceFor('totalHeight', '主视')],
@@ -2867,6 +3169,10 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
   ]
   const evidenceWarning = evidence?.warnings?.length
     ? evidence.warnings.join('；')
+    : evidenceKind === 'stepped_tapered_nozzle'
+      ? evidence?.status === 'confirmed'
+        ? '主件与镶件候选已确认；两者仍按独立实体交付。M12 仅为标注，未生成真实螺纹牙型。'
+        : '请确认镶件与 Ø40 沉孔的装配关系和固定方式；当前显示两个独立候选实体，不会虚构螺纹牙型。'
     : evidence?.status === 'confirmed'
       ? '尺寸证据已锁定；Ø20 为两处贯穿竖孔/侧边半圆凹槽，30 mm 为中段浅槽长度，生成结果仍会经过 OCCT 拓扑检查。'
       : 'AI 已给出候选值；请确认 Ø20 是贯穿竖孔/侧边半圆凹槽，30 mm 是两条浅槽沿 Y 的长度，再点击“确认数据”。'
@@ -2884,7 +3190,7 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
       <div className="upload-card panel-card">
         <input ref={inputRef} className="file-input" data-testid="drawing-file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" onChange={(event) => chooseFile(event.target.files?.[0])} />
         <div className={`drop-zone ${file ? 'has-file' : ''} ${dragging ? 'dragging' : ''}`} data-testid="drawing-drop-zone" role="button" tabIndex="0" aria-label="选择或拖拽图纸文件" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); inputRef.current?.click() } }} onClick={() => inputRef.current?.click()} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
-          {file && isImage && drawingJob.previewUrl ? <img src={drawingJob.previewUrl} alt="已上传工程图预览" /> : file ? <div className="file-preview-placeholder"><div className="upload-symbol">▱</div><b>{file.name.split('.').pop()?.toUpperCase()} 图纸</b><span>该格式将直接提交给识别服务</span></div> : <div className="upload-placeholder"><div className="upload-symbol">↥</div><b>拖拽图纸到这里，或点击上传</b><span>支持图片 / PDF / DWG / DXF · 单个文件不超过 20 MB</span></div>}
+          {file && isImage && drawingJob.previewUrl ? <img src={drawingJob.previewUrl} alt="已上传工程图预览" /> : file ? <div className="file-preview-placeholder"><div className="upload-symbol">▱</div><b>{file.name.split('.').pop()?.toUpperCase()} 图纸</b><span>{file.name.toLowerCase().endsWith('.dwg') ? '先在服务端转换并提取二维矢量，不直传原始 DWG 二进制' : '该格式将提交给图纸识别服务'}</span></div> : <div className="upload-placeholder"><div className="upload-symbol">↥</div><b>拖拽图纸到这里，或点击上传</b><span>支持图片 / PDF / DWG / DXF · 单个文件不超过 20 MB</span></div>}
           <div className="drop-overlay"><span>{drawingJob.status === 'analyzing' ? '识别中…' : file ? '重新选择图纸' : '选择文件'}</span><button type="button" className="upload-select-button" onClick={(event) => { event.stopPropagation(); inputRef.current?.click() }}>{file ? '替换文件' : '选择图纸文件'}</button></div>
         </div>
         {file && <div className="upload-file-meta"><span className="file-type-icon blue">▱</span><div><b>{file.name}</b><small>{(file.size / 1024).toFixed(0)} KB · {backend?.status === 'connected' ? '已提交 FastAPI' : '本地预览'}</small></div><span className={`parse-status ${drawingJob.status}`}>{statusText}</span></div>}
@@ -2893,7 +3199,7 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
         <div className="privacy-note"><Icon>◈</Icon><span>原图仅用于本次识别；生成前会保留每个尺寸的来源视图和校验状态。</span></div>
       </div>
       <div className="evidence-card panel-card" data-testid="drawing-evidence"><div className="evidence-heading"><div><span className="eyebrow">RECOGNITION EVIDENCE</span><h2>识别结果与尺寸证据</h2></div><span className={`confidence ${evidence ? 'ready' : ''}`}>{evidence ? confidenceLabel : drawingJob.status === 'analyzing' ? '分析中…' : '等待图纸'}</span></div>
-        {!evidence ? <div className="evidence-empty"><span>{drawingJob.status === 'analyzing' ? '⋯' : '⌁'}</span><b>{drawingJob.status === 'analyzing' ? '正在解析视图与标注' : '上传图纸后开始识别'}</b><small>{drawingJob.status === 'analyzing' ? '正在建立尺寸证据链，请稍候。' : '系统会保留每个尺寸的来源视图和校验状态。'}</small><div className="recognition-meter"><i style={{ width: drawingJob.status === 'analyzing' ? '64%' : '0%' }} /></div></div> : <><div className="evidence-banner"><span className="status-dot" /><div><b>{localCandidateEngine ? '识别完成 · 候选数据' : 'AI 已完成尺寸分析'}</b><small>{evidence.engine || 'OCR'} · {evidence.status === 'confirmed' ? '数据已确认' : '候选值可编辑'} · 三视图证据链</small></div><span className="evidence-source">{evidence.engine || evidence.source || 'OCR'}</span></div>{drawingJob.analysis?.message && <div className="ai-analysis-summary import-analysis-summary"><div className="ai-analysis-summary-heading"><b>AI 分析摘要</b><span>{drawingJob.analysis.provider || evidence.engine || '分析服务'}</span></div><p>{drawingJob.analysis.message}</p>{(missingFields.size > 0 || defaultedFields.size > 0) && <div className="ai-analysis-tags">{[...missingFields].slice(0, 8).map((key) => <span key={key} className="warning">待补全：{bracketParameterLabels[key] || key}</span>)}{[...defaultedFields].slice(0, 8).map((key) => <span key={`default-${key}`} className="default">默认候选：{bracketParameterLabels[key] || key}</span>)}</div>}</div>}<div className="evidence-table">{evidenceRows.map(([label, fields, source]) => <div className="evidence-row" key={label}><span className="evidence-check">{evidence.status === 'confirmed' ? '✓' : '·'}</span><div><b>{label}</b><small>{source} · {evidenceList.find((item) => item.field === fields[0][0])?.confidence ? `${Math.round(Number(evidenceList.find((item) => item.field === fields[0][0]).confidence) * 100)}%` : '候选'} 置信度</small></div><div className="evidence-edit-fields">{fields.map(([field, fieldLabel]) => <label key={field} data-candidate-source={candidateSources[field] || ''}><span>{missingFields.has(field) ? `${fieldLabel} · 待补全` : `${fieldLabel} · ${sourceLabel(field)}`}</span><input aria-label={`${label} ${fieldLabel}`} type="number" value={read(field)} placeholder={missingFields.has(field) ? '待补全' : '待确认'} onChange={(event) => updateDrawingEvidence?.(field, event.target.value)} /></label>)}</div><span className="evidence-lock">{evidence.status === 'confirmed' ? '已确认' : '待确认'}</span></div>)}</div><div className="evidence-warning"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidenceWarning}</span></div>{drawingJob.questions?.length > 0 && <div className="evidence-warning"><span>?</span><span>AI 待确认问题：{drawingJob.questions.join('；')}</span></div>}<div className="evidence-confirmed"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidence.status === 'confirmed' ? '尺寸证据已确认 · 可以生成 3D' : '候选尺寸、来源和默认值已显示；请修改或直接确认当前数据'}</span><button disabled={drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={evidence.status === 'confirmed' ? generateFromDrawing : acceptDrawingData}>{drawingJob.status === 'generated' ? '已生成' : evidence.status === 'confirmed' ? '生成 3D' : '确认数据'} <Icon>↗</Icon></button></div></>}</div>
+        {!evidence ? <div className="evidence-empty"><span>{drawingJob.status === 'analyzing' ? '⋯' : '⌁'}</span><b>{drawingJob.status === 'analyzing' ? '正在解析视图与标注' : '上传图纸后开始识别'}</b><small>{drawingJob.status === 'analyzing' ? '正在建立尺寸证据链，请稍候。' : '系统会保留每个尺寸的来源视图和校验状态。'}</small><div className="recognition-meter"><i style={{ width: drawingJob.status === 'analyzing' ? '64%' : '0%' }} /></div></div> : <><div className="evidence-banner"><span className="status-dot" /><div><b>{localCandidateEngine ? '识别完成 · 候选数据' : 'AI 已完成尺寸分析'}</b><small>{dwgPreprocessing ? `${dwgPreprocessing.engine || 'DWG 矢量引擎'} · ${dwgPreprocessing.entityCount ?? '—'} 实体 · ${dwgPreprocessing.dimensionCount ?? '—'} 原生尺寸` : `${evidence.engine || 'OCR'} · ${evidence.status === 'confirmed' ? '数据已确认' : '候选值可编辑'} · 三视图证据链`}</small></div><span className="evidence-source">{dwgPreprocessing ? 'DWG + AI' : evidence.engine || evidence.source || 'OCR'}</span></div>{drawingJob.analysis?.message && <div className="ai-analysis-summary import-analysis-summary"><div className="ai-analysis-summary-heading"><b>AI 分析摘要</b><span>{drawingJob.analysis.provider || evidence.engine || '分析服务'}</span></div><p>{drawingJob.analysis.message}</p>{(missingFields.size > 0 || defaultedFields.size > 0) && <div className="ai-analysis-tags">{[...missingFields].slice(0, 8).map((key) => <span key={key} className="warning">待补全：{evidenceDefinition.labels[key] || key}</span>)}{[...defaultedFields].slice(0, 8).map((key) => <span key={`default-${key}`} className="default">默认候选：{evidenceDefinition.labels[key] || key}</span>)}</div>}</div>}<div className="evidence-table">{evidenceRows.map(([label, fields, source]) => <div className="evidence-row" key={label}><span className="evidence-check">{evidence.status === 'confirmed' ? '✓' : '·'}</span><div><b>{label}</b><small>{source} · {evidenceList.find((item) => item.field === fields[0][0])?.confidence ? `${Math.round(Number(evidenceList.find((item) => item.field === fields[0][0]).confidence) * 100)}%` : '候选'} 置信度</small></div><div className="evidence-edit-fields">{fields.map(([field, fieldLabel]) => <label key={field} data-candidate-source={candidateSources[field] || ''}><span>{missingFields.has(field) ? `${fieldLabel} · 待补全` : `${fieldLabel} · ${sourceLabel(field)}`}</span><input aria-label={`${label} ${fieldLabel}`} type={field === 'insertThreadDesignation' ? 'text' : 'number'} value={read(field)} placeholder={missingFields.has(field) ? '待补全' : '待确认'} onChange={(event) => updateDrawingEvidence?.(field, event.target.value)} /></label>)}</div><span className="evidence-lock">{evidence.status === 'confirmed' ? '已确认' : '待确认'}</span></div>)}</div><div className="evidence-warning"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidenceWarning}</span></div>{drawingJob.questions?.length > 0 && <div className="evidence-warning"><span>?</span><span>AI 待确认问题：{drawingJob.questions.join('；')}</span></div>}<div className="evidence-confirmed"><span>{evidence.status === 'confirmed' ? '✓' : '!'}</span><span>{evidence.status === 'confirmed' ? '尺寸证据已确认 · 可以生成 3D' : missingFields.size ? `已有候选值已写入；请补全剩余 ${missingFields.size} 项后确认` : '候选尺寸与来源已显示；请核对并确认当前数据'}</span><button disabled={drawingJob.status === 'generating' || drawingJob.status === 'generated'} onClick={evidence.status === 'confirmed' ? generateFromDrawing : acceptDrawingData}>{drawingJob.status === 'generated' ? '已生成' : evidence.status === 'confirmed' ? '生成 3D' : '确认数据'} <Icon>↗</Icon></button></div></>}</div>
     </div>
   </div>
 }
@@ -2925,6 +3231,7 @@ function PlatformWorkspace({ mode, backend, platform, platformLogin, platformLog
   const camPlan = platform?.camPlan
   const nc = platform?.nc
   const geometry = backend?.health?.geometry || {}
+  const dwg = backend?.health?.dwg || {}
   const ocr = backend?.health?.capabilities?.ocr || backend?.health?.ocr || {}
   const submit = (bootstrap) => platformLogin({ email: email.trim(), password, displayName: displayName.trim(), roles: [role], bootstrap })
 
@@ -2950,9 +3257,9 @@ function PlatformWorkspace({ mode, backend, platform, platformLogin, platformLog
 
       <section className="platform-card panel-card platform-health-card">
         <div className="platform-card-heading"><div><span className="eyebrow">SERVICE HEALTH</span><h2>服务能力</h2></div><span className={`engine-pill ${backend?.productionReady ? 'occt' : 'fallback'}`}>{backend?.engine || 'checking'}</span></div>
-        <div className="platform-health-grid"><div><span>几何内核</span><b>{geometry.available ? `CadQuery ${geometry.version || ''} / OCCT` : 'fallback preview'}</b></div><div><span>拓扑输出</span><b>{geometry.available ? 'STEP B-Rep' : '未启用'}</b></div><div><span>OCR</span><b>{ocr.available ? `${ocr.engine || 'OCR'} ${ocr.version || ''}` : 'fixture / review'}</b></div><div><span>审计存储</span><b>{loggedIn ? 'SQLite PDM' : '需要登录'}</b></div></div>
+        <div className="platform-health-grid"><div><span>几何内核</span><b>{geometry.available ? `CadQuery ${geometry.version || ''} / OCCT` : 'fallback preview'}</b></div><div><span>拓扑输出</span><b>{geometry.available ? 'STEP B-Rep' : '未启用'}</b></div><div><span>DWG 原生解析</span><b>{dwg.available ? `${dwg.engine || 'vector parser'} · 在线` : '转换器未就绪'}</b></div><div><span>OCR</span><b>{ocr.available ? `${ocr.engine || 'OCR'} ${ocr.version || ''}` : 'fixture / review'}</b></div><div><span>审计存储</span><b>{loggedIn ? 'SQLite PDM' : '需要登录'}</b></div></div>
         {!backend?.productionReady && <div className="production-warning"><span>!</span><span>当前服务没有 OCCT 生产内核；可以审阅证据和参数，但不会把降级网格标成生产 STEP。</span></div>}
-        <div className="platform-capability-row"><span className="capability-chip">FastAPI</span><span className="capability-chip">2D OCR evidence</span><span className="capability-chip">PDM versions</span><span className="capability-chip">RBAC</span><span className="capability-chip">CAM gate</span></div>
+        <div className="platform-capability-row"><span className="capability-chip">FastAPI</span><span className="capability-chip">DWG vector evidence</span><span className="capability-chip">2D OCR evidence</span><span className="capability-chip">PDM versions</span><span className="capability-chip">RBAC</span><span className="capability-chip">CAM gate</span></div>
       </section>
 
       <section className="platform-card panel-card platform-pdm-card">
@@ -2972,10 +3279,45 @@ function PlatformWorkspace({ mode, backend, platform, platformLogin, platformLog
 }
 
 function ParameterPanel({ model, modelValid, updateModel, resetModel, drawingJob, disabled = false }) {
+  if (canonicalPartKind(model.kind) === 'stepped_tapered_nozzle') return <SteppedTaperedNozzleParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={disabled} />
   if (canonicalPartKind(model.kind) === 'split_clamp_support') return <SplitClampParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={disabled} />
   if (model.kind === 'bracket') return <BracketParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={disabled} />
   const fields = [['outerDiameter', '外径', 'Ø', 'mm'], ['length', '总长度', '', 'mm'], ['holeDiameter', '通孔直径', 'Ø', 'mm'], ['keywayWidth', '键槽宽度', '', 'mm'], ['keywayDepth', '键槽深度', '', 'mm'], ['keywayLength', '键槽长度', '', 'mm']]
   return <div className="inspector-content"><div className="selection-title"><span className="feature-icon blue">◒</span><div><b>{model.name}</b><small>参数化实体 · 已锁定</small></div><span className={`valid-chip ${modelValid ? '' : 'invalid'}`}>{modelValid ? '有效' : '待修正'}</span></div><div className="field-group"><div className="field-group-title">基本尺寸 <span>单位：mm</span></div>{fields.slice(0, 3).map(([key, label, prefix, suffix]) => <NumberField key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} disabled={disabled} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">键槽特征 <span className="muted">切除</span></div>{fields.slice(3).map(([key, label, prefix, suffix]) => <NumberField key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} disabled={disabled} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} disabled={disabled} onChange={(e) => updateModel('material', e.target.value)}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><button className="reset-link" onClick={resetModel} disabled={disabled}>↻ 恢复基准参数</button></div>
+}
+
+function SteppedTaperedNozzleParameterPanel({ model, modelValid, updateModel, resetModel, drawingJob, disabled = false }) {
+  const evidence = drawingJob?.evidence
+  const pendingFile = Boolean(drawingJob?.file || drawingJob?.fileMeta?.name)
+  const waitingForAnalysis = Boolean(pendingFile && ['queued', 'analyzing'].includes(drawingJob?.status) && !evidence)
+  const candidatePending = waitingForAnalysis || Boolean(evidence && !evidenceAcceptedForPreview(evidence))
+  const candidateSources = drawingJob?.analysis?.candidateSources || {}
+  const evidenceCandidates = evidence?.candidateParameters || {}
+  const missingFields = new Set(waitingForAnalysis
+    ? steppedTaperedNozzleRequiredParameterKeys
+    : candidatePending
+      ? (drawingJob?.analysis?.missingFields || steppedTaperedNozzleRequiredParameterKeys.filter((key) => !requiredParameterPresent(key, evidenceCandidates[key])))
+      : [])
+  const explicitCount = steppedTaperedNozzleRequiredParameterKeys.filter((key) => ['drawing', 'ai', 'manual', 'derived', 'direct_dimension', 'vector_derived', 'ai_interpreted'].includes(candidateSources[key])).length
+  const tipLength = Number(model.mainLength) - Number(model.headLength) - Number(model.neckLength)
+  const taperLength = (Number(model.outletDiameter) - Number(model.axialBoreDiameter)) / (2 * Math.tan((Math.PI / 180) * Number(model.outletTaperHalfAngle)))
+  const radialClearance = (Number(model.counterboreDiameter) - Number(model.insertOuterDiameter)) / 2
+  const chipLabel = waitingForAnalysis ? '分析中' : candidatePending ? (missingFields.size ? '待补全' : '待确认') : modelValid ? '有效' : '待修正'
+  const fieldPrefix = (key) => key.toLowerCase().includes('diameter') ? 'Ø' : ''
+  const fieldSuffix = (key) => key === 'outletTaperHalfAngle' ? '°' : 'mm'
+  const fieldLabel = (key) => `${steppedTaperedNozzleParameterLabels[key]}${candidateSources[key] ? ` · ${candidateSourceLabels[candidateSources[key]] || candidateSources[key]}` : missingFields.has(key) ? ' · 待补全' : ''}`
+  return <div className="inspector-content">
+    <div className="selection-title"><span className="feature-icon orange">◒</span><div><b>{waitingForAnalysis ? '新 DWG · 待 AI 分析' : model.name}</b><small>{candidatePending ? '两组件装配 · 候选数据' : 'stepped_tapered_nozzle_with_insert_v1'}</small></div><span className={`valid-chip ${!modelValid || missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>
+    {candidatePending && <div className={`candidate-missing-note ${missingFields.size ? '' : 'candidate-default-note'}`}><b>{missingFields.size ? `仍有 ${missingFields.size} 项必需参数待补全` : `${explicitCount} 项候选已同步`}</b><span>{missingFields.size ? '请根据 DWG 原生尺寸、矢量量测或 AI 解释补全，再确认当前快照。' : '主件与镶件仍是两个独立候选实体；确认前不会生成生产 STEP。'}</span>{missingFields.size > 0 && <small>{[...missingFields].slice(0, 6).map((key) => steppedTaperedNozzleParameterLabels[key] || key).join('、')}{missingFields.size > 6 ? '…' : ''}</small>}</div>}
+    {steppedTaperedNozzleGroups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>{group.title === '独立 M12 镶件' ? '第二组件' : group.title === '内孔与出口锥' ? 'mm / °' : '单位：mm'}</span></div>{group.fields.map((key) => key === 'insertThreadDesignation'
+      ? <label key={key} data-candidate-source={candidateSources[key] || undefined} className={`number-field ${candidatePending ? 'candidate-pending' : ''} ${candidateSources[key] ? `candidate-source-${candidateSources[key]}` : ''}`}><span>{fieldLabel(key)}</span><div><span className="field-prefix" /><input value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key] ?? ''} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '例如 M12' : '螺纹标注'} type="text" disabled={disabled || waitingForAnalysis} onChange={(event) => updateModel(key, event.target.value)} /><span className="field-suffix">标注</span></div></label>
+      : <NumberField key={key} label={fieldLabel(key)} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || ''} disabled={disabled || waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={fieldPrefix(key)} suffix={fieldSuffix(key)} min={key === 'insertAxialOffset' ? 0 : 0.1} step={key === 'headLeftDiameter' ? 0.001 : 0.1} onChange={(value) => updateModel(key, value)} />)}</div>)}
+    <div className="bracket-datum"><span>⌖</span><div><b>配方派生（只读）</b><small>末段长度 {Number.isFinite(tipLength) ? Number(tipLength.toFixed(3)) : '—'} mm · 出口锥深 {Number.isFinite(taperLength) ? Number(taperLength.toFixed(9)) : '—'} mm</small><small>镶件径向间隙 {Number.isFinite(radialClearance) ? Number(radialClearance.toFixed(3)) : '—'} mm · 轴向偏置 {model.insertAxialOffset ?? '—'} mm</small><small>预览以两个实体区分主件与镶件；{model.insertThreadDesignation || 'M12'} 只显示标注，不生成真实螺纹牙型。</small></div></div>
+    {!modelValid && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请检查三段长度、孔壁厚度、沉孔/镶件间隙、镶件轴向位置及出口锥角关系。</span></div>}
+    <div className="field-group"><div className="field-group-title">主件材料</div><div className="select-field"><select value={model.material} onChange={(event) => updateModel('material', event.target.value)} disabled={disabled || waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div>
+    <div className="evidence-mini"><Icon>✓</Icon><span>{candidatePending ? 'DWG 矢量读值、AI 解释和人工修改分别保留来源；确认后才进入 OCCT。' : '当前是两实体装配候选；镶件固定方式与真实螺纹仍需另行定义。'}</span></div>
+    <button className="reset-link" onClick={resetModel} disabled={disabled || waitingForAnalysis || candidatePending} title={candidatePending ? '确认或编辑当前候选后才能重置基准' : ''}>↻ 恢复阶梯锥管嘴候选基准</button>
+  </div>
 }
 
 function SplitClampParameterPanel({ model, modelValid, updateModel, resetModel, drawingJob, disabled = false }) {
@@ -3052,7 +3394,7 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel, dra
   </div>
 }
 
-function NumberField({ label, value, prefix, suffix, onChange, pending = false, source = '', placeholder = '', disabled = false }) { return <label data-candidate-source={source || undefined} className={`number-field ${pending ? 'candidate-pending' : ''} ${source ? `candidate-source-${source}` : ''}`}><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value ?? ''} placeholder={placeholder} type="number" min="0.1" step="0.1" disabled={disabled} onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
+function NumberField({ label, value, prefix, suffix, onChange, pending = false, source = '', placeholder = '', disabled = false, min = 0.1, step = 0.1 }) { return <label data-candidate-source={source || undefined} className={`number-field ${pending ? 'candidate-pending' : ''} ${source ? `candidate-source-${source}` : ''}`}><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value ?? ''} placeholder={placeholder} type="number" min={min} step={step} disabled={disabled} onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
 function FeaturePanel({ features, selectedFeature, setSelectedFeature }) { return <div className="inspector-content feature-tree-panel"><div className="tree-toolbar"><span>特征历史 <b>{features.length}</b></span><button>＋</button></div><div className="feature-tree">{features.map((feature, index) => <button key={feature.id} className={`feature-row ${selectedFeature === feature.id ? 'selected' : ''}`} onClick={() => setSelectedFeature(feature.id)}><span className="tree-line">{index < features.length - 1 ? '│' : '└'}</span><span className="feature-glyph">{feature.icon}</span><span className="feature-label">{feature.label}<small>{feature.meta}</small></span>{selectedFeature === feature.id && <span className="eye">◉</span>}</button>)}</div><div className="feature-note"><Icon>✦</Icon><span>特征树由 AI 生成，可继续描述来添加圆角、阵列或螺纹。</span></div></div> }
 function CheckPanel({ model, modelValid, showToast, backend, generation, drawingJob, generateFromDrawing, acceptDrawingData, setActiveMode, busy = false }) {
   const metrics = generation?.validation?.metrics || {}
@@ -3065,7 +3407,17 @@ function CheckPanel({ model, modelValid, showToast, backend, generation, drawing
       ? evidence.candidateParameters
       : model || evidence || {}
   const evidenceValue = (key) => evidenceParameters[key] !== undefined && evidenceParameters[key] !== null ? evidenceParameters[key] : '待确认'
-  const evidenceRows = !evidence ? [] : modelKind === 'split_clamp_support' ? [
+  const evidenceTipOperands = ['mainLength', 'headLength', 'neckLength'].map((key) => Number(evidenceParameters[key]))
+  const evidenceTipLength = evidenceTipOperands.every(Number.isFinite)
+    ? Number((evidenceTipOperands[0] - evidenceTipOperands[1] - evidenceTipOperands[2]).toFixed(3))
+    : '待确认'
+  const evidenceRows = !evidence ? [] : modelKind === 'stepped_tapered_nozzle' ? [
+    ['主件轴向', `${evidenceValue('mainLength')} mm · ${evidenceValue('headLength')} + ${evidenceValue('neckLength')} + ${evidenceTipLength} mm`],
+    ['主件外轮廓', `Ø${evidenceValue('headLeftDiameter')} → Ø${evidenceValue('headRightDiameter')} / Ø${evidenceValue('neckDiameter')} / Ø${evidenceValue('tipDiameter')}`],
+    ['沉孔 / 通孔', `Ø${evidenceValue('counterboreDiameter')} × ${evidenceValue('counterboreDepth')} · Ø${evidenceValue('axialBoreDiameter')} 贯通`],
+    ['末端锥口', `Ø${evidenceValue('outletDiameter')} · 半角 ${evidenceValue('outletTaperHalfAngle')}°`],
+    ['独立镶件', `Ø${evidenceValue('insertOuterDiameter')} × ${evidenceValue('insertLength')} · ${evidenceValue('insertThreadDesignation')} · 偏置 ${evidenceValue('insertAxialOffset')} mm`],
+  ] : modelKind === 'split_clamp_support' ? [
     ['异形底板', `${evidenceValue('baseLength')} × ${evidenceValue('baseWidth')} × ${evidenceValue('baseThickness')} mm`],
     ['圆筒夹座', `R${evidenceValue('pedestalOuterRadius')} · 轴线距后缘 ${evidenceValue('pedestalCenterFromRear')} mm`],
     ['盲孔 / 开缝', `Ø${evidenceValue('boreDiameter')} · 孔底 Z${evidenceValue('boreFloorZ')} · 缝宽 ${evidenceValue('splitWidth')} mm`],

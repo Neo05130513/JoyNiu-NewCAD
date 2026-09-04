@@ -10,14 +10,14 @@ bracket checks, and emits STEP and GLB artifacts.
 cd apps/api
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -e '.[dev,geometry,ocr]'
+pip install -e '.[dev,geometry,ocr,dwg]'
 uvicorn app.main:app --reload --port 8010
 ~~~
 
 The complete local acceptance install includes FastAPI, CadQuery/OCCT and the
-optional OCR adapter. CadQuery wheels are platform/Python-version dependent;
-when they cannot be installed the API remains usable, but marks every output
-as a review-only fallback.
+optional OCR and DWG adapters. CadQuery wheels are platform/Python-version
+dependent; when they cannot be installed the API remains usable, but marks
+every output as a review-only fallback.
 
 ~~~bash
 pip install -e '.[geometry]'
@@ -29,6 +29,17 @@ Optional OCR support:
 pip install -e '.[ocr]'
 # macOS: brew install tesseract
 ~~~
+
+Optional DWG vector inspection and rendering support:
+
+~~~bash
+pip install -e '.[dwg]'
+~~~
+
+The `dwg` Python extra installs `ezdxf`, Matplotlib and Pillow. These packages
+inspect a converted DXF, extract vector/dimension evidence and render a PNG;
+they do **not** decode the proprietary DWG container. Install one external DWG
+converter as described below as well.
 
 OpenAPI is available at http://localhost:8010/docs and
 http://localhost:8010/redoc (the JSON schema is at `/openapi.json`).
@@ -47,6 +58,72 @@ fallback file is presented as a production B-Rep.
 
 Set JOYNIU_DISABLE_CADQUERY=1 to test this path even on a machine with
 CadQuery installed.
+
+## Native DWG preprocessing
+
+The API never sends the original DWG binary to the AI relay. Before a DWG can
+enter the drawing-analysis flow, a local converter must produce DXF. The API
+then uses `ezdxf` to enumerate layouts, layers, blocks, vector entities and
+native `DIMENSION` measurements, and uses Matplotlib/Pillow to render a
+high-resolution image. Only that rendered image and a size-bounded,
+allowlisted vector summary may be supplied to the remote model.
+
+Install the Python side first:
+
+~~~bash
+pip install -e '.[dwg]'
+~~~
+
+Then install one system converter:
+
+- **GNU LibreDWG:** install your operating system's LibreDWG tools package so
+  `dwgread` (preferred) or `dwg2dxf` is on `PATH`. On macOS with Homebrew this
+  is normally `brew install libredwg`; Linux package names vary by
+  distribution (often `libredwg-tools`). Building from GNU LibreDWG source is
+  also supported.
+- **ODA File Converter / Drawings SDK:** install and license the ODA converter
+  according to ODA's deployment terms. Because ODA's CLI is directory based,
+  expose it through a small administrator-owned wrapper that accepts an input
+  DWG path and an output DXF path. Do not put untrusted file content into a
+  shell command.
+
+Without explicit configuration, the service discovers `dwgread` and then
+`dwg2dxf` on `PATH`. A deployment-specific converter or ODA wrapper is
+configured as a JSON **argv array** (not a shell command):
+
+~~~bash
+# Direct GNU LibreDWG example
+export JOYNIU_DWG_CONVERTER_COMMAND_JSON='["/usr/local/bin/dwgread","-O","DXF","-o","{output_dxf}","{input_dwg}"]'
+
+# ODA wrapper example; the wrapper must create exactly {output_dxf}
+export JOYNIU_DWG_CONVERTER_COMMAND_JSON='["/opt/joyniu/bin/oda-dwg-to-dxf","{input_dwg}","{output_dxf}"]'
+~~~
+
+`{input_dwg}` and `{output_dxf}` are the only supported custom-command
+placeholders. The JSON value must be a non-empty array of non-empty strings and
+must include `{input_dwg}`; in practice it should include `{output_dxf}` so the
+service can find the generated file. Use an absolute executable path in
+production. The command is executed without a shell in an isolated temporary
+directory and is subject to time, file-size and process resource limits.
+
+Native vector extraction improves measurements but does not make arbitrary 3D
+reconstruction deterministic. A `DIMENSION` measurement can be presented as
+direct evidence, and endpoint/centre/radius calculations can be presented as
+derived vector evidence. View correspondence and 3D feature topology still
+require an AI interpretation or manual mapping to an approved recipe/feature
+tree, followed by human confirmation and the OCCT production gates.
+
+Inspect a DWG locally without invoking the remote model:
+
+~~~bash
+curl -F 'file=@/absolute/path/drawing.dwg;type=application/acad' \
+  http://127.0.0.1:8011/api/v1/dwg/inspect
+~~~
+
+The response includes the source signature/version and SHA-256, units, entity
+and native-dimension counts, a bounded vector summary, derived DXF/PNG hashes,
+and `rawDwgSentToAI=false`. The health response also exposes
+`capabilities.dwgVectorParsing` and the selected converter under `dwg.engine`.
 
 ## Drawing workflow
 

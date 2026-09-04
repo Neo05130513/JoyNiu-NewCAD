@@ -61,6 +61,15 @@ _REQUIRED_SPLIT_CLAMP_CANDIDATE_FIELDS = frozenset(
         "outerCornerRadius", "neckConcaveRadius", "neckConvexRadius",
     }
 )
+_REQUIRED_STEPPED_TAPERED_NOZZLE_CANDIDATE_FIELDS = frozenset(
+    {
+        "mainLength", "headLength", "neckLength", "headLeftDiameter",
+        "headRightDiameter", "neckDiameter", "tipDiameter",
+        "counterboreDiameter", "counterboreDepth", "axialBoreDiameter",
+        "outletDiameter", "outletTaperHalfAngle", "insertOuterDiameter",
+        "insertLength", "insertThreadDesignation", "insertAxialOffset",
+    }
+)
 # SHA-256 of the acceptance drawing supplied with the product brief.  The
 # registry also stores this value in JSON; keeping the constant here makes it
 # easy for callers to identify the canonical fixture without opening the file.
@@ -722,7 +731,16 @@ class OCRService:
         # boundary: an operator must know every requested value was actually
         # applied to the recipe.
         recipe_id = str(recipe.get("recipeId", recipe.get("recipe_id", "")) or "")
-        if recognition.part_type == "split_clamp_support" or (
+        if recognition.part_type == "stepped_tapered_nozzle" or (
+            was_unknown and recipe_id == "stepped_tapered_nozzle_with_insert_v1"
+        ):
+            effective_part_type = "stepped_tapered_nozzle"
+            if recipe_id != "stepped_tapered_nozzle_with_insert_v1":
+                raise ValidationError(
+                    "stepped_tapered_nozzle candidate requires recipeId "
+                    "stepped_tapered_nozzle_with_insert_v1"
+                )
+        elif recognition.part_type == "split_clamp_support" or (
             was_unknown and recipe_id == "split_clamp_support_v1"
         ):
             effective_part_type = "split_clamp_support"
@@ -765,13 +783,31 @@ class OCRService:
                 raise ValidationError(
                     "unknown parameter override(s): " + ", ".join(unknown)
                 )
-        else:
+        elif effective_part_type == "split_clamp_support":
             from .schemas import SplitClampSupportParameters
 
             allowed = set(SplitClampSupportParameters.model_fields)
             allowed.update(
                 field.alias
                 for field in SplitClampSupportParameters.model_fields.values()
+                if getattr(field, "alias", None)
+            )
+            unknown = sorted(
+                str(key)
+                for key in set(raw_parameters).union(overrides)
+                if str(key) not in allowed
+            )
+            if unknown:
+                raise ValidationError(
+                    "unknown parameter override(s): " + ", ".join(unknown)
+                )
+        else:
+            from .schemas import SteppedTaperedNozzleParameters
+
+            allowed = set(SteppedTaperedNozzleParameters.model_fields)
+            allowed.update(
+                field.alias
+                for field in SteppedTaperedNozzleParameters.model_fields.values()
                 if getattr(field, "alias", None)
             )
             unknown = sorted(
@@ -817,6 +853,26 @@ class OCRService:
                 raise ValidationError(
                     "split clamp candidate is incomplete; provide: " + ", ".join(missing)
                 )
+        if effective_part_type == "stepped_tapered_nozzle":
+            from .schemas import SteppedTaperedNozzleParameters
+
+            aliases = {
+                name: field.alias or name
+                for name, field in SteppedTaperedNozzleParameters.model_fields.items()
+            }
+            supplied = {
+                aliases.get(str(key), str(key))
+                for key, value in parameters.items()
+                if value is not None
+            }
+            missing = sorted(
+                _REQUIRED_STEPPED_TAPERED_NOZZLE_CANDIDATE_FIELDS - supplied
+            )
+            if missing:
+                raise ValidationError(
+                    "stepped tapered nozzle candidate is incomplete; provide: "
+                    + ", ".join(missing)
+                )
 
         # Bracket confirmations are the hand-off into the geometry kernel.  Do
         # the same schema and non-throwing geometry validation here as the
@@ -839,12 +895,16 @@ class OCRService:
             try:
                 from .model_recipes import parse_model_parameters, validate_model_recipe
 
+                confirmed_recipe_id = {
+                    "split_clamp_support": "split_clamp_support_v1",
+                    "stepped_tapered_nozzle": "stepped_tapered_nozzle_with_insert_v1",
+                }[effective_part_type]
                 validated_parameters = parse_model_parameters(
-                    "split_clamp_support_v1",
+                    confirmed_recipe_id,
                     parameters,
                 )
                 validation = validate_model_recipe(
-                    "split_clamp_support_v1",
+                    confirmed_recipe_id,
                     validated_parameters,
                 )
             except Exception as exc:
@@ -852,7 +912,7 @@ class OCRService:
             if not validation.get("valid"):
                 raise ValidationError("drawing recipe failed geometry validation")
             parameters = validated_parameters.model_dump(mode="json", by_alias=True)
-            recipe["recipeId"] = "split_clamp_support_v1"
+            recipe["recipeId"] = confirmed_recipe_id
         recipe["parameters"] = parameters
         recipe["confirmed_by"] = reviewer_id
         recipe["confirmation_type"] = str(confirmation_type or "reviewer")
