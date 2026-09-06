@@ -30,6 +30,10 @@ ocr = [
   "Pillow>=10,<12",
   "pytesseract>=0.3.13,<1",
 ]
+pdf = [
+  "PyMuPDF>=1.24,<2",
+  "Pillow>=10,<12",
+]
 dev = [
   "httpx>=0.27,<1",
   "pytest>=8,<9",

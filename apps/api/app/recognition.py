@@ -141,7 +141,12 @@ def _optional_ocr(data: bytes) -> tuple[str, str | None]:
         from PIL import Image  # type: ignore
         import pytesseract  # type: ignore
 
-        image = Image.open(io.BytesIO(data))
+        ocr_data = data
+        if data.startswith(b"%PDF-"):
+            from .pdf_preprocessor import PDFPreprocessConfig, preprocess_pdf
+            prepared = preprocess_pdf(data, "drawing.pdf", config=PDFPreprocessConfig(render_page_strategy="first"))
+            ocr_data = prepared.png_bytes
+        image = Image.open(io.BytesIO(ocr_data))
         text = pytesseract.image_to_string(
             image,
             lang=os.getenv("JOYNIU_TESSERACT_LANG", "eng"),

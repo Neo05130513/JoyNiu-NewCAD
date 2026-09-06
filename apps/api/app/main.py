@@ -328,6 +328,16 @@ def _reconcile_model_validation_with_artifacts(
         step and step.production_ready and step.engine == "cadquery-occt"
     )
     production_ready = bool(report.get("productionReady") and step_production)
+    try:
+        from .geometry_acceptance import validate_generated_geometry
+        raw_params = report.get("parameters") or {}
+        if hasattr(raw_params, "model_dump"):
+            raw_params = raw_params.model_dump(mode="json", by_alias=True)
+        acceptance = validate_generated_geometry(str(report.get("recipeId") or ""), raw_params, report.get("metrics") or {})
+    except Exception:
+        acceptance = None
+    if acceptance is not None:
+        production_ready = production_ready and bool(acceptance["productionReady"])
     if production_ready:
         engine = "cadquery-occt"
         reason = "OCCT STEP artifact passed the production delivery gate"
@@ -343,6 +353,8 @@ def _reconcile_model_validation_with_artifacts(
         reason = "no geometry artifact was emitted"
     reconciled = dict(report)
     metrics = dict(reconciled.get("metrics") or {})
+    if acceptance is not None:
+        metrics["dimensionalAcceptance"] = acceptance
     metrics.update({
         "artifactProductionReady": production_ready,
         "stepArtifactProductionReady": step_production,
@@ -372,6 +384,11 @@ async def health() -> dict[str, Any]:
             "error": f"{type(exc).__name__}: {exc}",
             "rawDwgSentToAI": False,
         }
+    try:
+        from .pdf_preprocessor import pdf_preprocessor_status
+        pdf = pdf_preprocessor_status()
+    except Exception as exc:
+        pdf = {"available": False, "engine": "unavailable", "error": f"{type(exc).__name__}: {exc}", "rawPdfSentToAI": False}
     return {
         "status": "ok" if cq["available"] else "degraded",
         "service": "joyniu-cad-api",
@@ -379,6 +396,7 @@ async def health() -> dict[str, Any]:
         "checkedAt": datetime.now(timezone.utc).isoformat(),
         "geometry": cq,
         "dwg": dwg,
+        "pdf": pdf,
         "capabilities": {
             "drawingRecognition": True,
             "drawingResultSubmission": True,
@@ -387,6 +405,7 @@ async def health() -> dict[str, Any]:
             "glbExport": True,
             "cadqueryBRep": bool(cq["available"]),
             "dwgVectorParsing": bool(dwg.get("available")),
+            "pdfVectorParsing": bool(pdf.get("available")),
             "ocr": _ocr_capability(),
         },
         "notes": (
@@ -399,6 +418,19 @@ async def health() -> dict[str, Any]:
             ]
         ),
     }
+
+@app.post("/api/pdf/inspect", tags=["drawings"])
+@app.post("/api/v1/pdf/inspect", tags=["drawings"], include_in_schema=False)
+async def inspect_pdf(file: UploadFile = File(..., description="PDF drawing")) -> dict[str, Any]:
+    from .pdf_preprocessor import PDFInputError, PDFInputTooLargeError, PDFPasswordError, PDFPreprocessError, preprocess_pdf
+    data = await file.read()
+    try:
+        result = preprocess_pdf(data, file.filename or "drawing.pdf")
+    except PDFInputTooLargeError as exc: raise HTTPException(status_code=413, detail=exc.to_dict()) from exc
+    except PDFPasswordError as exc: raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+    except PDFInputError as exc: raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+    except PDFPreprocessError as exc: raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+    return {"status":"parsed", "source":result.original_metadata, "pageCount":result.summary["pageCount"], "renderedPageCount":result.page_count_rendered, "omittedPageCount":result.page_count_omitted, "vectorSummary":result.summary, "derived":{"previewSizeBytes":len(result.png_bytes),"previewSha256":hashlib.sha256(result.png_bytes).hexdigest(),"previewContentType":"image/png"}, "rawPdfSentToAI":False}
 
 
 @app.post("/api/dwg/inspect", tags=["drawings"])
@@ -1078,6 +1110,7 @@ async def generate_model(body: dict[str, Any] = Body(...)) -> ModelGeometryRespo
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    report["recipeId"] = request.recipe_id
     report, response_engine = _reconcile_model_validation_with_artifacts(report, generated)
 
     request_id = f"geo_{uuid4().hex[:16]}"
