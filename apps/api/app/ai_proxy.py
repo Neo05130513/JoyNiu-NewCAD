@@ -1134,7 +1134,17 @@ def _recognize_attachment(item: AIFile) -> dict[str, Any] | None:
         from .recognition import recognize_drawing_bytes
 
         recognition = recognize_drawing_bytes(item.data, filename=item.filename)
-        return _model_dump(recognition)
+        result = _model_dump(recognition)
+        if result is not None and _detected_image_mime(item):
+            try:
+                from .drawing_pipeline import preprocess_raster_drawing
+                prepared = preprocess_raster_drawing(item.data, item.filename)
+                result["drawingPipeline"] = {
+                    key: value for key, value in prepared.items() if key != "previewBytes"
+                }
+            except Exception:
+                pass
+        return result
     except Exception:
         # The remote model remains the source for formats that the optional
         # local OCR/rasterizer cannot decode.
@@ -1404,12 +1414,31 @@ def _prepare_provider_attachments(
     attachment_metadata: list[dict[str, Any]] = []
     for index, item in enumerate(files, start=1):
         metadata = _attachment_metadata(item)
+        if _detected_image_mime(item):
+            try:
+                from .drawing_pipeline import preprocess_raster_drawing
+                prepared_image = preprocess_raster_drawing(item.data, item.filename)
+                if prepared_image.get("available"):
+                    vector_contexts.append({
+                        "sourceType": "image_geometry_candidate",
+                        "filenameHash": metadata["sha256"],
+                        "width": prepared_image.get("width"),
+                        "height": prepared_image.get("height"),
+                        "views": prepared_image.get("views", []),
+                        "dimensions": prepared_image.get("dimensions", []),
+                        "evidencePolicy": "image views and geometry are candidates; dimensions require OCR/AI mapping and review",
+                    })
+            except Exception:
+                pass
         if _is_pdf_file(item):
             try:
                 from .pdf_preprocessor import preprocess_pdf
                 prepared = preprocess_pdf(item.data, item.filename)
             except Exception as exc:
-                raise AIProxyError("pdf_preprocessing_failed") from exc
+                metadata["pdfPreprocessing"] = {"status": "failed", "errorCode": str(getattr(exc, "code", "pdf_preprocess_failed")), "derivedFromSha256": metadata["sha256"]}
+                attachment_metadata.append(metadata)
+                provider_files.append(item)
+                continue
             metadata["pdfPreprocessing"] = {"status":"parsed", "engine":"PyMuPDF", "pageCount":prepared.summary.get("pageCount"), "renderedPageCount":prepared.page_count_rendered, "omittedPageCount":prepared.page_count_omitted, "previewSha256":hashlib.sha256(prepared.png_bytes).hexdigest(), "derivedFromSha256":metadata["sha256"]}
             provider_files.append(AIFile(filename=f"{Path(item.filename).stem}__pdf-vector-preview.png", content_type="image/png", data=prepared.png_bytes))
             vector_contexts.append(dict(prepared.summary)); attachment_metadata.append(metadata); continue
