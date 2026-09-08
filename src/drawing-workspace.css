@@ -1,0 +1,45 @@
+.technical-drawing-workspace { padding: 24px; min-width: 0; color: #ced9e8; }
+.technical-drawing-heading { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
+.technical-drawing-heading h1 { font-size: 24px; margin: 6px 0 8px; overflow-wrap: anywhere; }
+.technical-drawing-heading p { color: #91a5be; font-size: 13px; margin: 0; line-height: 1.7; }
+.technical-drawing-actions { display: flex; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
+.drawing-validation-banner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; padding: 12px 16px; border: 1px solid #375065; border-radius: 10px; background: #142332; margin-bottom: 16px; font-size: 13px; }
+.drawing-validation-banner span { color: #a5b9cf; }
+.drawing-validation-banner.invalid, .drawing-validation-error { border-color: #9a624f; background: #332326; color: #f4b4a2; }
+.drawing-validation-error { padding: 12px; border-radius: 8px; }
+.technical-drawing-layout { display: grid; grid-template-columns: minmax(0, 1fr) 256px; gap: 18px; align-items: start; }
+.technical-drawing-canvas, .technical-drawing-inspector, .drawing-errors-card { border: 1px solid #2f4257; border-radius: 12px; background: #121d2b; min-width: 0; overflow: hidden; }
+.technical-drawing-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px; border-bottom: 1px solid #2f4257; }
+.technical-drawing-toolbar label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #a7b9cf; }
+.technical-drawing-toolbar select, .technical-drawing-toolbar button { border: 1px solid #3a5068; border-radius: 6px; padding: 7px 8px; background: #1b2b3e; color: #d5e0ed; font: inherit; max-width: 100%; }
+.technical-drawing-toolbar button { cursor: pointer; }
+.technical-drawing-scroll { overflow: auto; max-height: 68vh; min-height: 360px; overscroll-behavior: contain; background: #101925; }
+.technical-drawing-svg { display: block; max-width: none; flex-shrink: 0; }
+.technical-drawing-svg text { font-family: system-ui, -apple-system, sans-serif; }
+.technical-drawing-footnote { padding: 10px 14px; font-size: 11px; line-height: 1.7; color: #91a6be; border-top: 1px solid #2f4257; }
+.drawing-scope-notes { padding: 0 14px 10px; font-size: 11px; line-height: 1.7; color: #a5b4c7; }
+.drawing-scope-notes p { margin: 5px 0; }
+.technical-drawing-inspector section { padding: 15px; border-bottom: 1px solid #2f4257; }
+.technical-drawing-inspector h2 { font-size: 14px; margin: 0 0 14px; }
+.drawing-layer-toggle { display: flex; align-items: center; gap: 9px; font-size: 12px; padding: 7px 0; cursor: pointer; }
+.drawing-layer-toggle input { width: 16px; height: 16px; margin: 0; accent-color: #7cafdb; }
+.drawing-layer-toggle i { width: 13px; height: 3px; border-radius: 2px; }
+.drawing-layer-toggle small { color: #7f96b0; margin-left: auto; }
+.technical-drawing-inspector dl { margin: 0 0 14px; font-size: 12px; }
+.technical-drawing-inspector dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; margin: 10px 0; }
+.technical-drawing-inspector dt { color: #8299b4; }
+.technical-drawing-inspector dd { margin: 0; overflow-wrap: anywhere; }
+.technical-drawing-inspector .secondary-button { width: 100%; justify-content: center; }
+.drawing-check-result { font-size: 11px; line-height: 1.7; color: #9fc6b4; }
+.drawing-parameter-details { padding: 15px; }
+.drawing-parameter-details summary { cursor: pointer; font-size: 12px; line-height: 1.7; }
+.drawing-parameter-table { margin-top: 10px; }
+.drawing-parameter-table > div { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 9px 0; font-size: 11px; border-top: 1px solid #2a3c50; }
+.drawing-parameter-table b { font-weight: 500; color: #adc0d7; }
+.drawing-parameter-table small { color: #8099b7; grid-column: 1 / -1; }
+.drawing-errors-card { padding: 24px; }
+.drawing-errors-card h2 { font-size: 18px; margin: 0 0 16px; }
+.drawing-errors-card ul { padding-left: 22px; margin-bottom: 20px; line-height: 1.8; font-size: 13px; color: #d6b5a8; }
+.technical-drawing-workspace button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 1100px) { .technical-drawing-layout { grid-template-columns: minmax(0, 1fr); } .technical-drawing-inspector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .drawing-parameter-details { grid-column: 1 / -1; } }
+@media (max-width: 650px) { .technical-drawing-workspace { padding: 14px; } .technical-drawing-heading { flex-direction: column; } .technical-drawing-heading h1 { font-size: 20px; } .technical-drawing-actions { width: 100%; } .technical-drawing-actions button { flex: 1; } .technical-drawing-toolbar { gap: 9px; } .technical-drawing-toolbar label { width: 100%; justify-content: space-between; } .technical-drawing-toolbar select { max-width: 210px; } .technical-drawing-scroll { min-height: 320px; } .technical-drawing-inspector { display: block; } .drawing-validation-banner { line-height: 1.7; } }

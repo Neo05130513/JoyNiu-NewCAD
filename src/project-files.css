@@ -1,0 +1,86 @@
+.pf-workspace { padding: 22px 0; color: #26344b; max-width: 1500px; margin: 0 auto; }
+.pf-workspace *, .pf-dialog * { box-sizing: border-box; }
+.pf-workspace h1, .pf-workspace h2, .pf-workspace h4, .pf-dialog h2, .pf-workspace p { margin: 0; }
+.pf-heading, .pf-section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.pf-heading h1 { font-size: 24px; margin: 6px 0; overflow-wrap: anywhere; }
+.pf-heading p, .pf-section-heading p { color: #68778b; font-size: 13px; line-height: 1.65; }
+.pf-kicker { color: #63758f; font-size: 12px; letter-spacing: .08em; }
+.pf-heading-actions, .pf-file-actions, .pf-dialog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.pf-button { border: 1px solid #cfdae8; border-radius: 7px; background: #fff; color: #364b66; min-height: 36px; padding: 7px 11px; font: inherit; font-size: 12px; line-height: 1.4; cursor: pointer; white-space: normal; }
+.pf-button:hover { background: #f0f6ff; border-color: #91b7eb; }
+.pf-button:disabled { opacity: .5; cursor: not-allowed; }
+.pf-button.pf-primary { color: #fff; background: #276fe3; border-color: #276fe3; }
+.pf-button.pf-primary:hover { background: #205cc0; }
+.pf-workspace input, .pf-workspace select, .pf-workspace textarea, .pf-dialog input, .pf-dialog select, .pf-dialog textarea { width: 100%; min-width: 0; border: 1px solid #cbd7e6; border-radius: 6px; padding: 8px 10px; background: #fff; color: #273b56; font: inherit; font-size: 13px; line-height: 1.5; }
+.pf-workspace :is(button,input,select,textarea):focus-visible, .pf-dialog :is(button,input,select,textarea):focus-visible { outline: 2px solid #2779eb; outline-offset: 3px; }
+.pf-workspace label, .pf-dialog label { display: grid; gap: 6px; color: #536780; font-size: 12px; }
+.pf-project-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 22px 0 14px; }
+.pf-project-bar > label { flex: 1 1 220px; max-width: 520px; }
+.pf-storage-status { color: #6b778a; font-size: 12px; padding: 9px 0; }
+.pf-statistics { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 17px; }
+.pf-statistics > span { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #dce4ee; border-radius: 6px; padding: 7px 10px; font-size: 12px; background: #fff; color: #68788d; }
+.pf-statistics b { color: #314e74; font-weight: 650; }
+.pf-files-card, .pf-document-card, .pf-versions-card { border: 1px solid #dbe3ee; border-radius: 10px; background: #fff; min-width: 0; margin-bottom: 18px; }
+.pf-toolbar { padding: 15px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; border-bottom: 1px solid #e5ebf3; }
+.pf-search { flex: 1 1 260px; max-width: 460px; }
+.pf-sort { flex: 0 1 160px; }
+.pf-file-list { padding: 0; margin: 0; list-style: none; }
+.pf-file-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 13px 16px; padding: 17px; border-bottom: 1px solid #e6edf5; min-width: 0; }
+.pf-file-row.pf-active-file { background: #f4f8ff; }
+.pf-file-identity { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.pf-file-identity > div { min-width: 0; }
+.pf-file-identity h2 { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; font-weight: 650; }
+.pf-file-identity p { color: #6a7e96; font-size: 12px; margin-top: 3px; }
+.pf-file-icon { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; font-size: 20px; color: #3977c8; background: #eaf3ff; border-radius: 7px; }
+.pf-file-meta { display: flex; flex-direction: column; gap: 4px; color: #728199; font-size: 11px; align-items: flex-end; }
+.pf-file-actions { grid-column: 1 / -1; }
+.pf-list-footer { padding: 12px 16px; font-size: 11px; color: #728198; line-height: 1.6; }
+.pf-empty { text-align: center; color: #6b7e94; padding: 30px 15px; line-height: 1.7; }
+.pf-empty p { margin: 7px 0 13px; font-size: 13px; }
+.pf-empty b { font-size: 14px; color: #435e80; }
+.pf-document-card, .pf-versions-card { padding: 18px; }
+.pf-section-heading { margin-bottom: 16px; }
+.pf-section-heading h2 { font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.pf-section-heading > div { min-width: 0; }
+.pf-document-label { margin-bottom: 12px; }
+.pf-document-label textarea { min-height: 280px; resize: vertical; }
+.pf-version-list { list-style: none; padding: 0; margin: 0; }
+.pf-version-list > li { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 14px 0; border-top: 1px solid #e5ebf3; }
+.pf-version-list > li > div:first-child { flex: 1 1 180px; min-width: 0; }
+.pf-version-list b { margin-right: 10px; color: #3467a5; font-size: 13px; }
+.pf-version-list span { color: #7b889b; font-size: 12px; }
+.pf-version-list p { color: #5d718b; font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+.pf-snapshot-details { padding: 14px; background: #f5f8fc; border: 1px solid #dfe7f1; border-radius: 7px; margin-top: 12px; }
+.pf-snapshot-details h4 { font-size: 14px; margin-bottom: 8px; }
+.pf-snapshot-details p { font-size: 12px; line-height: 1.6; }
+.pf-snapshot-details dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px 18px; margin: 10px 0; }
+.pf-snapshot-details dl > div { display: flex; flex-wrap: wrap; gap: 4px 10px; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #e0e7f0; font-size: 11px; }
+.pf-snapshot-details dt, .pf-snapshot-details dd { margin: 0; overflow-wrap: anywhere; }
+.pf-snapshot-details dd { color: #304c73; }
+.pf-document-preview { margin: 0; font: inherit; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 380px; overflow-y: auto; }
+.pf-muted { color: #728199; font-size: 12px; line-height: 1.6; }
+.pf-error { padding: 10px 12px; margin: 10px 0; color: #a93838; background: #fff2f2; border: 1px solid #ebc3c3; border-radius: 6px; font-size: 13px; line-height: 1.6; }
+.pf-dialog { width: min(460px,calc(100vw - 28px)); max-height: calc(100dvh - 32px); overflow-y: auto; border: 1px solid #d3deec; border-radius: 12px; padding: 22px; color: #2d405c; background: white; box-shadow: 0 24px 70px #243a6433; }
+.pf-dialog::backdrop { background: #17253b77; }
+.pf-dialog label { margin: 14px 0; }
+.pf-dialog textarea { min-height: 90px; resize: vertical; }
+.pf-dialog p { font-size: 13px; line-height: 1.7; }
+.pf-dialog-actions { justify-content: flex-end; margin-top: 20px; }
+@media (max-width: 650px) {
+  .pf-heading { flex-direction: column; gap: 13px; }
+  .pf-heading h1 { font-size: 21px; }
+  .pf-heading-actions { width: 100%; }
+  .pf-heading-actions > button { flex: 1 1 130px; }
+  .pf-file-row { grid-template-columns: minmax(0,1fr); padding: 14px 12px; gap: 10px; }
+  .pf-file-meta { flex-direction: row; align-items: flex-start; flex-wrap: wrap; justify-content: space-between; }
+  .pf-file-actions { gap: 7px; }
+  .pf-file-actions .pf-button { flex: 1 1 100px; min-height: 40px; }
+  .pf-toolbar { flex-wrap: wrap; padding: 12px; }
+  .pf-search { flex-basis: 100%; max-width: none; }
+  .pf-sort { flex: 1; }
+  .pf-document-card, .pf-versions-card { padding: 14px 12px; }
+  .pf-section-heading { flex-wrap: wrap; gap: 10px; }
+  .pf-snapshot-details dl { grid-template-columns: minmax(0,1fr); }
+  .pf-project-bar > label { flex-basis: 100%; }
+  .pf-button { min-height: 40px; }
+}

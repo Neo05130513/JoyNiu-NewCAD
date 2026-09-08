@@ -1,11 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api, API_BASE } from './api.js'
 import {
   normalizeAiParameterEvidence,
   normalizeAiParameterPatch,
+  resolveAiPartKind,
+  seedAiModel,
   shouldProtectConcurrentModelEdit,
 } from './candidateSync.js'
 import ThreeDViewer from './ThreeDViewer.jsx'
+import * as ProjectStore from './projectStore.js'
+import ProjectFilesWorkspace from './ProjectFilesWorkspace.jsx'
+import DrawingWorkspace from './DrawingWorkspace.jsx'
+import AssemblyWorkspace from './AssemblyWorkspace.jsx'
+import LibraryWorkspace from './LibraryWorkspace.jsx'
+import { validateModelParameters } from './modelValidation.js'
+import { dxfForModel } from './drawingGeometry.js'
+import { readableError, notificationFor, downloadBlob } from './workspaceFeedback.js'
+import { WorkspaceDialog, NewProjectDialog, CommandDialog, SettingsWorkspace, HelpWorkspace } from './WorkspaceTools.jsx'
+
+const ParameterErrors = createContext([])
+const welcomeMessages = () => [
+  { role: 'ai', text: '欢迎来到设计工作台。上传一张图纸，或描述你想设计、检查或修改的内容。', status: 'complete' },
+  { role: 'ai', text: '模型、对话与版本保存在当前项目文件中；图纸候选经你确认后再生成实体。', status: 'complete' },
+]
+const defaultPreferences = { defaultMaterial: '45# 钢', defaultView: 'isometric', textSize: 'normal' }
+const modeForFile = (file) => ({ '工程图': '2D 工程图', '装配体': '装配', '文档': '项目管理' }[file?.type] || '3D 建模')
 
 const defaultModel = {
   name: '动力轴 · 版本 04',
@@ -239,41 +258,16 @@ const partDefinition = (kind) => {
     required: bracketRequiredParameterKeys,
     labels: bracketParameterLabels,
   }
-  return { kind: 'shaft', recipeId: 'shaft_v1', preview: defaultModel, keys: shaftParameterKeys, required: shaftParameterKeys.filter((key) => key !== 'material'), labels: {} }
+  return { kind: 'shaft', recipeId: 'shaft_v1', preview: defaultModel, keys: shaftParameterKeys, required: shaftParameterKeys.filter((key) => key !== 'material'), labels: { outerDiameter: '外径', length: '总长度', holeDiameter: '通孔直径', keywayWidth: '键槽宽度', keywayDepth: '键槽深度', keywayLength: '键槽长度', material: '材料' } }
 }
-const partKindFromEnvelope = (value, fallback = 'bracket') => {
-  // Some OpenAI-compatible relays return `partType: "unknown"` while still
-  // supplying a valid recipe id.  Inspect every identity field and select the
-  // first supported value instead of letting an unhelpful truthy string mask
-  // the usable one.
-  const direct = [
-    value?.partType, value?.part_type, value?.kind,
-    value?.recipeId, value?.recipe_id,
-    value?.modelRecipe?.recipeId, value?.modelRecipe?.recipe_id,
-    value?.model_recipe?.recipeId, value?.model_recipe?.recipe_id,
-  ].map(canonicalPartKind).find((item) => [...productionPartKinds, 'shaft'].includes(item))
-  if (direct) return direct
-  // A provider may place values in more than one compatible container.  An
-  // empty parameterPatch must not hide a populated candidateParameters map.
-  const parameterContainers = [
-    value?.parameterPatch, value?.parameter_patch,
-    value?.candidateParameters, value?.candidate_parameters,
-    value?.recognizedParameters, value?.recognized_parameters,
-    value?.parameters, value?.modelRecipe?.parameters, value?.model_recipe?.parameters,
-  ].filter((item) => item && typeof item === 'object')
-  const keys = [...new Set((parameterContainers.length ? parameterContainers : [value || {}])
-    .flatMap((item) => Object.keys(item))
-    .map((key) => recognitionParameterAliases?.[key] || key))]
-  const splitUnique = new Set(splitClampParameterKeys.filter((key) => !bracketParameterKeys.includes(key) && !shaftParameterKeys.includes(key)))
-  const nozzleUnique = new Set(steppedTaperedNozzleParameterKeys.filter((key) => !bracketParameterKeys.includes(key) && !splitClampParameterKeys.includes(key) && !shaftParameterKeys.includes(key)))
-  const bracketUnique = new Set(bracketParameterKeys.filter((key) => !splitClampParameterKeys.includes(key) && !shaftParameterKeys.includes(key)))
-  const shaftUnique = new Set(shaftParameterKeys.filter((key) => !bracketParameterKeys.includes(key) && !splitClampParameterKeys.includes(key)))
-  if (keys.some((key) => nozzleUnique.has(key))) return 'stepped_tapered_nozzle'
-  if (keys.some((key) => splitUnique.has(key))) return 'split_clamp_support'
-  if (keys.some((key) => bracketUnique.has(key))) return 'bracket'
-  if (keys.some((key) => shaftUnique.has(key))) return 'shaft'
-  return canonicalPartKind(fallback) || 'bracket'
-}
+const partDefinitions = Object.fromEntries(['stepped_tapered_nozzle', 'split_clamp_support', 'bracket', 'shaft']
+  .map((kind) => [kind, partDefinition(kind)]))
+const partKindFromEnvelope = (value, fallback = 'bracket') => resolveAiPartKind(value, {
+  definitions: partDefinitions,
+  fallback,
+  kindAliases: partKindAliases,
+  parameterAliases: recognitionParameterAliases,
+})
 const parameterKeysForKind = (kind) => partDefinition(kind).keys
 const requiredKeysForKind = (kind) => partDefinition(kind).required
 const parameterLabelsForKind = (kind) => partDefinition(kind).labels
@@ -686,82 +680,6 @@ function normalizeFilesInput(input) {
   return [input].filter(Boolean)
 }
 
-function dxfForModel(model) {
-  const lines = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES']
-  const line = (x1, y1, x2, y2, layer = 'OBJECT') => lines.push('0', 'LINE', '8', layer, '10', String(x1), '20', String(y1), '30', '0', '11', String(x2), '21', String(y2), '31', '0')
-  const circle = (x, y, radius, layer = 'OBJECT') => lines.push('0', 'CIRCLE', '8', layer, '10', String(x), '20', String(y), '30', '0', '40', String(radius))
-  if (canonicalPartKind(model.kind) === 'stepped_tapered_nozzle') {
-    const mainLength = Number(model.mainLength)
-    const headLength = Number(model.headLength)
-    const neckLength = Number(model.neckLength)
-    const tipStart = headLength + neckLength
-    const radii = {
-      headLeft: Number(model.headLeftDiameter) / 2,
-      headRight: Number(model.headRightDiameter) / 2,
-      neck: Number(model.neckDiameter) / 2,
-      tip: Number(model.tipDiameter) / 2,
-      bore: Number(model.axialBoreDiameter) / 2,
-      counterbore: Number(model.counterboreDiameter) / 2,
-    }
-    line(0, radii.headLeft, headLength, radii.headRight)
-    line(headLength, radii.headRight, headLength, radii.neck)
-    line(headLength, radii.neck, tipStart, radii.neck)
-    line(tipStart, radii.neck, tipStart, radii.tip)
-    line(tipStart, radii.tip, mainLength, radii.tip)
-    line(0, -radii.headLeft, headLength, -radii.headRight)
-    line(headLength, -radii.headRight, headLength, -radii.neck)
-    line(headLength, -radii.neck, tipStart, -radii.neck)
-    line(tipStart, -radii.neck, tipStart, -radii.tip)
-    line(tipStart, -radii.tip, mainLength, -radii.tip)
-    line(0, radii.counterbore, Number(model.counterboreDepth), radii.counterbore, 'BORE')
-    line(0, -radii.counterbore, Number(model.counterboreDepth), -radii.counterbore, 'BORE')
-    line(0, radii.bore, mainLength, radii.bore, 'BORE')
-    line(0, -radii.bore, mainLength, -radii.bore, 'BORE')
-    line(0, 0, mainLength, 0, 'CENTER')
-  } else if (canonicalPartKind(model.kind) === 'split_clamp_support') {
-    const length = Number(model.baseLength); const width = Number(model.baseWidth)
-    const mainDepth = Number(model.baseMainDepth); const tongueWidth = Number(model.frontTongueWidth)
-    const rearY = width / 2; const mainFrontY = rearY - mainDepth; const frontY = -width / 2
-    line(-length / 2, rearY, length / 2, rearY)
-    line(length / 2, rearY, length / 2, mainFrontY)
-    line(length / 2, mainFrontY, tongueWidth / 2, mainFrontY)
-    line(tongueWidth / 2, mainFrontY, tongueWidth / 2, frontY)
-    line(tongueWidth / 2, frontY, -tongueWidth / 2, frontY)
-    line(-tongueWidth / 2, frontY, -tongueWidth / 2, mainFrontY)
-    line(-tongueWidth / 2, mainFrontY, -length / 2, mainFrontY)
-    line(-length / 2, mainFrontY, -length / 2, rearY)
-    const pedestalY = rearY - Number(model.pedestalCenterFromRear)
-    const mountY = rearY - Number(model.mountHoleCenterFromRear)
-    circle(0, pedestalY, Number(model.pedestalOuterRadius))
-    circle(0, pedestalY, Number(model.boreDiameter) / 2)
-    for (const x of [-Number(model.mountHoleCenterDistance) / 2, Number(model.mountHoleCenterDistance) / 2]) {
-      circle(x, mountY, Number(model.mountHoleDiameter) / 2)
-    }
-    line(-Number(model.splitWidth) / 2, pedestalY - Number(model.boreDiameter) / 2, -Number(model.splitWidth) / 2, pedestalY - Number(model.pedestalOuterRadius), 'SPLIT')
-    line(Number(model.splitWidth) / 2, pedestalY - Number(model.boreDiameter) / 2, Number(model.splitWidth) / 2, pedestalY - Number(model.pedestalOuterRadius), 'SPLIT')
-  } else if (model.kind === 'bracket') {
-    const length = Number(model.baseLength); const width = Number(model.baseWidth)
-    line(-length / 2, -width / 2, length / 2, -width / 2); line(length / 2, -width / 2, length / 2, width / 2); line(length / 2, width / 2, -length / 2, width / 2); line(-length / 2, width / 2, -length / 2, -width / 2)
-    // Top-view evidence: Ø20 features are subtractive through holes whose
-    // axes sit on the upper-body side boundaries, and the centre pair of
-    // rectangles are shallow pockets rather than additive ribs.
-    circle(-Number(model.bossCenterDistance) / 2, 0, Number(model.bossDiameter) / 2)
-    circle(Number(model.bossCenterDistance) / 2, 0, Number(model.bossDiameter) / 2)
-    const slotLength = Number(model.slotLength || 30); const slotWidth = Number(model.slotWidth || 10)
-    for (const center of [-15, 15]) {
-      line(center - slotWidth / 2, -slotLength / 2, center + slotWidth / 2, -slotLength / 2, 'POCKET')
-      line(center + slotWidth / 2, -slotLength / 2, center + slotWidth / 2, slotLength / 2, 'POCKET')
-      line(center + slotWidth / 2, slotLength / 2, center - slotWidth / 2, slotLength / 2, 'POCKET')
-      line(center - slotWidth / 2, slotLength / 2, center - slotWidth / 2, -slotLength / 2, 'POCKET')
-    }
-  } else {
-    const length = Number(model.length); const diameter = Number(model.outerDiameter)
-    line(0, -diameter / 2, length, -diameter / 2); line(length, -diameter / 2, length, diameter / 2); line(length, diameter / 2, 0, diameter / 2); line(0, diameter / 2, 0, -diameter / 2)
-    line(0, 0, length, 0, 'CENTER')
-  }
-  lines.push('0', 'ENDSEC', '0', 'EOF', '')
-  return lines.join('\n')
-}
 
 const defaultProjects = [
   { id: 'p1', name: '创模AI · 机械传动', files: 8, updated: '今天 14:32', color: 'blue' },
@@ -967,65 +885,51 @@ function productionArtifactsAvailable(generation) {
 const evidenceAcceptedForPreview = (evidence) => ['confirmed', 'preview_confirmed'].includes(String(evidence?.status || ''))
 
 function App() {
-  const [activeMode, setActiveMode] = useState(() => {
-    try {
-      // New visitors land on the task-oriented home card.  A browser with an
-      // unfinished/generated session resumes directly in the workbench so a
-      // refresh never discards the customer's context.
-      return localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation') ? '3D 建模' : '首页'
-    } catch { return '首页' }
-  })
+  const initialStoreRef = useRef(null)
+  if (!initialStoreRef.current) initialStoreRef.current = ProjectStore.loadProjectStore(localStorage, { defaultModel })
+  const initialSnapshot = ProjectStore.getFileSnapshot(initialStoreRef.current) || {}
+  const [workspaceStore, setWorkspaceStore] = useState(initialStoreRef.current)
+  const storeRef = useRef(workspaceStore)
+  storeRef.current = workspaceStore
+  const activeProject = ProjectStore.getActiveProject(workspaceStore)
+  const activeFile = ProjectStore.getActiveFile(workspaceStore)
+  const selectedProject = activeProject?.name || '我的项目'
+  const projects = workspaceStore.projects.map((project) => ({ ...project, files: project.files.length, updated: new Date(project.updatedAt).toLocaleString('zh-CN') }))
+  const files = activeProject?.files || []
+  const [activeMode, setActiveMode] = useState(initialSnapshot.activeMode || (initialSnapshot.drawingJob?.evidence || initialSnapshot.generation ? modeForFile(activeFile) : '首页'))
   const [activePanel, setActivePanel] = useState('参数')
-  const [model, setModel] = useState(() => {
-    try {
-      const stored = normalizeStoredModel(JSON.parse(localStorage.getItem('joyniu-model')))
-      // A model snapshot without its drawing/generation session is an old
-      // demo residue, not a recoverable customer project. Start clean rather
-      // than pairing a stale bracket with a fresh AI conversation.
-      const hasSession = Boolean(localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation'))
-      return stored && (!productionPartKinds.includes(canonicalPartKind(stored.kind)) || hasSession) ? stored : defaultModel
-    } catch { return defaultModel }
-  })
-  const [projects, setProjects] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('joyniu-projects')) || defaultProjects } catch { return defaultProjects }
-  })
-  const [files, setFiles] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('joyniu-files')) || defaultFiles } catch { return defaultFiles }
-  })
-  const [selectedProject, setSelectedProject] = useState(() => {
-    try { return localStorage.getItem('joyniu-selected-project') || '创模AI · 机械传动' } catch { return '创模AI · 机械传动' }
-  })
+  const [model, setModel] = useState(initialSnapshot.model || { ...defaultModel })
   const [selectedFeature, setSelectedFeature] = useState('keyway')
-  const [drawingJob, setDrawingJob] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('joyniu-drawing-session'))
-      return stored && typeof stored === 'object' ? hydratePendingCandidateDefaults({ file: null, previewUrl: '', ...stored }) : { file: null, previewUrl: '', status: 'idle', evidence: null }
-    } catch { return { file: null, previewUrl: '', status: 'idle', evidence: null } }
+  const [drawingJob, setDrawingJob] = useState(initialSnapshot.drawingJob || { file: null, previewUrl: '', status: 'idle', evidence: null })
+  const [storageError, setStorageError] = useState('')
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [dialog, setDialog] = useState('')
+  const [settings, setSettings] = useState(() => {
+    try { return { ...defaultPreferences, ...JSON.parse(localStorage.getItem('joyniu-preferences')) } } catch { return defaultPreferences }
   })
+  const transientFilesRef = useRef(new Map())
+  const currentSnapshotRef = useRef(initialSnapshot)
+  const workspaceIdRef = useRef('')
+  workspaceIdRef.current = `${workspaceStore.activeProjectId}:${workspaceStore.activeFileId}`
   const [backend, setBackend] = useState({ status: 'checking', engine: '正在连接几何服务', productionReady: false, health: null, error: '' })
-  const [generation, setGeneration] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('joyniu-generation')) || null } catch { return null }
-  })
+  const [generation, setGeneration] = useState(initialSnapshot.generation || null)
   const [platform, setPlatform] = useState(() => emptyPlatformState())
   const [aiConversation, setAiConversation] = useState({ conversationId: chatId('conversation'), previousResponseId: '', status: null, error: '', turnStatus: 'idle', statusMessage: '' })
   const [chatAttachments, setChatAttachments] = useState([])
-  const [prompt, setPrompt] = useState('')
-  const [messages, setMessages] = useState(() => {
-    const welcome = [
-      chatMessage('ai', '欢迎来到设计工作台。上传一张图纸，或直接告诉我你想设计、检查或修改什么。'),
-      chatMessage('ai', '这是一个连续对话：我会记住本次聊天和当前模型；图纸候选仍由你确认后才生成生产实体。'),
-    ]
-    try {
-      const stored = JSON.parse(localStorage.getItem('joyniu-messages'))
-      return Array.isArray(stored) && stored.length && (localStorage.getItem('joyniu-drawing-session') || localStorage.getItem('joyniu-generation')) ? stored.map(normalizeChatMessage) : welcome
-    } catch { return welcome }
-  })
+  const [prompt, setPrompt] = useState(initialSnapshot.prompt || '')
+  const [messages, setMessages] = useState(initialSnapshot.messages?.length ? initialSnapshot.messages.map(normalizeChatMessage) : welcomeMessages)
+  const [assemblyItems, setAssemblyItems] = useState(initialSnapshot.assemblyItems || [])
+  const [lastAiTurn, setLastAiTurn] = useState(null)
+  const lastAiTurnRef = useRef(null)
+  lastAiTurnRef.current = lastAiTurn
+  const [checkResult, setCheckResult] = useState(null)
+  const [isChecking, setIsChecking] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isAccepting, setIsAccepting] = useState(false)
-  const [toast, setToast] = useState('')
-  const [view, setView] = useState('isometric')
-  const [section, setSection] = useState(false)
-  const [zoom, setZoom] = useState(1)
+  const [toast, setToast] = useState(null)
+  const [view, setView] = useState(initialSnapshot.view || settings.defaultView)
+  const [section, setSection] = useState(Boolean(initialSnapshot.section))
+  const [zoom, setZoom] = useState(initialSnapshot.zoom || 1)
   const drawingUrlRef = useRef('')
   const drawingTimerRef = useRef(null)
   const drawingRequestRef = useRef(0)
@@ -1041,10 +945,8 @@ function App() {
   // reloaded through the API under the newly authenticated user's project ACL;
   // no bearer token or NC text is persisted in browser storage.
   const platformWorkflowRef = useRef({ projectId: '', planId: '' })
-  const [drawingScale, setDrawingScale] = useState('1:1')
-  const [assemblyChecked, setAssemblyChecked] = useState(false)
-  const [libraryQuery, setLibraryQuery] = useState('')
-  const [libraryGroup, setLibraryGroup] = useState('全部')
+  const [drawingScale, setDrawingScale] = useState(initialSnapshot.drawingScale || '1:1')
+  const [drawingPreferences, setDrawingPreferences] = useState(initialSnapshot.drawingPreferences || { layers: {}, selectedView: 'all' })
 
   modelRef.current = model
   generationRef.current = generation
@@ -1071,27 +973,41 @@ function App() {
     if (evidence.status !== 'confirmed') setGeneration((current) => current ? { ...current, stale: true, pendingDrawing: false } : current)
   }, [drawingJob?.status, drawingJob?.evidence?.id, drawingJob?.evidence?.partType, drawingJob?.evidence?.modelRecipe?.recipeId, model.kind])
 
-  useEffect(() => localStorage.setItem('joyniu-model', JSON.stringify(model)), [model])
+  currentSnapshotRef.current = {
+    ...(activeFile?.snapshot || {}), model: activeFile?.type === '文档' ? null : model,
+    drawingJob, generation, messages, assemblyItems, prompt, drawingScale, drawingPreferences, activeMode, view, section, zoom,
+  }
+  useEffect(() => {
+    setWorkspaceStore((current) => ProjectStore.updateFileSnapshot(current, current.activeProjectId, current.activeFileId, currentSnapshotRef.current))
+  }, [model, drawingJob, generation, messages, assemblyItems, prompt, drawingScale, drawingPreferences, activeMode, view, section, zoom])
+  useEffect(() => {
+    try { ProjectStore.persistProjectStore(workspaceStore, localStorage); setStorageError('') }
+    catch (error) { setStorageError(readableError(error)) }
+  }, [workspaceStore])
+  useEffect(() => {
+    try { localStorage.setItem('joyniu-preferences', JSON.stringify(settings)) } catch (error) { setStorageError(readableError(error)) }
+  }, [settings])
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    setMobileMenuOpen(false)
   }, [activeMode])
-  useEffect(() => localStorage.setItem('joyniu-projects', JSON.stringify(projects)), [projects])
-  useEffect(() => localStorage.setItem('joyniu-files', JSON.stringify(files)), [files])
-  useEffect(() => localStorage.setItem('joyniu-selected-project', selectedProject), [selectedProject])
-  useEffect(() => localStorage.setItem('joyniu-messages', JSON.stringify(messages)), [messages])
+  useEffect(() => { if (toast && toast.type !== 'error') { const timer = setTimeout(() => setToast(null), 4500); return () => clearTimeout(timer) } }, [toast])
+  useEffect(() => { setCheckResult(null) }, [model])
   useEffect(() => {
-    const { file, previewUrl, ...persisted } = drawingJob || {}
-    if (persisted?.status === 'idle' && !persisted?.evidence) {
-      localStorage.removeItem('joyniu-drawing-session')
-      return
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false)
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return
+      const key = event.key.toLowerCase()
+      if (['k', 'n', 's'].includes(key)) {
+        event.preventDefault()
+        if (key === 'k') setDialog('commands')
+        else if (key === 'n') setDialog('project')
+        else saveVersionForFile(storeRef.current.activeFileId)
+      }
     }
-    localStorage.setItem('joyniu-drawing-session', JSON.stringify({ ...persisted, fileMeta: file ? { name: file.name, size: file.size, type: file.type } : persisted.fileMeta || null }))
-  }, [drawingJob])
-  useEffect(() => {
-    if (generation) localStorage.setItem('joyniu-generation', JSON.stringify(generation))
-    else localStorage.removeItem('joyniu-generation')
-  }, [generation])
-  useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 2500); return () => clearTimeout(t) } }, [toast])
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
   useEffect(() => {
     let active = true
     api.health().then((health) => {
@@ -1125,12 +1041,16 @@ function App() {
     chatAbortRef.current?.abort()
   }, [])
 
-  const showToast = (text) => setToast(text)
+  const showToast = (text, type) => setToast({ ...notificationFor(text, type), id: Date.now() })
   const updateModel = (key, value) => {
     modelInteractionRevisionRef.current += 1
     const nextValue = ['material', 'insertThreadDesignation'].includes(key) ? value : value === '' ? '' : Number(value)
     setModel((prev) => {
       const updated = { ...prev, [key]: nextValue, updatedAt: '刚刚' }
+      if (prev.kind === 'bracket') {
+        if (key === 'totalHeight') updated.holeDepth = nextValue
+        if (key === 'upperWidth') updated.saddleDepth = nextValue
+      }
       modelRef.current = updated
       return updated
     })
@@ -1173,21 +1093,20 @@ function App() {
     })
   }
   const modelKind = canonicalPartKind(model.kind)
-  const modelValid = modelKind === 'bracket'
-    ? bracketRequiredParameterKeys.every((key) => Number(model[key]) > 0) && Number(model.upperLength) <= Number(model.baseLength) && Number(model.upperWidth) <= Number(model.baseWidth) && Number(model.slotLength) <= Number(model.baseWidth) && Number(model.pocketDepth) <= Number(model.upperHeight) && Number(model.baseThickness) < Number(model.totalHeight) && Math.abs(Number(model.totalHeight) - Number(model.baseThickness) - Number(model.upperHeight)) < 1e-6 && Number(model.notchOpening) >= Number(model.notchRadius) * 2
-    : modelKind === 'split_clamp_support'
-      ? splitClampParametersValid(model)
-      : modelKind === 'stepped_tapered_nozzle'
-        ? steppedTaperedNozzleParametersValid(model)
-        : shaftParameterKeys.filter((key) => key !== 'material').every((key) => Number(model[key]) > 0)
+  const parameterValidation = validateModelParameters(model)
+  const modelValid = parameterValidation.valid
   const currentFeatures = modelKind === 'bracket'
     ? getBracketFeatures(model)
     : modelKind === 'split_clamp_support'
       ? getSplitClampFeatures(model)
       : modelKind === 'stepped_tapered_nozzle'
         ? getSteppedTaperedNozzleFeatures(model)
-        : features
-  const filteredLibrary = useMemo(() => libraryItems.filter((item) => (libraryGroup === '全部' || item.group === libraryGroup) && `${item.name}${item.spec}`.includes(libraryQuery)), [libraryGroup, libraryQuery])
+        : [
+          { id: 'origin', icon: '◎', label: '原点', meta: '基准' },
+          { id: 'pad', icon: '▰', label: `轴体 · Ø${model.outerDiameter} × ${model.length} mm`, meta: '参数草稿' },
+          { id: 'hole', icon: '◉', label: `通孔 · Ø${model.holeDiameter} mm`, meta: '切除' },
+          { id: 'keyway', icon: '⌗', label: `键槽 · ${model.keywayWidth} × ${model.keywayDepth} × ${model.keywayLength} mm`, meta: '切除' },
+        ]
 
   const applyAiPatch = (base, patch) => {
     if (!patch || typeof patch !== 'object') return base
@@ -1219,6 +1138,7 @@ function App() {
     warnings: ['FastAPI 不可用；当前使用验收夹具浏览器预览，不能导出生产 STEP。'],
   })
   const generateAiArtifact = async (next, sourceDrawingId = '', options = {}) => {
+    const workspaceScope = workspaceIdRef.current
     const kind = canonicalPartKind(next?.kind)
     if (!productionPartKinds.includes(kind) || backend.status === 'offline') return null
     const payload = {
@@ -1236,7 +1156,7 @@ function App() {
     const generated = kind === 'bracket'
       ? await api.generateBracket(payload, options.signal)
       : await api.generateModel(payload, options.signal)
-    if (options.signal?.aborted || (options.commitGuard && !options.commitGuard())) return null
+    if (workspaceIdRef.current !== workspaceScope || options.signal?.aborted || (options.commitGuard && !options.commitGuard())) return null
     const step = generated.artifacts?.find((item) => item.format === 'step')
     if (!step || generated.validation?.valid !== true) throw new Error('实体校验未通过，未生成可交付文件')
     if (backend.status !== 'offline' && !step.productionReady) throw new Error('OCCT 实体或 STEP 拓扑校验未达到生产交付条件')
@@ -1632,31 +1552,15 @@ function App() {
         showToast('当前模型已被你编辑 · AI 建议未自动覆盖')
         return false
       }
-      const patchKeys = Object.keys(resultPatch)
-      const patchLooksNozzle = resultKind === 'stepped_tapered_nozzle' || patchKeys.some((key) => steppedTaperedNozzleParameterKeys.includes(key))
-      const patchLooksSplitClamp = resultKind === 'split_clamp_support' || patchKeys.some((key) => splitClampParameterKeys.includes(key) && !bracketParameterKeys.includes(key))
-      const patchLooksBracket = resultKind === 'bracket' || patchKeys.some((key) => ['baseLength', 'baseWidth', 'upperLength', 'notchRadius', 'slotLength', 'pocketDepth', 'bossDiameter'].includes(key))
-      const patchLooksShaft = patchKeys.some((key) => ['outerDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'].includes(key))
-      const wantsShaft = /轴|外径|键槽|通孔|内径/.test(userText) && !/支架|底板|鞍槽|浅槽|凹槽/.test(userText)
-      const seed = recognizedParameters
-        ? { ...recognizedParameters, kind: resultDefinition.kind, recipeId: resultDefinition.recipeId, name: recognizedParameters.name || resultDefinition.preview.name, updatedAt: '刚刚' }
-        : patchLooksNozzle
-          ? { ...steppedTaperedNozzleModel, ...(files.length === 0 && canonicalPartKind(baseModel.kind) === 'stepped_tapered_nozzle' ? baseModel : {}), kind: 'stepped_tapered_nozzle', recipeId: 'stepped_tapered_nozzle_with_insert_v1' }
-        : patchLooksSplitClamp
-          ? { ...splitClampModel, ...(files.length === 0 && canonicalPartKind(baseModel.kind) === 'split_clamp_support' ? baseModel : {}), kind: 'split_clamp_support', recipeId: 'split_clamp_support_v1' }
-        : patchLooksBracket
-          ? { ...bracketModel, ...(files.length === 0 && baseModel.kind === 'bracket' ? baseModel : {}), kind: 'bracket' }
-          : patchLooksShaft || wantsShaft
-            ? { ...defaultModel, ...(files.length === 0 && baseModel.kind === 'shaft' ? baseModel : {}), kind: 'shaft' }
-            // An attachment with no reliable part classification still needs
-            // a complete, editable candidate surface.  Use the supported
-            // bracket recipe as a clearly-labelled draft rather than leaving
-            // the customer on the old shaft demo or in a reviewer-only dead
-            // end.  The candidate remains pending until the customer accepts
-            // the values (and can be corrected in the parameter panel).
-            : files.length > 0
-              ? { ...bracketModel, kind: 'bracket', name: 'AI 候选 · 待确认' }
-              : { ...baseModel }
+      // Reuse the resolved identity: inspecting shared patch fields again can
+      // otherwise replace an explicitly identified part during a material edit.
+      const seed = seedAiModel({
+        baseModel,
+        definition: resultDefinition,
+        recognizedParameters,
+        hasAttachments: files.length > 0,
+        currentKind: canonicalPartKind(baseModel.kind),
+      })
       const identityChanged = !remoteUploadFailed
         && [...productionPartKinds, 'shaft'].includes(resultKind)
         && canonicalPartKind(baseModel.kind) !== resultKind
@@ -1945,6 +1849,7 @@ function App() {
     if (!prompt.trim() && !chatAttachments.length) return showToast('请先描述设计或上传一份图纸')
     const submittedPrompt = prompt
     const submittedAttachments = [...chatAttachments]
+    setLastAiTurn({ prompt: submittedPrompt, files: submittedAttachments })
     setPrompt('')
     setChatAttachments([])
     await sendAiConversation(submittedPrompt, submittedAttachments)
@@ -2014,60 +1919,150 @@ function App() {
     })
     showToast(canonicalPartKind(model.kind) === 'stepped_tapered_nozzle' ? '已恢复阶梯锥管嘴候选基准' : canonicalPartKind(model.kind) === 'split_clamp_support' ? '已恢复开口夹紧座预览基准' : model.kind === 'bracket' ? '已恢复支架基准参数' : '已恢复基准参数')
   }
-  const createProject = () => {
-    const name = `新建项目 · ${projects.length + 1}`
-    setProjects((prev) => [{ id: `p${Date.now()}`, name, files: 1, updated: '刚刚', color: 'green' }, ...prev])
-    setSelectedProject(name)
-    showToast('项目已创建并加入最近项目')
+  const commitStore = (next) => { storeRef.current = next; setWorkspaceStore(next); return next }
+  const flushWorkspace = () => {
+    const current = storeRef.current
+    transientFilesRef.current.set(current.activeFileId, { file: drawingJobRef.current?.file, attachments: chatAttachmentsRef.current })
+    return commitStore(ProjectStore.updateFileSnapshot(current, current.activeProjectId, current.activeFileId, currentSnapshotRef.current))
   }
-  const exportFile = async (format) => {
-    if (generation?.pendingDrawing || ['queued', 'analyzing'].includes(drawingJob?.status) || (drawingJob?.evidence && drawingJob.evidence.status !== 'confirmed')) {
-      return showToast('当前图纸候选尚未确认，不能生成或导出交付文件')
-    }
-    if (!modelValid) return showToast('请先补齐有效参数，再导出')
-    if (['step', 'glb'].includes(format)) {
-      let currentGeneration = generation
-      if (currentGeneration?.artifactStatus === 'recovering') return showToast('生产文件正在自动恢复，请稍候再导出')
-      let artifact = productionArtifactsAvailable(currentGeneration) ? currentGeneration?.artifacts?.find((item) => item.format === format) : null
-      if (!artifact && productionPartKinds.includes(canonicalPartKind(model.kind)) && backend.status !== 'offline') {
-        showToast(`正在通过 CadQuery/OCCT 生成 ${format.toUpperCase()}…`)
-        try {
-          const confirmedDrawing = drawingJob?.evidence?.status === 'confirmed' ? drawingJob.evidence : null
-          const definition = partDefinition(model.kind)
-          const payload = {
-            partType: definition.kind,
-            recipeId: definition.recipeId,
-            parameters: Object.fromEntries(definition.keys.filter((key) => model[key] !== undefined).map((key) => [key, model[key]])),
-            formats: [format],
-            ...(confirmedDrawing?.id && !String(confirmedDrawing.id).startsWith('offline_') ? { sourceDrawingId: confirmedDrawing.id, confirmed: true } : {}),
-            requireCadQuery: backend.status !== 'offline',
+  const restoreWorkspace = (next, mode) => {
+    chatAbortRef.current?.abort()
+    aiRequestRef.current += 1
+    drawingRequestRef.current += 1
+    modelInteractionRevisionRef.current += 1
+    commitStore(next)
+    const file = ProjectStore.getActiveFile(next)
+    const snapshot = ProjectStore.getFileSnapshot(next) || {}
+    const transient = transientFilesRef.current.get(file?.id) || {}
+    const nextModel = snapshot.model || { ...defaultModel, material: settings.defaultMaterial }
+    const job = { ...(snapshot.drawingJob || { status: 'idle', evidence: null }), ...(transient.file ? { file: transient.file, requiresFileReselection: false, sourceFileUnavailable: false } : {}) }
+    modelRef.current = nextModel; drawingJobRef.current = job; generationRef.current = snapshot.generation || null
+    setModel(nextModel); setDrawingJob(job); setGeneration(snapshot.generation || null)
+    setMessages(snapshot.messages?.length ? snapshot.messages.map(normalizeChatMessage) : welcomeMessages())
+    setPrompt(snapshot.prompt || ''); setAssemblyItems(snapshot.assemblyItems || []); setDrawingScale(snapshot.drawingScale || '1:1'); setDrawingPreferences(snapshot.drawingPreferences || { layers: {}, selectedView: 'all' })
+    setChatAttachments(transient.attachments || []); setLastAiTurn(null); setCheckResult(null)
+    setAiConversation((current) => ({ ...current, conversationId: chatId('conversation'), previousResponseId: '', error: '', turnStatus: 'idle', statusMessage: '' }))
+    setIsGenerating(false); setIsAccepting(false); setView(snapshot.view || settings.defaultView); setZoom(snapshot.zoom || 1); setSection(Boolean(snapshot.section))
+    setActiveMode(mode || (file && !file.contentUnavailable ? modeForFile(file) : '项目管理'))
+    setMobileMenuOpen(false)
+  }
+  const canSwitch = () => {
+    if (isGenerating || isAccepting || platform.busy) { showToast('当前操作正在处理，请完成或停止后再切换文件。', 'info'); return false }
+    return true
+  }
+  const selectLocalProject = (projectId) => {
+    if (!canSwitch()) return
+    restoreWorkspace(ProjectStore.selectProject(flushWorkspace(), projectId), activeMode === '项目管理' ? '项目管理' : undefined)
+  }
+  const openProjectFile = (file) => {
+    if (!canSwitch() || file.contentUnavailable) return
+    restoreWorkspace(ProjectStore.selectProjectFile(flushWorkspace(), file.projectId, file.id))
+  }
+  const createProject = (name) => {
+    if (typeof name !== 'string') return setDialog('project')
+    if (!canSwitch()) return
+    const next = ProjectStore.createProject(flushWorkspace(), { name, model: { ...defaultModel, material: settings.defaultMaterial } })
+    restoreWorkspace(next, '3D 建模'); setDialog(''); showToast('独立项目已创建')
+  }
+  const createFile = ({ name, type, source }) => {
+    if (!canSwitch()) return
+    const current = flushWorkspace()
+    const next = ProjectStore.createProjectFile(current, current.activeProjectId, { name, type,
+      model: { ...defaultModel, material: settings.defaultMaterial },
+      ...(source === 'current' && type !== '文档' ? { snapshot: currentSnapshotRef.current } : {}),
+    })
+    restoreWorkspace(next); showToast(`${type}文件已创建`)
+  }
+  const renameLocalProject = (id, name) => commitStore(ProjectStore.renameProject(storeRef.current, id, name))
+  const renameLocalFile = (id, name) => {
+    const current = flushWorkspace()
+    const next = ProjectStore.renameProjectFile(current, current.activeProjectId, id, name)
+    commitStore(next)
+    if (id === current.activeFileId && activeFile?.type === '零件') setModel((value) => ({ ...value, name }))
+  }
+  const saveVersionForFile = (fileId, note = '') => {
+    const current = flushWorkspace()
+    const next = ProjectStore.saveFileVersion(current, current.activeProjectId, fileId, { note })
+    commitStore(next)
+    const saved = ProjectStore.getProjectFile(next, next.activeProjectId, fileId)
+    if (saved && !saved.contentUnavailable) showToast(`${saved.name} · ${saved.versions.at(-1)?.label} 已保存`)
+  }
+  const restoreVersion = (fileId, versionId) => {
+    if (!canSwitch()) return
+    let next = flushWorkspace()
+    next = ProjectStore.saveFileVersion(next, next.activeProjectId, fileId, { note: '恢复历史版本前自动保留草稿' })
+    next = ProjectStore.restoreFileVersion(next, next.activeProjectId, fileId, versionId)
+    if (fileId === next.activeFileId) { transientFilesRef.current.delete(fileId); restoreWorkspace(next, '项目管理') }
+    else commitStore(next)
+    showToast('历史版本已恢复；恢复前的草稿已另存为版本')
+  }
+  const updateDocument = (fileId, documentText) => {
+    const current = storeRef.current
+    const file = ProjectStore.getProjectFile(current, current.activeProjectId, fileId)
+    if (file) commitStore(ProjectStore.updateFileSnapshot(current, current.activeProjectId, fileId, { ...file.snapshot, documentText }))
+  }
+  const exportFile = async (format, options = {}, targetFile = null) => {
+    const scope = workspaceIdRef.current
+    const exportRevision = modelInteractionRevisionRef.current
+    const snapshot = targetFile?.snapshot || currentSnapshotRef.current
+    const exportModel = snapshot.model
+    const name = targetFile?.name || activeFile?.name || exportModel?.name || '设计文件'
+    try {
+      if (format === 'json') {
+        downloadBlob(JSON.stringify({ schemaVersion: 1, name, type: targetFile?.type || activeFile?.type, snapshot: ProjectStore.sanitizeWorkspaceSnapshot(snapshot), exportedAt: new Date().toISOString() }, null, 2), `${name}.json`)
+      } else if (format === 'txt') {
+        downloadBlob(snapshot.documentText || '', `${name}.txt`, 'text/plain;charset=utf-8')
+      } else {
+        const validation = validateModelParameters(exportModel)
+        if (!validation.valid) throw new Error(validation.errors.map((item) => item.message).join('；'))
+        if (format === 'dxf') {
+          downloadBlob(dxfForModel(exportModel, { generation: snapshot.generation, drawingJob: snapshot.drawingJob, scale: snapshot.drawingScale || '1:1', layers: snapshot.drawingPreferences?.layers || {}, ...options }), `${name}.dxf`, 'application/dxf')
+        } else {
+          if (snapshot.generation?.pendingDrawing || ['queued', 'analyzing'].includes(snapshot.drawingJob?.status) || (snapshot.drawingJob?.evidence && snapshot.drawingJob.evidence.status !== 'confirmed')) throw new Error('请先确认当前候选数据，再生成生产实体')
+          let currentGeneration = snapshot.generation
+          let artifact = productionArtifactsAvailable(currentGeneration) ? currentGeneration?.artifacts?.find((item) => item.format === format) : null
+          if (!artifact && productionPartKinds.includes(canonicalPartKind(exportModel.kind))) {
+            showToast(`正在生成 ${format.toUpperCase()} 文件…`, 'info')
+            const definition = partDefinition(exportModel.kind)
+            const payload = { partType: definition.kind, recipeId: definition.recipeId, parameters: modelParametersForApi(exportModel), formats: [format], requireCadQuery: true }
+            currentGeneration = definition.kind === 'bracket' ? await api.generateBracket(payload) : await api.generateModel(payload)
+            artifact = productionArtifactsAvailable(currentGeneration) ? currentGeneration.artifacts?.find((item) => item.format === format) : null
+            if (!targetFile && workspaceIdRef.current === scope && modelInteractionRevisionRef.current === exportRevision) setGeneration(currentGeneration)
           }
-          currentGeneration = definition.kind === 'bracket'
-            ? await api.generateBracket(payload)
-            : await api.generateModel(payload)
-          setGeneration(currentGeneration)
-          artifact = currentGeneration.artifacts?.find((item) => item.format === format)
-        } catch (error) {
-          showToast(`实体导出失败：${error.message}`)
-          return
+          if (!artifact) throw new Error('当前配方尚无可交付实体，请先导出 JSON 参数草稿')
+          const response = await fetch(artifactDownloadUrl(artifact))
+          if (!response.ok) throw new Error('实体文件已失效，请重建后重试')
+          downloadBlob(await response.blob(), `${name}.${format}`, response.headers.get('content-type') || 'application/octet-stream')
         }
       }
-      if (!artifact) return showToast('没有可下载的实体文件；请先启动 FastAPI 并生成模型')
-      const anchor = document.createElement('a')
-      anchor.href = artifactDownloadUrl(artifact)
-      anchor.download = artifact.filename || `${model.name}.${format}`
-      anchor.click()
-      showToast(`${format.toUpperCase()} 已从 ${artifact.engine} 下载`)
-      return
-    }
-    const payload = format === 'json'
-      ? JSON.stringify({ model, project: selectedProject, geometryRequest: generation?.requestId || null, validation: generation?.validation || null, exportedAt: new Date().toISOString() }, null, 2)
-      : dxfForModel(model)
-    const blob = new Blob([payload], { type: format === 'json' ? 'application/json' : 'application/dxf' })
-    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${model.name.replaceAll(' ', '-')}.${format}`; anchor.click(); URL.revokeObjectURL(url)
-    showToast(`${format.toUpperCase()} 导出任务已完成`)
+      showToast(`${name} · ${format.toUpperCase()} 已准备下载`)
+    } catch (error) { showToast(`导出失败：${readableError(error)}`, 'error') }
   }
-  const insertLibrary = (item) => { setMessages((prev) => [...prev, { role: 'ai', text: `已将「${item.name} ${item.spec}」加入项目零件库，可在装配中插入。` }]); showToast(`${item.name} 已加入项目`) }
+  const downloadProjectFile = (file) => exportFile(file.type === '文档' ? 'txt' : file.type === '工程图' ? 'dxf' : 'json', {}, file)
+  const retryAi = async () => {
+    const turn = lastAiTurnRef.current
+    if (!turn) { setActiveMode('3D 建模'); showToast('请重新输入要求；有附件时请重新选择原文件。', 'info'); return }
+    await sendAiConversation(turn.prompt, turn.files)
+  }
+  const runModelChecks = async () => {
+    const validation = validateModelParameters(modelRef.current)
+    const scope = workspaceIdRef.current
+    const revision = modelInteractionRevisionRef.current
+    setIsChecking(true)
+    try {
+      let result = { ...validation, scope: '浏览器参数约束' }
+      if (validation.valid && productionPartKinds.includes(canonicalPartKind(modelRef.current.kind)) && backend.status !== 'offline') {
+        const definition = partDefinition(modelRef.current.kind)
+        const checked = await api.validateModel({ partType: definition.kind, recipeId: definition.recipeId, parameters: modelParametersForApi(modelRef.current) })
+        result = { ...checked, valid: checked.valid ?? checked.validation?.valid, scope: '几何服务参数校验', errors: checked.errors || checked.validation?.errors || (checked.issues || []).filter((issue) => issue.passed === false && issue.severity !== 'warning') }
+      }
+      if (workspaceIdRef.current === scope && modelInteractionRevisionRef.current === revision) {
+        setCheckResult({ ...result, checkedAt: new Date().toLocaleTimeString('zh-CN') })
+        showToast(result.valid ? '当前参数检查通过；实体拓扑由生成结果单独验证。' : '检查发现参数问题，请按提示修正。', result.valid ? 'success' : 'error')
+      }
+    } catch (error) { if (workspaceIdRef.current === scope) showToast(`检查失败：${readableError(error)}`, 'error') }
+    finally { setIsChecking(false) }
+  }
 
   const rememberPlatformWorkflow = (projectId = '', planId = '') => {
     platformWorkflowRef.current = {
@@ -2076,47 +2071,30 @@ function App() {
     }
   }
 
-  const hydratePlatformWorkspace = async (token, preferredProjectId = '', preferredPlanId = '') => {
+  const hydratePlatformWorkspace = async (token, _preferredProjectId = '', preferredPlanId = '') => {
     if (!token) return
+    const local = ProjectStore.getActiveProject(storeRef.current)
+    const scope = local?.id
     try {
       const listedProjects = await api.projects(token)
       const availableProjects = listedProjects.items || []
-      const project = availableProjects.find((item) => item.id === preferredProjectId)
-        || availableProjects.find((item) => item.name === selectedProject)
-        || availableProjects[0]
-        || null
-      const manifest = project ? await api.projectManifest(project.id, token).catch(() => null) : null
-
-      // A project filter gives reviewers/manufacturing only the plans visible
-      // in their shared project.  If no project is available, the unscoped
-      // list still lets a legacy local CAM job be recovered when ACL permits.
-      let listedPlans = await api.camPlans(token, project?.id || '').catch(() => ({ items: [] }))
-      let plans = listedPlans.items || []
-      let camPlan = plans.find((item) => item.id === preferredPlanId) || plans[0] || null
-      if (!camPlan && preferredPlanId) {
-        camPlan = await api.camPlanById(preferredPlanId, token).catch(() => null)
-      }
-      if (!camPlan && project?.id) {
-        listedPlans = await api.camPlans(token).catch(() => ({ items: [] }))
-        plans = listedPlans.items || []
-        camPlan = plans.find((item) => item.id === preferredPlanId) || plans.find((item) => item.projectId === project.id) || null
-      }
-
-      let simulation = null
-      let gate = null
-      let nc = null
-      if (camPlan) {
-        if (camPlan.latestSimulationId) simulation = await api.camSimulation(camPlan.latestSimulationId, token).catch(() => null)
-        gate = await api.camGate(camPlan.id, token).catch(() => null)
-        if (camPlan.releasedNcId) nc = await api.camNcInfo(camPlan.releasedNcId, token).catch(() => null)
-      }
-      const approval = camPlan?.approvals?.at(-1) || null
-      rememberPlatformWorkflow(project?.id || '', camPlan?.id || '')
+      const boundIds = Object.values(local?.pdmBindings || {})
+      const project = availableProjects.find((item) => item.metadata?.localProjectId === scope || boundIds.includes(item.id)) || null
+      const manifest = project ? await api.projectManifest(project.id, token) : null
+      const plans = project ? (await api.camPlans(token, project.id)).items || [] : []
+      const currentGeneration = generationRef.current
+      const hash = productionArtifactsAvailable(currentGeneration) ? currentGeneration.artifacts?.find((item) => item.format === 'step')?.sha256 || currentGeneration.requestId : ''
+      const matchingPlans = plans.filter((item) => hash && item.geometryHash === hash)
+      const camPlan = matchingPlans.find((item) => item.id === preferredPlanId) || matchingPlans[0] || null
+      const simulation = camPlan?.latestSimulationId ? await api.camSimulation(camPlan.latestSimulationId, token) : null
+      const gate = camPlan ? await api.camGate(camPlan.id, token) : null
+      const nc = camPlan?.releasedNcId ? await api.camNcInfo(camPlan.releasedNcId, token) : null
+      if (storeRef.current.activeProjectId !== scope) return
       setPlatform((current) => current.token === token
-        ? { ...current, project, manifest, camPlan, approval, simulation, gate, nc, error: '' }
+        ? { ...current, project, manifest, camPlan, approval: camPlan?.approvals?.at(-1) || null, simulation, gate, nc, error: '' }
         : current)
     } catch (error) {
-      setPlatform((current) => current.token === token ? { ...current, error: `工作区恢复失败：${error.message}` } : current)
+      if (storeRef.current.activeProjectId === scope) setPlatform((current) => current.token === token ? { ...current, error: `工作区恢复失败：${readableError(error)}` } : current)
     }
   }
 
@@ -2189,26 +2167,28 @@ function App() {
     }
   }
 
+  const resolvePlatformProject = async (local, token, userId) => {
+    const listed = await api.projects(token)
+    const boundId = local.pdmBindings?.[userId]
+    let project = (listed.items || []).find((item) => item.id === boundId || item.metadata?.localProjectId === local.id)
+    if (!project) project = await api.createProject({ name: local.name, description: 'JoyNiu 当前项目', metadata: { localProjectId: local.id } }, token)
+    else if (project.name !== local.name) project = await api.renameProject(project.id, local.name, token)
+    commitStore({ ...storeRef.current, projects: storeRef.current.projects.map((item) => item.id === local.id ? { ...item, pdmBindings: { ...item.pdmBindings, [userId]: project.id } } : item) })
+    return project
+  }
   const createPlatformProject = async () => {
     if (!platform.token) return showToast('请先登录平台服务')
+    const local = ProjectStore.getActiveProject(storeRef.current)
+    const token = platform.token
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
-      // The button is intentionally idempotent: refresh the existing project
-      // when one is already bound instead of creating a duplicate on every
-      // click.  A persisted project with the same name is reused as well.
-      let project = platform.project
-      if (!project) {
-        const listed = await api.projects(platform.token)
-        project = (listed.items || []).find((item) => item.name === selectedProject)
-      }
-      if (!project) project = await api.createProject({ name: selectedProject, description: 'JoyNiu NewCAD 当前工作区' }, platform.token)
-      const manifest = await api.projectManifest(project.id, platform.token)
-      rememberPlatformWorkflow(project.id, '')
-      setPlatform((current) => ({ ...current, project, manifest, busy: false }))
-      showToast('PDM 项目与清单已同步')
+      const project = await resolvePlatformProject(local, token, platform.user.id)
+      const manifest = await api.projectManifest(project.id, token)
+      if (storeRef.current.activeProjectId === local.id) setPlatform((current) => current.token === token ? { ...current, project, manifest, busy: false } : current)
+      showToast('当前项目已绑定 PDM，清单已刷新')
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
-      showToast(`PDM 操作失败：${error.message}`)
+      setPlatform((current) => current.token === token ? { ...current, busy: false, error: readableError(error) } : current)
+      showToast(`PDM 操作失败：${readableError(error)}`, 'error')
     }
   }
 
@@ -2242,38 +2222,52 @@ function App() {
 
   const syncDrawingToPdm = async () => {
     if (!platform.token) return showToast('请先在“平台服务”中登录')
-    if (!drawingJob.file || !drawingJob.evidence) return showToast('请先上传并识别图纸')
-    setPlatform((current) => ({ ...current, busy: true, error: '' }))
+    if (!activeFile || activeFile.contentUnavailable) return showToast('请先打开有内容的文件')
+    const current = flushWorkspace()
+    const local = ProjectStore.getActiveProject(current)
+    const file = ProjectStore.getActiveFile(current)
+    const snapshot = ProjectStore.sanitizeWorkspaceSnapshot(currentSnapshotRef.current)
+    const sourceFile = drawingJobRef.current?.file
+    const token = platform.token
+    setPlatform((value) => ({ ...value, busy: true, error: '' }))
     try {
-      const bytes = new Uint8Array(await drawingJob.file.arrayBuffer())
-      let binary = ''
-      bytes.forEach((value) => { binary += String.fromCharCode(value) })
-      const result = await api.drawingToModel({
-        imageBase64: btoa(binary),
-        filename: drawingJob.file.name,
-        fixtureId: drawingJob.evidence.fixtureId,
-        projectId: platform.project?.id,
-        projectName: selectedProject,
-        formats: ['step', 'glb'],
-        // Do not downgrade an upload that races the initial health check to a
-        // browser/faceted preview.  If OCCT is unavailable, the request will
-        // fail explicitly and the UI can offer a retry once the status settles.
-        requireCadQuery: backend.status !== 'offline',
-        confirmed: drawingJob.evidence.status === 'confirmed',
-      }, platform.token)
-      const manifest = await api.projectManifest(result.project.id, platform.token)
-      rememberPlatformWorkflow(result.project.id, platform.camPlan?.id || '')
-      setPlatform((current) => ({ ...current, project: result.project, manifest, busy: false }))
-      showToast(`PDM 已保存原图、参数与 ${result.pdm.artifacts.length} 个模型版本`)
+      const project = await resolvePlatformProject(local, token, platform.user.id)
+      let manifest = await api.projectManifest(project.id, token)
+      const writeVersion = async (category, name, payload) => {
+        let document = (manifest.documents || []).map((entry) => entry.document || entry).find((item) => item.metadata?.localFileId === file.id && item.metadata?.category === category)
+        if (!document) document = await api.createDocument(project.id, { name: `${name} [${file.id}:${category}]`, kind: category === 'source' ? 'drawing' : 'model', metadata: { displayName: name, localProjectId: local.id, localFileId: file.id, category } }, token)
+        await api.createVersion(document.id, { ...payload, note: '同步当前文件快照，保留人工修改', metadata: { displayName: name, localFileId: file.id, modelName: snapshot.model?.name, localUpdatedAt: file.updatedAt } }, token)
+      }
+      await writeVersion('snapshot', file.name, { content: { schemaVersion: 1, fileName: file.name, fileType: file.type, snapshot }, fileName: `${file.name}.json`, contentType: 'application/json' })
+      let savedArtifacts = 0
+      const base64 = async (blob) => {
+        const bytes = new Uint8Array(await blob.arrayBuffer())
+        let binary = ''; for (let index = 0; index < bytes.length; index += 8192) binary += String.fromCharCode(...bytes.subarray(index, index + 8192))
+        return btoa(binary)
+      }
+      if (sourceFile) await writeVersion('source', sourceFile.name, { contentBase64: await base64(sourceFile), fileName: sourceFile.name, contentType: sourceFile.type || 'application/octet-stream' })
+      if (productionArtifactsAvailable(snapshot.generation) && validateModelParameters(snapshot.model).valid) {
+        for (const artifact of snapshot.generation.artifacts || []) {
+          const response = await fetch(artifactDownloadUrl(artifact))
+          if (!response.ok) throw new Error('参数快照已保存，但实体文件已失效；请重建后重试同步')
+          await writeVersion(artifact.format, `${file.name} · ${artifact.format}`, { contentBase64: await base64(await response.blob()), fileName: artifact.filename || `${file.name}.${artifact.format}`, contentType: response.headers.get('content-type') || 'application/octet-stream' })
+          savedArtifacts += 1
+        }
+      }
+      manifest = await api.projectManifest(project.id, token)
+      if (storeRef.current.activeProjectId === local.id) setPlatform((value) => value.token === token ? { ...value, project, manifest, busy: false, error: '' } : value)
+      showToast(`PDM 已保存「${file.name}」当前快照${sourceFile ? '、原图' : ''}${savedArtifacts ? `与 ${savedArtifacts} 个实体文件` : '（参数草稿）'}`)
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
-      showToast(`PDM 同步失败：${error.message}`)
+      setPlatform((value) => value.token === token ? { ...value, busy: false, error: readableError(error) } : value)
+      showToast(`PDM 同步失败：${readableError(error)}`, 'error')
     }
   }
 
   const createCamPlan = async () => {
     if (!platform.token) return showToast('请先登录平台服务')
-    if (!generation?.validation?.valid) return showToast('请先生成并校验实体')
+    if (!productionArtifactsAvailable(generation)) return showToast('请先生成并校验当前实体')
+    if (!platform.project || platform.project.metadata?.localProjectId !== activeProject.id) return showToast('请先绑定当前项目的 PDM 项目')
+    if (canonicalPartKind(model.kind) !== 'bracket') return showToast('当前 CAM 三轴铣削方案仅支持安装支架，请使用匹配工艺。', 'info')
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
       const hash = generation.artifacts?.find((item) => item.format === 'step')?.sha256 || generation.requestId || 'preview-geometry'
@@ -2721,13 +2715,17 @@ function App() {
   const attachDrawingToConversation = (fileInput) => {
     const selectedFiles = normalizeFilesInput(fileInput)
     if (!selectedFiles.length) return
-    if (selectedFiles.length > 4) return showToast('一次最多上传 4 个图纸文件')
+    if (selectedFiles.length > 4) return showToast('一次最多上传 4 个图纸文件', 'error')
     const unsupported = selectedFiles.find((file) => {
       const extension = file.name?.split('.').pop()?.toLowerCase()
       return !(file.type?.startsWith('image/') || ['pdf', 'dxf', 'dwg'].includes(extension))
     })
-    if (unsupported) return showToast('支持 JPG、PNG、WEBP、PDF、DWG、DXF')
+    if (unsupported) return showToast('不支持此文件格式，请选择 JPG、PNG、WEBP、PDF、DWG 或 DXF。', 'error')
     if (selectedFiles.some((file) => file.size > 20 * 1024 * 1024)) return showToast('单个图纸不能超过 20 MB')
+    if (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) {
+      if (!canSwitch()) return
+      createFile({ name: selectedFiles[0].name.replace(/\.[^.]+$/, ''), type: '零件', source: 'blank' })
+    }
     // Keep upload, recognition and generation as visible stages.  Selecting a
     // file only queues it in the composer; the customer can still add intent
     // (for example "只识别主视图") before pressing the single primary action.
@@ -2741,42 +2739,72 @@ function App() {
     // the customer actually sends this chat turn.
     showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已附加到下一条消息`)
   }
+  useEffect(() => {
+    platformWorkflowRef.current = { projectId: '', planId: '' }
+    setPlatform((value) => ({ ...value, project: null, manifest: null, camPlan: null, approval: null, simulation: null, gate: null, nc: null, error: '' }))
+    if (platform.token) hydratePlatformWorkspace(platform.token)
+  }, [workspaceStore.activeProjectId, workspaceStore.activeFileId, platform.token, generation?.requestId, generation?.stale])
+  const recentFiles = workspaceStore.projects.flatMap((project) => project.files.filter((file) => !file.contentUnavailable).map((file) => ({ ...file, projectName: project.name }))).sort((a, b) => String(b.lastOpenedAt || b.updatedAt).localeCompare(String(a.lastOpenedAt || a.updatedAt))).slice(0, 12)
+  const exportBackup = () => downloadBlob(JSON.stringify(flushWorkspace(), null, 2), 'JoyNiu-项目备份.json')
+  const refreshServices = async () => {
+    setBackend((current) => ({ ...current, status: 'checking' }))
+    const [healthResult, aiResult] = await Promise.allSettled([api.health(), api.aiStatus()])
+    if (healthResult.status === 'fulfilled') {
+      const health = healthResult.value
+      setBackend({ status: health.geometry?.available ? 'connected' : 'degraded', engine: health.geometry?.engine || '浏览器预览', productionReady: Boolean(health.geometry?.available), health, error: '' })
+    } else setBackend({ status: 'offline', engine: '浏览器预览', productionReady: false, health: null, error: readableError(healthResult.reason) })
+    if (aiResult.status === 'fulfilled') setAiConversation((current) => ({ ...current, status: aiResult.value }))
+    showToast(healthResult.status === 'fulfilled' ? '服务状态已更新' : '无法连接几何服务，当前草稿仍然保留。', healthResult.status === 'fulfilled' ? 'success' : 'error')
+  }
+  const exportDiagnostics = () => downloadBlob(JSON.stringify({ exportedAt: new Date().toISOString(), backend: { status: backend.status, engine: backend.engine, error: backend.error }, fileType: activeFile?.type, modelKind: model.kind, parameterErrors: parameterValidation.errors, storageError }, null, 2), 'JoyNiu-诊断信息.json')
+  const startTextDesign = (text = '') => {
+    if (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) createFile({ name: '新零件', type: '零件', source: 'blank' })
+    setPrompt(text); setActiveMode('3D 建模')
+  }
   return (
-    <div className="app-shell">
+    <div className={`app-shell text-size-${settings.textSize}`}>
       <header className="topbar">
-        <div className="brand"><div className="brand-mark" aria-hidden="true"><span>J</span><i /></div><div><strong>JoyNiu <em>CAD</em></strong><span>创模 AI · ENGINEERING</span></div></div>
+        <button className="mobile-menu-button" aria-label="打开导航菜单" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((value) => !value)}>☰</button><div className="brand"><div className="brand-mark" aria-hidden="true"><span>J</span><i /></div><div><strong>JoyNiu <em>CAD</em></strong><span>创模 AI · ENGINEERING</span></div></div>
         <nav className="topbar-center" aria-label="主要工作台">
           {mainModes.map((mode) => <button key={mode} className={`mode-tab ${activeMode === mode ? 'active' : ''}`} onClick={() => setActiveMode(mode)}>{mode === '3D 建模' && <Icon>✦</Icon>}{mode}</button>)}
         </nav>
-        <div className="topbar-actions"><span className="credits"><Icon>◈</Icon> 972 积分</span><button className="icon-button" onClick={() => showToast('快捷键：⌘K 打开 AI 命令')}>⌘K</button><button className="avatar">J</button></div>
+        <div className="topbar-actions"><span className="credits">{platform.user?.displayName || platform.user?.display_name || '本地工作区'}</span><button className="icon-button" aria-label="打开快捷命令" onClick={() => setDialog('commands')}>⌘K</button><button className="avatar" aria-label="打开账号" onClick={() => setActiveMode('平台服务')}>{(platform.user?.displayName || platform.user?.display_name)?.slice(0, 1) || 'J'}</button></div>
       </header>
 
       <div className="workspace">
-        <aside className="sidebar">
+        {mobileMenuOpen && <button className="menu-backdrop" aria-label="关闭导航菜单" onClick={() => setMobileMenuOpen(false)} />}
+        <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`} onClick={(event) => { if (event.target.closest('button')) setMobileMenuOpen(false) }}>
           <button className="new-project" onClick={createProject}><span>＋</span><span className="new-project-label">新建项目</span><kbd>⌘N</kbd></button>
           <div className="side-section"><div className="side-label">设计</div>
             <button title="项目" className={`side-link ${activeMode === '项目管理' ? 'active' : ''}`} onClick={() => setActiveMode('项目管理')}><Icon>▦</Icon><span className="side-link-label">我的项目</span><span className="count">{projects.length}</span></button>
-            <button title="最近打开" className="side-link" onClick={() => showToast('最近打开：当前项目草稿')}><Icon>◷</Icon><span className="side-link-label">最近打开</span></button>
+            <button title="最近打开" className="side-link" onClick={() => { setDialog('recent'); setMobileMenuOpen(false) }}><Icon>◷</Icon><span className="side-link-label">最近打开</span></button>
             <button title="标准件库" className={`side-link ${activeMode === '标准件库' ? 'active' : ''}`} onClick={() => setActiveMode('标准件库')}><Icon>⬡</Icon><span className="side-link-label">标准件库</span></button>
             <button title="设计工作台 · 图纸导入" className={`side-link ${activeMode === '3D 建模' ? 'active' : ''}`} onClick={() => { setActiveMode('3D 建模'); showToast('已打开设计工作台 · 上传后按 AI 分析 → 确认数据 → 生成 3D') }}><Icon>⌁</Icon><span className="side-link-label">设计工作台 / 图纸导入</span><span className="new-badge">推荐</span></button>
           </div>
-          <div className="side-section project-list"><div className="side-label">当前项目</div>{projects.map((project) => <button title={project.name} key={project.id} className={`project-link ${selectedProject === project.name ? 'selected' : ''}`} onClick={() => { setSelectedProject(project.name); showToast(`已切换到 ${project.name}`) }}><span className={`project-dot ${project.color}`} /><span className="project-link-label">{project.name}</span><span className="project-files">{project.files}</span></button>)}</div>
-          <div className="sidebar-bottom"><div className="side-label">高级</div><button title="PDM / 账号" className={`side-link ${activeMode === '平台服务' ? 'active' : ''}`} onClick={() => setActiveMode('平台服务')}><Icon>◈</Icon><span className="side-link-label">PDM / 账号</span></button><button title="CAM / NC" className={`side-link ${activeMode === 'CAM / NC' ? 'active' : ''}`} onClick={() => setActiveMode('CAM / NC')}><Icon>⌁</Icon><span className="side-link-label">CAM / NC</span></button><button title="设置" className="side-link" onClick={() => showToast('设置面板即将开放')}><Icon>⚙</Icon><span className="side-link-label">设置</span></button><button title="帮助与反馈" className="side-link" onClick={() => showToast('帮助中心：support@joyniu.local')}><Icon>?</Icon><span className="side-link-label">帮助与反馈</span></button><div className={`engine-status ${backend.status}`} title={`${API_BASE} · ${backend.error || '服务正常'}`}><span className="status-dot" /><div><b>{backend.status === 'checking' ? '连接 FastAPI…' : backend.productionReady ? 'CadQuery / OCCT' : backend.status === 'degraded' ? '降级几何内核' : '浏览器预览'}</b><small>{backend.status === 'connected' ? 'B-Rep 与 STEP 可用' : backend.status === 'degraded' ? '仅审计预览，不可生产' : backend.status === 'offline' ? 'API 离线 · 不可导出 STEP' : API_BASE}</small></div></div></div>
+          <div className="side-section project-list"><div className="side-label">当前项目</div>{projects.map((project) => <button title={project.name} key={project.id} className={`project-link ${activeProject?.id === project.id ? 'selected' : ''}`} onClick={() => selectLocalProject(project.id)}><span className={`project-dot ${project.color}`} /><span className="project-link-label">{project.name}</span><span className="project-files">{project.files}</span></button>)}</div>
+          <div className="sidebar-bottom"><div className="side-label">高级</div><button title="PDM / 账号" className={`side-link ${activeMode === '平台服务' ? 'active' : ''}`} onClick={() => setActiveMode('平台服务')}><Icon>◈</Icon><span className="side-link-label">PDM / 账号</span></button><button title="CAM / NC" className={`side-link ${activeMode === 'CAM / NC' ? 'active' : ''}`} onClick={() => setActiveMode('CAM / NC')}><Icon>⌁</Icon><span className="side-link-label">CAM / NC</span></button><button title="设置" className="side-link" onClick={() => setActiveMode('设置')}><Icon>⚙</Icon><span className="side-link-label">设置</span></button><button title="帮助与反馈" className="side-link" onClick={() => setActiveMode('帮助与反馈')}><Icon>?</Icon><span className="side-link-label">帮助与反馈</span></button><div className={`engine-status ${backend.status}`} title={`${API_BASE} · ${backend.error || '服务正常'}`}><span className="status-dot" /><div><b>{backend.status === 'checking' ? '连接 FastAPI…' : backend.productionReady ? 'CadQuery / OCCT' : backend.status === 'degraded' ? '降级几何内核' : '浏览器预览'}</b><small>{backend.status === 'connected' ? 'B-Rep 与 STEP 可用' : backend.status === 'degraded' ? '仅审计预览，不可生产' : backend.status === 'offline' ? 'API 离线 · 不可导出 STEP' : API_BASE}</small></div></div></div>
         </aside>
 
         <main className="main-area">
-          <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b><span className="save-status"><span className="status-dot" /> 本地草稿 · {model.updatedAt || '刚刚'}</span></div>
-          {activeMode === '3D 建模' && <ModelWorkspace {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, isAccepting, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData }} />}
+          <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b>{activeFile && <span> · {activeFile.name}</span>}<span className="save-status"><span className="status-dot" /> {storageError ? '草稿尚未保存' : '本地自动保存'}</span></div>
+          {storageError && <div className="storage-warning" role="alert">{storageError}<button onClick={exportBackup}>导出备份</button></div>}
+          {activeMode === '3D 建模' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <ModelWorkspace key={activeFile.id} {...{ activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, isAccepting, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData, parameterValidation, checkResult, isChecking, runModelChecks, retryAi, saveCurrentVersion: () => saveVersionForFile(activeFile.id) }} />}
           {activeMode === '图纸转 3D' && <DrawingImportWorkspace drawingJob={drawingJob} analyzeDrawing={analyzeDrawing} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} model={model} updateDrawingEvidence={updateDrawingEvidence} showToast={showToast} backend={backend} />}
-          {activeMode === '2D 工程图' && <DrawingWorkspace model={model} drawingScale={drawingScale} setDrawingScale={setDrawingScale} exportFile={exportFile} showToast={showToast} />}
-          {activeMode === '装配' && <AssemblyWorkspace model={model} assemblyChecked={assemblyChecked} setAssemblyChecked={setAssemblyChecked} showToast={showToast} />}
-          {activeMode === '标准件库' && <LibraryWorkspace libraryQuery={libraryQuery} setLibraryQuery={setLibraryQuery} libraryGroup={libraryGroup} setLibraryGroup={setLibraryGroup} filteredLibrary={filteredLibrary} insertLibrary={insertLibrary} showToast={showToast} />}
-          {activeMode === '项目管理' && <ProjectWorkspace selectedProject={selectedProject} files={files} setFiles={setFiles} setActiveMode={setActiveMode} exportFile={exportFile} showToast={showToast} />}
-          {(activeMode === '平台服务' || activeMode === 'CAM / NC') && <PlatformWorkspace mode={activeMode} backend={backend} platform={platform} platformLogin={platformLogin} platformLogout={platformLogout} refreshPlatformUsers={refreshPlatformUsers} createPlatformUser={createPlatformUser} createPlatformProject={createPlatformProject} shareProjectTeam={shareProjectTeam} syncDrawingToPdm={syncDrawingToPdm} createCamPlan={createCamPlan} simulateCamPlan={simulateCamPlan} approveCamPlan={approveCamPlan} releaseCamPlan={releaseCamPlan} downloadNcProgram={downloadNcProgram} generation={generation} showToast={showToast} />}
-          {activeMode === '首页' && <HomeWorkspace projects={projects} selectedProject={selectedProject} setSelectedProject={setSelectedProject} createProject={createProject} setActiveMode={setActiveMode} showToast={showToast} attachDrawingToConversation={attachDrawingToConversation} />}
+          {activeMode === '2D 工程图' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <DrawingWorkspace key={activeFile.id} model={model} generation={generation} drawingJob={drawingJob} drawingScale={drawingScale} setDrawingScale={setDrawingScale} drawingPreferences={drawingPreferences} setDrawingPreferences={setDrawingPreferences} onExport={exportFile} onSaveVersion={() => saveVersionForFile(activeFile.id)} onEditParameters={() => { setActiveMode('3D 建模'); setActivePanel('参数') }} showToast={showToast} />}
+          {activeMode === '装配' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <AssemblyWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onBackToModel={() => setActiveMode('3D 建模')} onOpenLibrary={() => setActiveMode('标准件库')} showToast={showToast} />}
+          {activeMode === '标准件库' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <LibraryWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onOpenAssembly={() => setActiveMode('装配')} onBackToModel={() => setActiveMode('3D 建模')} showToast={showToast} />}
+          {['3D 建模', '2D 工程图', '装配', '标准件库'].includes(activeMode) && (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) && <section className="secondary-workspace"><h1>先打开一个设计文件</h1><p>当前内容是文档或尚未创建模型。可在项目中打开零件、工程图或装配文件。</p><button className="primary-button" onClick={() => setActiveMode('项目管理')}>打开项目文件</button><button className="secondary-button" onClick={() => createFile({ name: '新零件', type: '零件', source: 'blank' })}>新建零件</button></section>}
+          {activeMode === '项目管理' && <ProjectFilesWorkspace store={workspaceStore} storageError={storageError} onSelectProject={selectLocalProject} onCreateProject={createProject} onRenameProject={renameLocalProject} onCreateFile={createFile} onRenameFile={renameLocalFile} onOpenFile={openProjectFile} onDownloadFile={downloadProjectFile} onSaveVersion={saveVersionForFile} onRestoreVersion={restoreVersion} onUpdateDocument={updateDocument} />}
+          {activeMode === '设置' && <SettingsWorkspace settings={settings} onChange={setSettings} onExportBackup={exportBackup} />}
+          {activeMode === '帮助与反馈' && <HelpWorkspace onNavigate={setActiveMode} onDiagnostics={exportDiagnostics} />}
+          {(activeMode === '平台服务' || activeMode === 'CAM / NC') && <PlatformWorkspace onRefreshServices={refreshServices} mode={activeMode} backend={backend} platform={platform} platformLogin={platformLogin} platformLogout={platformLogout} refreshPlatformUsers={refreshPlatformUsers} createPlatformUser={createPlatformUser} createPlatformProject={createPlatformProject} shareProjectTeam={shareProjectTeam} syncDrawingToPdm={syncDrawingToPdm} createCamPlan={createCamPlan} simulateCamPlan={simulateCamPlan} approveCamPlan={approveCamPlan} releaseCamPlan={releaseCamPlan} downloadNcProgram={downloadNcProgram} generation={generation} showToast={showToast} />}
+          {activeMode === '首页' && <HomeWorkspace projects={projects} onSelectProject={selectLocalProject} onStartText={startTextDesign} createProject={createProject} setActiveMode={setActiveMode} showToast={showToast} attachDrawingToConversation={attachDrawingToConversation} />}
         </main>
       </div>
-      {toast && <div className="toast"><span className="toast-check">✓</span>{toast}</div>}
+      {dialog === 'project' && <NewProjectDialog suggestedName={`新建项目 ${projects.length + 1}`} onSubmit={createProject} onClose={() => setDialog('')} />}
+      {dialog === 'commands' && <CommandDialog onClose={() => setDialog('')} commands={[...['首页', '3D 建模', '2D 工程图', '装配', '标准件库', '项目管理', '平台服务', 'CAM / NC', '设置', '帮助与反馈'].map((mode) => ({ label: `打开${mode}`, action: () => setActiveMode(mode) })), { label: '新建项目', action: () => setDialog('project'), shortcut: '⌘ / Ctrl + N' }, { label: '保存当前文件版本', action: () => saveVersionForFile(activeFile?.id), shortcut: '⌘ / Ctrl + S' }, { label: '最近打开', action: () => setDialog('recent') }]} />}
+      {dialog === 'recent' && <WorkspaceDialog title="最近打开的文件" onClose={() => setDialog('')}><div className="command-list">{recentFiles.map((file) => <button key={file.id} onClick={() => { openProjectFile(file); setDialog('') }}><span>{file.name}<small>{file.projectName} · {file.type}</small></span><small>{new Date(file.lastOpenedAt || file.updatedAt).toLocaleString('zh-CN')}</small></button>)}</div></WorkspaceDialog>}
+      {toast && <div className={`toast ${toast.type}`} role={toast.type === 'error' ? 'alert' : 'status'}><span className="toast-icon">{toast.type === 'error' ? '!' : toast.type === 'info' ? 'i' : '✓'}</span><span>{toast.message}</span><button className="toast-dismiss" aria-label="关闭提示" onClick={() => setToast(null)}>×</button></div>}
     </div>
   )
 }
@@ -2846,6 +2874,7 @@ function ChatMessageList({ messages, onOpenCandidate }) {
 
 function ModelWorkspace(props) {
   const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, isAccepting, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData } = props
+  const { parameterValidation, checkResult, isChecking, runModelChecks, retryAi, saveCurrentVersion } = props
   const drawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
   const [exportOpen, setExportOpen] = useState(false)
@@ -2877,7 +2906,7 @@ function ModelWorkspace(props) {
       ? `本次失败 · ${providerFailureText}${providerFailureAttempts ? ` · 已尝试 ${providerFailureAttempts} 次` : ''}`
       : providerReady
         ? '中转站在线 · SSE 流式'
-        : '本地回退'
+        : aiStatus ? '服务未就绪' : '正在连接 AI 服务'
   const evidence = drawingJob?.evidence
   const remoteAnalysisFailed = drawingJob?.status === 'error' && drawingJob?.analysis?.provider === 'local-fallback'
   const reviewRequired = Boolean(evidence && !evidenceAcceptedForPreview(evidence))
@@ -2888,7 +2917,7 @@ function ModelWorkspace(props) {
   const pendingDrawing = Boolean(generation?.pendingDrawing)
   const workflow = workflowSnapshot({ drawingJob, generation, chatAttachments, isGenerating })
   const hasSource = Boolean(drawingJob?.file || drawingJob?.fileMeta?.name || chatAttachments.length)
-  const primaryLabel = remoteAnalysisFailed
+  const primaryLabel = drawingJob?.requiresFileReselection ? '重新选择原图' : remoteAnalysisFailed
     ? chatAttachments.length ? '重新尝试 AI 分析' : '重新选择原图'
     : !hasSource && !generation
     ? '上传图纸'
@@ -2904,6 +2933,7 @@ function ModelWorkspace(props) {
             ? '重建实体'
             : '导出交付'
   const primaryAction = () => {
+    if (drawingJob?.requiresFileReselection) return drawingInputRef.current?.click()
     if (remoteAnalysisFailed) return chatAttachments.length ? runGenerate() : drawingInputRef.current?.click()
     if (!hasSource && !generation) return drawingInputRef.current?.click()
     if (chatAttachments.length) return runGenerate()
@@ -2956,7 +2986,8 @@ function ModelWorkspace(props) {
   const analysisQuestions = Array.isArray(drawingJob?.questions) ? drawingJob.questions : []
   const hasAnalysisConfidence = analysis.confidence !== null && analysis.confidence !== undefined && analysis.confidence !== '' && Number.isFinite(Number(analysis.confidence))
   const analysisConfidence = hasAnalysisConfidence ? `${Math.round(Number(analysis.confidence) * 100)}%` : '待评估'
-  const entityGenerated = drawingJob?.status === 'generated' || Boolean(generation && !generation.stale && evidence?.status === 'confirmed')
+  const entityGenerated = productionReady
+  const previewGenerated = Boolean(generation && !generation.stale)
   const compare = (source, current, suffix = '') => {
     if (source === undefined || source === null || source === '') return `待确认${suffix}`
     const sourceNumber = Number(source)
@@ -2987,7 +3018,7 @@ function ModelWorkspace(props) {
   return <div className="model-workspace">
     <div className="workbench-header">
       <div className="workbench-title"><span className="eyebrow">DESIGN WORKBENCH</span><h1>3D 设计工作台</h1><p>{model.name} · 从一张图纸到可编辑实体，所有步骤在同一页完成</p></div>
-      <div className="workbench-header-actions"><span className={`workbench-status ${productionReady ? 'ready' : reviewRequired ? 'review' : ''}`}><i />{isAccepting ? '正在确认数据' : workflow.label}</span><button type="button" className={`secondary-button header-text-action ${productionReady ? 'header-upload-action' : ''}`} disabled={isGenerating || isAccepting} onClick={() => { if (productionReady) { setChatAttachments?.([]); drawingInputRef.current?.click(); showToast('请选择新的图纸，当前版本会保留为历史预览') } else { setPrompt((current) => current || '创建一个可编辑的参数化零件'); showToast('已切换到文字设计') } }}>{productionReady ? '上传新图纸' : '从文字开始'}</button>{showExportAction ? <details className="export-menu" open={exportOpen} onToggle={(event) => setExportOpen(event.currentTarget.open)}><summary className="primary-button" aria-label="导出交付">导出交付 <Icon>⌄</Icon></summary><div className="export-menu-popover"><b>选择交付格式</b><button onClick={() => exportFile('step')}>STEP · 生产实体</button><button onClick={() => exportFile('glb')}>GLB · 三维预览</button><button onClick={() => exportFile('dxf')}>DXF · 工程图</button><button onClick={() => exportFile('json')}>JSON · 参数与审计</button></div></details> : <button type="button" data-testid="workbench-primary-action" className="primary-button workbench-primary" disabled={isGenerating || isAccepting} onClick={primaryAction}>{isGenerating || isAccepting ? '处理中…' : primaryLabel} <Icon>{primaryLabel === '上传图纸' ? '＋' : '↗'}</Icon></button>}</div>
+      <div className="workbench-header-actions"><button className="secondary-button" onClick={saveCurrentVersion}>保存版本</button><button className="secondary-button" onClick={() => exportFile('json')}>导出草稿</button><span className={`workbench-status ${productionReady ? 'ready' : reviewRequired ? 'review' : ''}`}><i />{isAccepting ? '正在确认数据' : workflow.label}</span><button type="button" className={`secondary-button header-text-action ${productionReady ? 'header-upload-action' : ''}`} disabled={isGenerating || isAccepting} onClick={() => { if (productionReady) { setChatAttachments?.([]); drawingInputRef.current?.click(); showToast('请选择新的图纸，当前版本会保留为历史预览') } else { setPrompt((current) => current || '创建一个可编辑的参数化零件'); showToast('已切换到文字设计') } }}>{productionReady ? '上传新图纸' : '从文字开始'}</button>{showExportAction ? <details className="export-menu" open={exportOpen} onToggle={(event) => setExportOpen(event.currentTarget.open)}><summary className="primary-button" aria-label="导出交付">导出交付 <Icon>⌄</Icon></summary><div className="export-menu-popover"><b>选择交付格式</b><button onClick={() => exportFile('step')}>STEP · 生产实体</button><button onClick={() => exportFile('glb')}>GLB · 三维预览</button><button onClick={() => exportFile('dxf')}>DXF · 工程图</button><button onClick={() => exportFile('json')}>JSON · 参数与审计</button></div></details> : <button type="button" data-testid="workbench-primary-action" className="primary-button workbench-primary" disabled={isGenerating || isAccepting} onClick={primaryAction}>{isGenerating || isAccepting ? '处理中…' : primaryLabel} <Icon>{primaryLabel === '上传图纸' ? '＋' : '↗'}</Icon></button>}</div>
     </div>
     <nav className="workflow-rail" aria-label="建模流程">{workflowSteps.map((step, index) => <div key={step.id} className={`workflow-step ${statusForStep(step.id)}`}><span className="workflow-step-index">{statusForStep(step.id) === 'done' ? '✓' : index + 1}</span><span><b>{step.label}</b><small>{step.id === workflow.current ? '当前' : statusForStep(step.id) === 'done' ? '已完成' : '待处理'}</small></span>{index < workflowSteps.length - 1 && <i className="workflow-connector" />}</div>)}</nav>
     {remoteAnalysisFailed && <section className="review-banner needs-review" data-testid="workbench-ai-failure">
@@ -3005,8 +3036,8 @@ function ModelWorkspace(props) {
     {evidence && <section className={`review-banner ${reviewRequired ? 'needs-review' : 'confirmed'}`} data-testid="workbench-review">
       <div className="review-banner-icon">{reviewRequired ? '!' : '✓'}</div>
       <div className="review-banner-copy">
-        <b>{reviewRequired ? 'AI 分析完成 · 候选数据待确认' : entityGenerated ? '3D 实体已生成' : '数据已确认，可生成 3D'}</b>
-        <span>{reviewRequired ? '候选尺寸、置信度与来源已显示；编辑参数后点击“确认数据”，无需 reviewer 权限。' : entityGenerated ? '实体已通过 CadQuery / OCCT 拓扑检查，可继续二次修改或导出交付。' : '尺寸来源已锁定；生成结果会继续经过 CadQuery / OCCT 拓扑检查。'}</span>
+        <b>{reviewRequired ? 'AI 分析完成 · 候选数据待确认' : entityGenerated ? '3D 实体已生成' : previewGenerated ? '参数预览已生成 · 生产实体待校验' : '数据已确认，可生成 3D'}</b>
+        <span>{reviewRequired ? '候选尺寸、置信度与来源已显示；编辑参数后点击“确认数据”，无需 reviewer 权限。' : entityGenerated ? '实体已通过 CadQuery / OCCT 拓扑检查，可继续二次修改或导出交付。' : previewGenerated ? '当前是参数网格预览，尚未通过生产实体内核校验。' : '尺寸来源已锁定；生成结果会继续经过 CadQuery / OCCT 拓扑检查。'}</span>
       </div>
       <div className="review-evidence-mini">{evidenceRows.map(([label, value]) => <span key={label}><b>{reviewRequired ? `候选 · ${label}` : label}</b>{value}</span>)}</div>
       <div className="ai-analysis-summary" aria-label="AI 分析摘要">
@@ -3030,7 +3061,8 @@ function ModelWorkspace(props) {
       <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{isGenerating ? (aiConversation?.statusMessage || 'AI 正在回复…') : providerLabel}</small></div>
       {!providerConfigured && !platform?.token && <div className="ai-auth-hint">远程大模型尚未配置；配置中转站后即可开始对话和图纸分析。</div>}
       {providerDegraded && <div className="chat-turn-notice">上一轮没有取得远程模型候选；你可以继续说明要求，或用已保留的原图重新发送。</div>}
-      {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
+      {aiConversation?.error && <div className="ai-error-banner" role="alert"><p>{readableError(aiConversation.error)}</p>{!platform?.token && /登录|认证|token/i.test(aiConversation.error) && <button className="secondary-button" onClick={() => setActiveMode('平台服务')}>前往登录</button>}<button className="secondary-button" disabled={isGenerating} onClick={retryAi}>重试上一条</button></div>}
+      {drawingJob?.requiresFileReselection && <div className="chat-turn-notice">上次处理已中断，尺寸和对话已恢复；请重新选择原文件继续。<button onClick={() => drawingInputRef.current?.click()}>重新选择原图</button></div>}
       {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；上传后按“AI 分析 → 确认数据 → 生成 3D”推进。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
       <ChatMessageList messages={messages} onOpenCandidate={() => setActivePanel('参数')} />
       {chatAttachments.length > 0 && <div className="queued-drawing"><div><b>随下一条消息发送</b><span>可以先补充你希望 AI 重点检查的内容</span></div><div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div></div>}
@@ -3040,75 +3072,19 @@ function ModelWorkspace(props) {
 
     <section className="viewport-column">
       <div className="viewport-toolbar"><div className="toolbar-group"><button className={view === 'isometric' ? 'selected' : ''} onClick={() => setView('isometric')}>等轴测</button><button className={view === 'front' ? 'selected' : ''} onClick={() => setView('front')}>前视</button><button className={view === 'top' ? 'selected' : ''} onClick={() => setView('top')}>俯视</button></div><div className="toolbar-group"><button onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button onClick={() => { setZoom(1); setView('isometric'); setViewResetNonce((value) => value + 1); showToast('视图已重置') }}>重置视图</button></div></div>
-      <div className="viewport"><div className="viewport-grid" /><div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div><ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} onProductionGlbLoadError={recoverExpiredProductionGlb} resetNonce={viewResetNonce} /><div className={`model-context-badge ${productionReady ? 'production' : reviewRequired ? 'review' : ''}`}><span className={`status-dot ${generation || reviewRequired ? 'ready' : ''}`} />{remoteAnalysisFailed ? '上一版本预览 · AI 未返回候选' : pendingDrawing ? '上一版本预览 · 新图纸处理中' : reviewRequired ? 'AI 候选 · 参数化 3D 草稿' : generation ? (generation.artifactStatus === 'recovering' ? '旧文件已失效 · 正在恢复生产实体' : productionReady ? '已生成实体 · OCCT 校验通过' : '已生成可交互 3D 预览') : '示例模型 · 上传图纸后替换'}</div><div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div><div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div><div className="zoom-control"><button aria-label="放大" onClick={() => setZoom((value) => Math.min(1.35, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button aria-label="缩小" onClick={() => setZoom((value) => Math.max(.7, value - .1))}>−</button></div></div>
-      <div className="viewport-footer"><span><i className="live-dot" /> {remoteAnalysisFailed ? '上一版本未被覆盖' : reviewRequired ? '候选模型已同步' : generation ? '模型版本已更新' : '等待图纸或文字指令'} · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : remoteAnalysisFailed ? '上一版本' : reviewRequired ? '候选预览' : generation?.stale ? '参数已变更' : '示例预览'}</span><span>单位 <b>mm</b></span><span>材质 <b>{model.material}</b></span></div>
+      <div className="viewport"><div className="viewport-grid" /><div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div><>{modelValid ? <ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} onProductionGlbLoadError={recoverExpiredProductionGlb} resetNonce={viewResetNonce} /> : <div className="invalid-preview" role="status"><b>参数需要修正，已暂停模型预览</b><ul>{parameterValidation.errors.map((error) => <li key={error.field + error.message}>{error.message}</li>)}</ul><button onClick={() => setActivePanel('参数')}>查看参数</button></div>}</><div className={`model-context-badge ${productionReady ? 'production' : reviewRequired ? 'review' : ''}`}><span className={`status-dot ${generation || reviewRequired ? 'ready' : ''}`} />{!modelValid ? '参数无效 · 预览暂停' : remoteAnalysisFailed ? '上一版本预览 · AI 未返回候选' : pendingDrawing ? '上一版本预览 · 新图纸处理中' : reviewRequired ? 'AI 候选 · 参数化 3D 草稿' : generation ? (generation.artifactStatus === 'recovering' ? '旧文件已失效 · 正在恢复生产实体' : productionReady ? '已生成实体 · OCCT 校验通过' : '已生成可交互 3D 预览') : '当前参数草稿 · 尚未生成生产实体'}</div><div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div><div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div><div className="zoom-control"><button aria-label="放大" onClick={() => setZoom((value) => Math.min(1.8, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button aria-label="缩小" onClick={() => setZoom((value) => Math.max(.55, value - .1))}>−</button></div></div>
+      <div className="viewport-footer"><span><i className="live-dot" /> {remoteAnalysisFailed ? '上一版本未被覆盖' : reviewRequired ? '候选模型已同步' : generation ? '模型版本已更新' : '当前参数已保存'} · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : remoteAnalysisFailed ? '上一版本' : reviewRequired ? '候选预览' : generation?.stale ? '参数已变更' : '参数草稿'}</span><span>单位 <b>mm</b></span><span>材质 <b>{model.material}</b></span></div>
     </section>
 
     <aside className="inspector-column">
       <div className="inspector-tabs"><button className={activePanel === '参数' ? 'active' : ''} onClick={() => setActivePanel('参数')}>参数</button><button className={activePanel === '特征' ? 'active' : ''} onClick={() => setActivePanel('特征')}>特征树</button><button className={activePanel === '检查' ? 'active' : ''} onClick={() => setActivePanel('检查')}>检查</button></div>
-      {activePanel === '参数' && <ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={isGenerating || isAccepting} />}
-      {activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} />}
-      {activePanel === '检查' && <CheckPanel model={model} modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} drawingJob={drawingJob} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} setActiveMode={setActiveMode} busy={isGenerating || isAccepting} />}
+      {activePanel === '参数' && <ParameterErrors.Provider value={parameterValidation.errors}><ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={isGenerating || isAccepting} />{parameterValidation.errors.length > 0 && <div className="parameter-errors" role="status">{parameterValidation.errors.map((error) => <p className="parameter-error" key={error.field + error.message}>{error.message}</p>)}</div>}</ParameterErrors.Provider>}
+      {activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} onAddFeature={() => { setPrompt('请说明当前配方支持的特征修改，并帮我调整'); document.querySelector('[aria-label="给 AI 发送消息"]')?.focus() }} />}
+      {activePanel === '检查' && <CheckPanel model={model} modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} drawingJob={drawingJob} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} setActiveMode={setActiveMode} busy={isGenerating || isAccepting || isChecking} checkResult={checkResult} onRunChecks={runModelChecks} parameterErrors={parameterValidation.errors} />}
       {productionPartKinds.includes(modelKind) && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产实体' : '仅预览'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{topology.boundingLength || topology.bboxLength || (modelKind === 'stepped_tapered_nozzle' ? model.mainLength : model.baseLength)} × {topology.boundingWidth || topology.bboxWidth || (modelKind === 'stepped_tapered_nozzle' ? Math.max(Number(model.headLeftDiameter), Number(model.headRightDiameter)) : model.baseWidth)} × {topology.boundingHeight || topology.bboxHeight || (modelKind === 'stepped_tapered_nozzle' ? Math.max(Number(model.headLeftDiameter), Number(model.headRightDiameter)) : model.totalHeight)}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b></div></div>}
       <div className="export-card"><div><span className="eyebrow">交付状态</span><h3>{productionReady ? '可导出交付文件' : reviewRequired ? '先确认数据才能导出' : '先生成实体再导出'}</h3><p>{productionReady ? 'STEP、GLB、DXF 与参数 JSON 已集中到右上角“导出交付”。' : '当前只显示可编辑预览，避免把未校验模型误当成生产文件。'}</p></div>{productionReady ? <div className="export-card-hint">右上角 <b>导出交付</b> · 统一出口</div> : <button type="button" className="secondary-button full" onClick={primaryAction}>{reviewRequired ? '打开确认数据' : '继续当前流程'} <Icon>↗</Icon></button>}</div>
     </aside>
 
-  </div>
-}
-
-function LegacyModelWorkspace(props) {
-  const { activePanel, setActivePanel, model, modelValid, updateModel, resetModel, features, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, isGenerating, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, chatAttachments = [], setChatAttachments, aiConversation, platform } = props
-  const drawingInputRef = useRef(null)
-  const [viewResetNonce, setViewResetNonce] = useState(0)
-  const productionReady = productionArtifactsAvailable(generation)
-  const topology = generation?.validation?.metrics || {}
-  const aiStatus = aiConversation?.status
-  const providerMode = aiStatus?.mode || ''
-  const providerConfigured = Boolean(aiStatus?.configured)
-  const providerReady = providerMode === 'remote' || providerMode === 'verified-local'
-  const providerDegraded = providerConfigured && providerMode === 'local-fallback'
-  const providerLabel = providerMode === 'verified-local'
-    ? '图纸校准'
-    : providerDegraded
-      ? '本次请求已降级'
-      : providerReady
-        ? '中转站在线 · SSE 流式'
-        : '本地回退'
-  return <div className="model-workspace">
-    <section className="ai-column panel-card">
-      <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>描述你的设计</h2></div><button className="more-button" onClick={() => showToast('已打开 AI 历史记录')}>•••</button></div>
-      <div className="ai-mode-pill"><span className="sparkle">✦</span><b>参数化零件 Agent</b><span className="chevron">⌄</span></div>
-      <div className={`ai-provider-status ${providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerDegraded || aiConversation?.error ? 'error' : 'checking'}><span>AI</span><b>{aiStatus?.model || 'gpt-5.6-sol'} · reasoning {aiStatus?.reasoningEffort || 'high'}</b><small>{providerLabel}</small></div>
-      {!providerConfigured && !platform?.token && <div className="ai-auth-hint">图纸识别和明确尺寸可走本地审计回退；要使用通用视觉对话，请在服务端配置中转站密钥并按部署要求登录。</div>}
-      {providerDegraded && <div className="ai-error-banner">远程大模型已分别用高清与兼容视觉模式分析，但本次未返回可靠参数；原图仍保留，且没有使用 OCR 或模板值代填。</div>}
-      {aiConversation?.error && <div className="ai-error-banner">{aiConversation.error}</div>}
-      <div className="message-list">{messages.map((message, index) => <div key={index} className={`message ${message.role}`}><div className="message-avatar">{message.role === 'ai' ? '✦' : 'J'}</div><div className="message-bubble"><span>{message.text}</span>{message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}</div></div>)}{isGenerating && <div className="message ai"><div className="message-avatar">✦</div><div className="message-bubble typing"><i /><i /><i /></div></div>}</div>
-      {chatAttachments.length > 0 && <div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div>}
-      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="告诉 AI 你想设计什么…" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runGenerate() }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach" aria-label="上传图纸" onClick={() => drawingInputRef.current?.click()}><Icon>⌕</Icon></button><span>图片 / PDF / DWG / DXF · 最多 4 个 · ⌘ ↵ 运行</span><button type="button" className="run-button" disabled={isGenerating} onClick={runGenerate}>{isGenerating ? '生成中…' : '运行'}<Icon>↑</Icon></button></div></div>
-      <div className="suggestions"><span>试试：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button><button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button></div>
-    </section>
-
-    <section className="viewport-column">
-      <div className="viewport-toolbar"><div className="toolbar-group"><button className={view === 'isometric' ? 'selected' : ''} onClick={() => setView('isometric')}>等轴测</button><button className={view === 'front' ? 'selected' : ''} onClick={() => setView('front')}>前视</button><button className={view === 'top' ? 'selected' : ''} onClick={() => setView('top')}>俯视</button></div><div className="toolbar-group"><button onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button onClick={() => { setZoom(1); setView('isometric'); setViewResetNonce((value) => value + 1); showToast('视图已重置') }}>重置视图</button></div></div>
-      <div className="viewport">
-        <div className="viewport-grid" />
-        <div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div>
-        <ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} resetNonce={viewResetNonce} />
-        <div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div>
-        <div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放 · WebGL 实体</div>
-        <div className="zoom-control"><button onClick={() => setZoom((value) => Math.min(1.35, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.max(.7, value - .1))}>−</button></div>
-      </div>
-      <div className="viewport-footer"><span><i className="live-dot" /> 实体已更新 · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : generation?.stale ? '参数已变更 · 需重建' : '预览模式'}</span><span>单位 <b>mm</b></span><span>材质 <b>{model.material}</b></span><button onClick={() => exportFile('step')}>导出 STEP <Icon>↓</Icon></button></div>
-    </section>
-
-    <aside className="inspector-column">
-      <div className="inspector-tabs"><button className={activePanel === '参数' ? 'active' : ''} onClick={() => setActivePanel('参数')}>参数</button><button className={activePanel === '特征' ? 'active' : ''} onClick={() => setActivePanel('特征')}>特征树</button><button className={activePanel === '检查' ? 'active' : ''} onClick={() => setActivePanel('检查')}>检查</button></div>
-      {activePanel === '参数' && <ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} />}
-      {activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} />}
-      {activePanel === '检查' && <CheckPanel modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} />}
-      {model.kind === 'bracket' && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产 STEP' : '不可生产'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{topology.boundingLength || model.baseLength} × {topology.boundingWidth || model.baseWidth} × {topology.boundingHeight || model.totalHeight}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b><span>请求</span><b title={generation.requestId}>{generation.requestId?.slice(-8) || '预览'}</b></div>{generation.artifacts?.length > 0 && <div className="artifact-links">{generation.artifacts.map((artifact) => <button key={artifact.id} onClick={() => exportFile(artifact.format)}>{artifact.format.toUpperCase()} · {(artifact.sizeBytes / 1024).toFixed(1)} KB</button>)}</div>}</div>}
-      <div className="export-card"><div><span className="eyebrow">交付</span><h3>{productionReady ? '实体已通过内核检查' : '生成可审计交付文件'}</h3><p>{productionReady ? 'STEP 由 CadQuery/OCCT 生成' : 'STEP 需要可用的 FastAPI / OCCT 服务'}</p></div><div className="export-buttons"><button onClick={() => exportFile('step')}>STEP</button><button onClick={() => exportFile('dxf')}>DXF</button><button onClick={() => exportFile('json')}>参数 JSON</button></div></div>
-    </aside>
   </div>
 }
 
@@ -3204,7 +3180,7 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
   </div>
 }
 
-function PlatformWorkspace({ mode, backend, platform, platformLogin, platformLogout, refreshPlatformUsers, createPlatformUser, createPlatformProject, shareProjectTeam, syncDrawingToPdm, createCamPlan, simulateCamPlan, approveCamPlan, releaseCamPlan, downloadNcProgram, generation, showToast }) {
+function PlatformWorkspace({ onRefreshServices, mode, backend, platform, platformLogin, platformLogout, refreshPlatformUsers, createPlatformUser, createPlatformProject, shareProjectTeam, syncDrawingToPdm, createCamPlan, simulateCamPlan, approveCamPlan, releaseCamPlan, downloadNcProgram, generation, showToast }) {
   const [email, setEmail] = useState('admin@joyniu.local')
   const [password, setPassword] = useState('ChangeMe123!')
   const [displayName, setDisplayName] = useState('JoyNiu 管理员')
@@ -3256,7 +3232,7 @@ function PlatformWorkspace({ mode, backend, platform, platformLogin, platformLog
       </section>
 
       <section className="platform-card panel-card platform-health-card">
-        <div className="platform-card-heading"><div><span className="eyebrow">SERVICE HEALTH</span><h2>服务能力</h2></div><span className={`engine-pill ${backend?.productionReady ? 'occt' : 'fallback'}`}>{backend?.engine || 'checking'}</span></div>
+        <div className="platform-card-heading"><div><span className="eyebrow">SERVICE HEALTH</span><h2>服务能力</h2></div><button className="secondary-button" disabled={backend?.status === 'checking'} onClick={onRefreshServices}>重新连接</button><span className={`engine-pill ${backend?.productionReady ? 'occt' : 'fallback'}`}>{backend?.engine || 'checking'}</span></div>
         <div className="platform-health-grid"><div><span>几何内核</span><b>{geometry.available ? `CadQuery ${geometry.version || ''} / OCCT` : 'fallback preview'}</b></div><div><span>拓扑输出</span><b>{geometry.available ? 'STEP B-Rep' : '未启用'}</b></div><div><span>DWG 原生解析</span><b>{dwg.available ? `${dwg.engine || 'vector parser'} · 在线` : '转换器未就绪'}</b></div><div><span>OCR</span><b>{ocr.available ? `${ocr.engine || 'OCR'} ${ocr.version || ''}` : 'fixture / review'}</b></div><div><span>审计存储</span><b>{loggedIn ? 'SQLite PDM' : '需要登录'}</b></div></div>
         {!backend?.productionReady && <div className="production-warning"><span>!</span><span>当前服务没有 OCCT 生产内核；可以审阅证据和参数，但不会把降级网格标成生产 STEP。</span></div>}
         <div className="platform-capability-row"><span className="capability-chip">FastAPI</span><span className="capability-chip">DWG vector evidence</span><span className="capability-chip">2D OCR evidence</span><span className="capability-chip">PDM versions</span><span className="capability-chip">RBAC</span><span className="capability-chip">CAM gate</span></div>
@@ -3264,8 +3240,8 @@ function PlatformWorkspace({ mode, backend, platform, platformLogin, platformLog
 
       <section className="platform-card panel-card platform-pdm-card">
         <div className="platform-card-heading"><div><span className="eyebrow">PRODUCT DATA MANAGEMENT</span><h2>PDM 项目与版本</h2></div><span className="platform-count">{manifestDocuments.length} 文档 · {versionCount} 版本</span></div>
-        <div className="platform-action-row"><button className="secondary-button" disabled={!loggedIn || platform?.busy} onClick={createPlatformProject}>创建 / 刷新项目</button><button className="primary-button" disabled={!loggedIn || platform?.busy} onClick={syncDrawingToPdm}>同步当前图纸与实体</button></div>
-        {!loggedIn ? <div className="platform-empty">登录后可创建项目、保存原图 SHA-256、参数 JSON、STEP / GLB 版本。</div> : !platform?.project ? <div className="platform-empty">还没有绑定项目；点击“创建 / 刷新项目”开始 PDM 工作流。</div> : <><div className="project-binding"><span className="project-dot green" /><div><b>{platform.project.name}</b><small>{platform.project.id} · {platform.project.status}</small></div><span className="check-status pass">已绑定</span></div>{canManageMembers && <div className="project-members-editor"><div className="field-group-title">共享审核 / 制造成员 <span className="muted">只读项目权限</span></div><div className="member-editor-row"><input aria-label="项目成员邮箱或用户 ID" value={memberText} onChange={(event) => setMemberText(event.target.value)} placeholder="邮箱或用户 ID（逗号分隔；留空自动选账号目录）" /><button className="secondary-button" disabled={platform?.busy || !shareProjectTeam} onClick={() => shareProjectTeam(memberText)}>共享成员</button></div><small className="platform-help">成员可读取项目、查看 CAM；审核和 NC 放行仍由各自 RBAC 权限决定。</small></div>}<div className="pdm-document-list">{manifestDocuments.slice(0, 5).map((item) => <div className="pdm-document-row" key={item.document?.id || item.id}><span className="file-type-icon blue">{item.document?.kind === 'drawing' ? '▱' : '◉'}</span><div><b>{item.document?.name || item.name}</b><small>{item.document?.kind || 'document'} · {item.versions?.length || 0} 个不可变版本</small></div><span className="role-text">{item.versions?.at(-1)?.sha256?.slice(0, 8) || '—'}</span></div>)}</div>{manifestDocuments.length > 5 && <small className="platform-help">还有 {manifestDocuments.length - 5} 个文档，完整清单可通过 API manifest 查看。</small>}</>}
+        <div className="platform-action-row"><button className="secondary-button" disabled={!loggedIn || platform?.busy} onClick={createPlatformProject}>创建 / 刷新项目</button><button className="primary-button" disabled={!loggedIn || platform?.busy} onClick={syncDrawingToPdm}>同步当前文件</button></div>
+        {!loggedIn ? <div className="platform-empty">登录后可创建项目、保存原图 SHA-256、参数 JSON、STEP / GLB 版本。</div> : !platform?.project ? <div className="platform-empty">还没有绑定项目；点击“创建 / 刷新项目”开始 PDM 工作流。</div> : <><div className="project-binding"><span className="project-dot green" /><div><b>{platform.project.name}</b><small>{platform.project.id} · {platform.project.status}</small></div><span className="check-status pass">已绑定</span></div>{canManageMembers && <div className="project-members-editor"><div className="field-group-title">共享审核 / 制造成员 <span className="muted">只读项目权限</span></div><div className="member-editor-row"><input aria-label="项目成员邮箱或用户 ID" value={memberText} onChange={(event) => setMemberText(event.target.value)} placeholder="邮箱或用户 ID（逗号分隔；留空自动选账号目录）" /><button className="secondary-button" disabled={platform?.busy || !shareProjectTeam} onClick={() => shareProjectTeam(memberText)}>共享成员</button></div><small className="platform-help">成员可读取项目、查看 CAM；审核和 NC 放行仍由各自 RBAC 权限决定。</small></div>}<div className="pdm-document-list">{manifestDocuments.slice(0, 5).map((item) => <div className="pdm-document-row" key={item.document?.id || item.id}><span className="file-type-icon blue">{item.document?.kind === 'drawing' ? '▱' : '◉'}</span><div><b>{item.versions?.[0]?.metadata?.displayName || item.document?.metadata?.displayName || item.document?.name || item.name}</b><small>{item.document?.kind || 'document'} · {item.versions?.length || 0} 个不可变版本</small></div><span className="role-text">{item.versions?.[0]?.sha256?.slice(0, 8) || '—'}</span></div>)}</div>{manifestDocuments.length > 5 && <small className="platform-help">还有 {manifestDocuments.length - 5} 个文档，完整清单可通过 API manifest 查看。</small>}</>}
       </section>
 
       {mode === 'CAM / NC' && <section className="platform-card panel-card platform-cam-card">
@@ -3283,7 +3259,7 @@ function ParameterPanel({ model, modelValid, updateModel, resetModel, drawingJob
   if (canonicalPartKind(model.kind) === 'split_clamp_support') return <SplitClampParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={disabled} />
   if (model.kind === 'bracket') return <BracketParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={disabled} />
   const fields = [['outerDiameter', '外径', 'Ø', 'mm'], ['length', '总长度', '', 'mm'], ['holeDiameter', '通孔直径', 'Ø', 'mm'], ['keywayWidth', '键槽宽度', '', 'mm'], ['keywayDepth', '键槽深度', '', 'mm'], ['keywayLength', '键槽长度', '', 'mm']]
-  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon blue">◒</span><div><b>{model.name}</b><small>参数化实体 · 已锁定</small></div><span className={`valid-chip ${modelValid ? '' : 'invalid'}`}>{modelValid ? '有效' : '待修正'}</span></div><div className="field-group"><div className="field-group-title">基本尺寸 <span>单位：mm</span></div>{fields.slice(0, 3).map(([key, label, prefix, suffix]) => <NumberField key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} disabled={disabled} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">键槽特征 <span className="muted">切除</span></div>{fields.slice(3).map(([key, label, prefix, suffix]) => <NumberField key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} disabled={disabled} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} disabled={disabled} onChange={(e) => updateModel('material', e.target.value)}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><button className="reset-link" onClick={resetModel} disabled={disabled}>↻ 恢复基准参数</button></div>
+  return <div className="inspector-content"><div className="selection-title"><span className="feature-icon blue">◒</span><div><b>{model.name}</b><small>可编辑参数草稿</small></div><span className={`valid-chip ${modelValid ? '' : 'invalid'}`}>{modelValid ? '有效' : '待修正'}</span></div><div className="field-group"><div className="field-group-title">基本尺寸 <span>单位：mm</span></div>{fields.slice(0, 3).map(([key, label, prefix, suffix]) => <NumberField fieldKey={key} key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} disabled={disabled} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">键槽特征 <span className="muted">切除</span></div>{fields.slice(3).map(([key, label, prefix, suffix]) => <NumberField fieldKey={key} key={key} label={label} value={model[key]} prefix={prefix} suffix={suffix} disabled={disabled} onChange={(value) => updateModel(key, value)} />)}</div><div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} disabled={disabled} onChange={(e) => updateModel('material', e.target.value)}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div><button className="reset-link" onClick={resetModel} disabled={disabled}>↻ 恢复基准参数</button></div>
 }
 
 function SteppedTaperedNozzleParameterPanel({ model, modelValid, updateModel, resetModel, drawingJob, disabled = false }) {
@@ -3311,7 +3287,7 @@ function SteppedTaperedNozzleParameterPanel({ model, modelValid, updateModel, re
     {candidatePending && <div className={`candidate-missing-note ${missingFields.size ? '' : 'candidate-default-note'}`}><b>{missingFields.size ? `仍有 ${missingFields.size} 项必需参数待补全` : `${explicitCount} 项候选已同步`}</b><span>{missingFields.size ? '请根据 DWG 原生尺寸、矢量量测或 AI 解释补全，再确认当前快照。' : '主件与镶件仍是两个独立候选实体；确认前不会生成生产 STEP。'}</span>{missingFields.size > 0 && <small>{[...missingFields].slice(0, 6).map((key) => steppedTaperedNozzleParameterLabels[key] || key).join('、')}{missingFields.size > 6 ? '…' : ''}</small>}</div>}
     {steppedTaperedNozzleGroups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>{group.title === '独立 M12 镶件' ? '第二组件' : group.title === '内孔与出口锥' ? 'mm / °' : '单位：mm'}</span></div>{group.fields.map((key) => key === 'insertThreadDesignation'
       ? <label key={key} data-candidate-source={candidateSources[key] || undefined} className={`number-field ${candidatePending ? 'candidate-pending' : ''} ${candidateSources[key] ? `candidate-source-${candidateSources[key]}` : ''}`}><span>{fieldLabel(key)}</span><div><span className="field-prefix" /><input value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key] ?? ''} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '例如 M12' : '螺纹标注'} type="text" disabled={disabled || waitingForAnalysis} onChange={(event) => updateModel(key, event.target.value)} /><span className="field-suffix">标注</span></div></label>
-      : <NumberField key={key} label={fieldLabel(key)} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || ''} disabled={disabled || waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={fieldPrefix(key)} suffix={fieldSuffix(key)} min={key === 'insertAxialOffset' ? 0 : 0.1} step={key === 'headLeftDiameter' ? 0.001 : 0.1} onChange={(value) => updateModel(key, value)} />)}</div>)}
+      : <NumberField fieldKey={key} key={key} label={fieldLabel(key)} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || ''} disabled={disabled || waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={fieldPrefix(key)} suffix={fieldSuffix(key)} min={key === 'insertAxialOffset' ? 0 : 0.1} step={key === 'headLeftDiameter' ? 0.001 : 0.1} onChange={(value) => updateModel(key, value)} />)}</div>)}
     <div className="bracket-datum"><span>⌖</span><div><b>配方派生（只读）</b><small>末段长度 {Number.isFinite(tipLength) ? Number(tipLength.toFixed(3)) : '—'} mm · 出口锥深 {Number.isFinite(taperLength) ? Number(taperLength.toFixed(9)) : '—'} mm</small><small>镶件径向间隙 {Number.isFinite(radialClearance) ? Number(radialClearance.toFixed(3)) : '—'} mm · 轴向偏置 {model.insertAxialOffset ?? '—'} mm</small><small>预览以两个实体区分主件与镶件；{model.insertThreadDesignation || 'M12'} 只显示标注，不生成真实螺纹牙型。</small></div></div>
     {!modelValid && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请检查三段长度、孔壁厚度、沉孔/镶件间隙、镶件轴向位置及出口锥角关系。</span></div>}
     <div className="field-group"><div className="field-group-title">主件材料</div><div className="select-field"><select value={model.material} onChange={(event) => updateModel('material', event.target.value)} disabled={disabled || waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div>
@@ -3336,7 +3312,7 @@ function SplitClampParameterPanel({ model, modelValid, updateModel, resetModel, 
   return <div className="inspector-content">
     <div className="selection-title"><span className="feature-icon orange">◉</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{candidatePending ? '开口夹紧座 · AI 候选数据' : 'split_clamp_support_v1 · 参数化实体'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>
     {candidatePending && <div className={`candidate-missing-note ${missingFields.size ? '' : 'candidate-default-note'}`}><b>{missingFields.size ? `大模型仍有 ${missingFields.size} 项未返回` : `${explicitCount} 项候选已同步`}</b><span>{missingFields.size ? '空白字段需由大模型继续分析或人工补全；已识别值已写入下方。' : '全部必需字段可编辑确认；确认前不会生成生产 STEP。'}</span>{missingFields.size > 0 && <small>{[...missingFields].slice(0, 5).map((key) => splitClampParameterLabels[key] || key).join('、')}{missingFields.size > 5 ? '…' : ''}</small>}</div>}
-    {splitClampGroups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：{group.title === '孔与开缝' ? 'mm / 个' : 'mm'}</span></div>{group.fields.map((key) => <NumberField key={key} label={`${splitClampParameterLabels[key]}${candidateSources[key] ? ` · ${candidateSourceLabels[candidateSources[key]] || candidateSources[key]}` : missingFields.has(key) ? ' · 待补全' : ''}`} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || ''} disabled={disabled || waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={['boreDiameter', 'mountHoleDiameter', 'crossHoleDiameter'].includes(key) ? 'Ø' : key === 'pedestalOuterRadius' || ['outerCornerRadius', 'neckConcaveRadius', 'neckConvexRadius'].includes(key) ? 'R' : ''} suffix={key === 'mountHoleCount' ? '个' : 'mm'} onChange={(value) => updateModel(key, value)} />)}</div>)}
+    {splitClampGroups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：{group.title === '孔与开缝' ? 'mm / 个' : 'mm'}</span></div>{group.fields.map((key) => <NumberField fieldKey={key} key={key} label={`${splitClampParameterLabels[key]}${candidateSources[key] ? ` · ${candidateSourceLabels[candidateSources[key]] || candidateSources[key]}` : missingFields.has(key) ? ' · 待补全' : ''}`} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || ''} disabled={disabled || waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={['boreDiameter', 'mountHoleDiameter', 'crossHoleDiameter'].includes(key) ? 'Ø' : key === 'pedestalOuterRadius' || ['outerCornerRadius', 'neckConcaveRadius', 'neckConvexRadius'].includes(key) ? 'R' : ''} suffix={key === 'mountHoleCount' ? '个' : 'mm'} onChange={(value) => updateModel(key, value)} />)}</div>)}
     <div className="bracket-datum"><span>⌖</span><div><b>配方推导</b><small>圆筒外径 Ø{Number(model.pedestalOuterRadius) * 2 || '—'} · 轴线距后缘 {model.pedestalCenterFromRear || '—'}</small><small>前舌深度 {Number.isFinite(frontTongueDepth) ? frontTongueDepth : '—'} · 低台顶面 Z {Number.isFinite(topZ) ? topZ : '—'}</small><small>高壁顶面 Z {model.totalHeight || '—'} · 盲孔底面 Z {model.boreFloorZ || '—'}</small></div></div>
     {!modelValid && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请检查总高关系、孔壁厚度、底板轮廓及安装孔边距。</span></div>}
     <div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)} disabled={disabled || waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div>
@@ -3384,19 +3360,24 @@ function BracketParameterPanel({ model, modelValid, updateModel, resetModel, dra
       : [`大模型已返回 ${explicitCandidateCount} 项候选值`, '请逐项核对后确认当前快照。']
   const showCandidateNote = candidatePending && (waitingForAnalysis || missingFields.size > 0 || defaultedFields.size > 0)
   return <div className="inspector-content">
-    <div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{waitingForAnalysis ? '上一版本仅保留为预览' : candidatePending ? 'AI 候选数据 · 可编辑确认' : '图纸识别实体 · 证据已锁定'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>
+    <div className="selection-title"><span className="feature-icon orange">⌂</span><div><b>{waitingForAnalysis ? '新图纸 · 待 AI 分析' : model.name}</b><small>{waitingForAnalysis ? '上一版本仅保留为预览' : candidatePending ? 'AI 候选数据 · 可编辑确认' : drawingJob?.evidence ? '图纸参数 · 已确认' : '文字或人工参数草稿'}</small></div><span className={`valid-chip ${candidatePending && missingFields.size ? 'invalid' : ''}`}>{chipLabel}</span></div>
     {showCandidateNote && <div className={`candidate-missing-note ${!waitingForAnalysis && !missingFields.size ? 'candidate-default-note' : ''}`}><b>{candidateMessage[0]}</b><span>{candidateMessage[1]}</span>{!waitingForAnalysis && missingFields.size > 0 && <small>{[...missingFields].slice(0, 5).map((key) => bracketParameterLabels[key] || key).join('、')}{missingFields.size > 5 ? '…' : ''}</small>}</div>}
-    {groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => <NumberField key={key} label={fieldLabel(key, label)} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || (defaultedFields.has(key) ? 'template_default' : '')} disabled={disabled || waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} />)}</div>)}
+    {groups.map((group) => <div className="field-group" key={group.title}><div className="field-group-title">{group.title} <span>单位：mm</span></div>{group.fields.map(([key, label]) => <NumberField fieldKey={key} key={key} label={fieldLabel(key, label)} value={waitingForAnalysis || (candidatePending && missingFields.has(key)) ? '' : model[key]} pending={candidatePending && !waitingForAnalysis} source={candidateSources[key] || (defaultedFields.has(key) ? 'template_default' : '')} disabled={disabled || waitingForAnalysis} placeholder={waitingForAnalysis ? '等待分析' : missingFields.has(key) ? '待补全' : candidatePending ? '待确认' : ''} prefix={key === 'bossDiameter' ? 'Ø' : ''} suffix="mm" onChange={(value) => updateModel(key, value)} />)}</div>)}
     <div className="bracket-datum"><span>⌖</span><div><b>基准定位</b><small>贯穿孔中心：X ±{Math.round(numeric('bossCenterDistance') / 2 || 35)} · Y 0 · Z 0（贯穿至总高）</small><small>鞍槽圆弧中心 Z {Math.round(numeric('totalHeight') || 40)} · 槽底 Z {Math.round((numeric('totalHeight') || 40) - (numeric('notchRadius') || 15))}</small><small>浅槽：Y ±{Math.round(numeric('slotLength') / 2 || 15)} · 底面 Z {Math.round((numeric('totalHeight') || 40) - (numeric('pocketDepth') || 10))}</small></div></div>
     {relationWarning && !waitingForAnalysis && <div className="bracket-constraint"><span>!</span><span>请确认总高关系、上部全宽、浅槽长度/深度和鞍槽开口约束。</span></div>}
     <div className="field-group"><div className="field-group-title">材料</div><div className="select-field"><select value={model.material} onChange={(e) => updateModel('material', e.target.value)} disabled={disabled || waitingForAnalysis}><option>45# 钢</option><option>AL6061 铝合金</option><option>SUS304 不锈钢</option></select><span>⌄</span></div></div>
-    <div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '仅显示大模型候选与人工补全值；确认后才会进入生产实体。' : '所有尺寸均可回溯到上传图纸的视图和校验状态。'}</span></div><button className="reset-link" onClick={resetModel} disabled={disabled || waitingForAnalysis || candidatePending} title={candidatePending ? '确认或编辑当前 AI 候选后才能重置基准' : ''}>↻ 恢复支架基准参数</button>
+    <div className="evidence-mini"><Icon>✓</Icon><span>{waitingForAnalysis ? '先运行 AI 分析，再确认本张图纸的数据。' : candidatePending ? '仅显示大模型候选与人工补全值；确认后才会进入生产实体。' : drawingJob?.evidence ? '已保留候选来源与人工确认状态。' : '当前尺寸来自文字设计或人工编辑；尚无上传图纸证据。'}</span></div><button className="reset-link" onClick={resetModel} disabled={disabled || waitingForAnalysis || candidatePending} title={candidatePending ? '确认或编辑当前 AI 候选后才能重置基准' : ''}>↻ 恢复支架基准参数</button>
   </div>
 }
 
-function NumberField({ label, value, prefix, suffix, onChange, pending = false, source = '', placeholder = '', disabled = false, min = 0.1, step = 0.1 }) { return <label data-candidate-source={source || undefined} className={`number-field ${pending ? 'candidate-pending' : ''} ${source ? `candidate-source-${source}` : ''}`}><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value ?? ''} placeholder={placeholder} type="number" min={min} step={step} disabled={disabled} onChange={(e) => onChange(e.target.value)} /><span className="field-suffix">{suffix}</span></div></label> }
-function FeaturePanel({ features, selectedFeature, setSelectedFeature }) { return <div className="inspector-content feature-tree-panel"><div className="tree-toolbar"><span>特征历史 <b>{features.length}</b></span><button>＋</button></div><div className="feature-tree">{features.map((feature, index) => <button key={feature.id} className={`feature-row ${selectedFeature === feature.id ? 'selected' : ''}`} onClick={() => setSelectedFeature(feature.id)}><span className="tree-line">{index < features.length - 1 ? '│' : '└'}</span><span className="feature-glyph">{feature.icon}</span><span className="feature-label">{feature.label}<small>{feature.meta}</small></span>{selectedFeature === feature.id && <span className="eye">◉</span>}</button>)}</div><div className="feature-note"><Icon>✦</Icon><span>特征树由 AI 生成，可继续描述来添加圆角、阵列或螺纹。</span></div></div> }
-function CheckPanel({ model, modelValid, showToast, backend, generation, drawingJob, generateFromDrawing, acceptDrawingData, setActiveMode, busy = false }) {
+function NumberField({ fieldKey, label, value, prefix, suffix, onChange, pending = false, source = '', placeholder = '', disabled = false, min = 0.1, step = 0.1 }) {
+  const errors = useContext(ParameterErrors)
+  const id = useId()
+  const error = errors.find((item) => item.field === fieldKey)
+  return <label data-candidate-source={source || undefined} className={`number-field ${pending ? 'candidate-pending' : ''} ${source ? `candidate-source-${source}` : ''}`}><span>{label}</span><div><span className="field-prefix">{prefix}</span><input value={value ?? ''} placeholder={placeholder} type="number" min={min} step={step} disabled={disabled} aria-invalid={error ? true : undefined} aria-describedby={error ? id : undefined} onChange={(event) => onChange(event.target.value)} /><span className="field-suffix">{suffix}</span></div>{error && <small id={id} className="parameter-error">{error.message}</small>}</label>
+}
+function FeaturePanel({ features, selectedFeature, setSelectedFeature, onAddFeature }) { return <div className="inspector-content feature-tree-panel"><div className="tree-toolbar"><span>特征历史 <b>{features.length}</b></span><button aria-label="用 AI 修改特征" onClick={onAddFeature}>＋</button></div><div className="feature-tree">{features.map((feature, index) => <button key={feature.id} className={`feature-row ${selectedFeature === feature.id ? 'selected' : ''}`} onClick={() => setSelectedFeature(feature.id)}><span className="tree-line">{index < features.length - 1 ? '│' : '└'}</span><span className="feature-glyph">{feature.icon}</span><span className="feature-label">{feature.label}<small>{feature.meta}</small></span>{selectedFeature === feature.id && <span className="eye">◉</span>}</button>)}</div><div className="feature-note"><Icon>✦</Icon><span>特征树展示当前参数化配方；点击“＋”描述需要的特征，AI 会说明支持范围。</span></div></div> }
+function CheckPanel({ model, modelValid, showToast, backend, generation, drawingJob, generateFromDrawing, acceptDrawingData, setActiveMode, busy = false, checkResult, onRunChecks, parameterErrors = [] }) {
   const metrics = generation?.validation?.metrics || {}
   const kernelReady = productionArtifactsAvailable(generation)
   const evidence = drawingJob?.evidence
@@ -3438,203 +3419,37 @@ function CheckPanel({ model, modelValid, showToast, backend, generation, drawing
     { label: '关键尺寸', status: kernelReady && metrics.bboxLength ? '通过' : generation ? '待校验' : '未运行' },
     { label: '制造可行性', status: kernelReady ? '提示' : '仅预览' },
   ]
-  return <div className="inspector-content check-panel">{evidence && <section className={`check-evidence-card ${evidenceConfirmed ? 'confirmed' : 'needs-review'}`} aria-label="图纸证据确认"><div className="check-evidence-heading"><div><span className="eyebrow">DRAWING EVIDENCE</span><b>{evidenceConfirmed ? '尺寸证据已确认' : 'AI 候选数据待确认'}</b></div><span className={`confidence ${evidenceConfirmed ? 'ready' : ''}`}>{evidence.confidence !== undefined ? `${Math.round(Number(evidence.confidence) * 100)}%` : '—'}</span></div>{analysis.message && <p className="check-analysis-message">{analysis.message}</p>}<div className="check-evidence-rows">{evidenceRows.map(([label, value]) => <div key={label}><span>{evidenceConfirmed ? label : `候选 · ${label}`}</span><b>{value}</b></div>)}</div><p>{evidenceConfirmed ? '来源已锁定；生成实体会继续经过 CadQuery / OCCT 拓扑检查。' : '候选尺寸可在参数面板中逐项编辑；确认数据后，下一步就是生成 3D。'}</p><div className="check-evidence-actions"><button type="button" className={evidenceConfirmed ? 'secondary-button' : 'primary-button'} disabled={busy || !customerReady || drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (evidenceConfirmed) return showToast('尺寸证据已确认'); acceptDrawingData?.() || generateFromDrawing?.() }}>{evidenceConfirmed ? '已确认' : busy ? '处理中…' : '确认数据'} <Icon>↗</Icon></button></div></section>}{!evidence && <div className="check-evidence-empty"><span>⌁</span><b>完成 AI 分析后，这里会显示尺寸证据。</b><small>系统会把来源视图、置信度和确认状态绑定到当前模型版本。</small></div>}<div className="check-summary"><div className={`check-ring ${modelValid && (kernelReady || !generation) ? 'ok' : 'warn'}`}>{modelValid && (kernelReady || !generation) ? '✓' : '!'}</div><div><b>{kernelReady ? 'OCCT 模型检查通过' : modelValid ? '参数检查通过 · 等待内核' : '需要修正参数'}</b><small>{backend?.engine || '浏览器'} · 最近检查：{generation ? '刚刚' : '尚未运行'}</small></div></div>{checks.map((check) => <div className="check-row" key={check.label}><span>{check.label}</span><span className={`check-status ${check.status === '通过' ? 'pass' : check.status === '提示' ? 'hint' : 'warn'}`}>{check.status}</span></div>)}{generation && <div className="kernel-metrics"><span>包络</span><b>{metrics.boundingLength ?? '—'} × {metrics.boundingWidth ?? '—'} × {metrics.boundingHeight ?? '—'} mm</b><span>体积</span><b>{metrics.volumeMm3 ? `${Number(metrics.volumeMm3).toFixed(3)} mm³` : '—'}</b></div>}<button className="primary-outline" onClick={() => showToast(generation ? '已刷新内核检查报告' : '请先生成一个实体模型')}>重新运行检查 <Icon>↗</Icon></button></div>
+  return <div className="inspector-content check-panel">{evidence && <section className={`check-evidence-card ${evidenceConfirmed ? 'confirmed' : 'needs-review'}`} aria-label="图纸证据确认"><div className="check-evidence-heading"><div><span className="eyebrow">DRAWING EVIDENCE</span><b>{evidenceConfirmed ? '尺寸证据已确认' : 'AI 候选数据待确认'}</b></div><span className={`confidence ${evidenceConfirmed ? 'ready' : ''}`}>{evidence.confidence !== undefined ? `${Math.round(Number(evidence.confidence) * 100)}%` : '—'}</span></div>{analysis.message && <p className="check-analysis-message">{analysis.message}</p>}<div className="check-evidence-rows">{evidenceRows.map(([label, value]) => <div key={label}><span>{evidenceConfirmed ? label : `候选 · ${label}`}</span><b>{value}</b></div>)}</div><p>{evidenceConfirmed ? '来源已锁定；生成实体会继续经过 CadQuery / OCCT 拓扑检查。' : '候选尺寸可在参数面板中逐项编辑；确认数据后，下一步就是生成 3D。'}</p><div className="check-evidence-actions"><button type="button" className={evidenceConfirmed ? 'secondary-button' : 'primary-button'} disabled={busy || !customerReady || drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (evidenceConfirmed) return showToast('尺寸证据已确认'); acceptDrawingData?.() || generateFromDrawing?.() }}>{evidenceConfirmed ? '已确认' : busy ? '处理中…' : '确认数据'} <Icon>↗</Icon></button></div></section>}{!evidence && <div className="check-evidence-empty"><span>⌁</span><b>完成 AI 分析后，这里会显示尺寸证据。</b><small>系统会把来源视图、置信度和确认状态绑定到当前模型版本。</small></div>}<div className="check-summary"><div className={`check-ring ${modelValid && (kernelReady || !generation) ? 'ok' : 'warn'}`}>{modelValid && (kernelReady || !generation) ? '✓' : '!'}</div><div><b>{!modelValid ? '需要修正参数' : kernelReady ? 'OCCT 模型检查通过' : checkResult ? (checkResult.valid ? '当前参数检查通过' : '服务校验未通过') : '参数初检通过 · 未运行服务检查'}</b><small>{backend?.engine || '浏览器'} · 最近检查：{checkResult?.checkedAt || (generation ? '生成时' : '尚未运行')}</small></div></div>{parameterErrors.map((error) => <p className="parameter-error" key={error.field + error.message}>{error.message}</p>)}{checkResult && <><p>{checkResult.scope} · {checkResult.checkedAt}</p>{(checkResult.errors || []).map((error, index) => <p className="parameter-error" key={index}>{typeof error === 'string' ? error : error.message}</p>)}</>}{checks.map((check) => <div className="check-row" key={check.label}><span>{check.label}</span><span className={`check-status ${check.status === '通过' ? 'pass' : check.status === '提示' ? 'hint' : 'warn'}`}>{check.status}</span></div>)}{generation && <div className="kernel-metrics"><span>包络</span><b>{metrics.boundingLength ?? '—'} × {metrics.boundingWidth ?? '—'} × {metrics.boundingHeight ?? '—'} mm</b><span>体积</span><b>{metrics.volumeMm3 ? `${Number(metrics.volumeMm3).toFixed(3)} mm³` : '—'}</b></div>}<button className="primary-outline" disabled={busy} onClick={onRunChecks}>{busy ? '检查中…' : '重新运行检查'} <Icon>↗</Icon></button></div>
 }
 
-const svgPointString = (points) => points.map(([x, y]) => `${Number(x).toFixed(2)},${Number(y).toFixed(2)}`).join(' ')
-const finiteDimension = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback
-
-/*
- * A compact, deterministic SVG model for the drawing used in the acceptance
- * test.  It is intentionally based on the same feature dimensions that are
- * shown in the evidence panel, so editing a value immediately updates every
- * view.  The projection is a real axonometric projection (rather than a
- * decorative CSS cube), which keeps the two bosses and the through-notch in
- * the right relative positions.
- */
-function CadModel({ model, section, view }) {
-  if (model.kind === 'bracket') return <BracketCadModel model={model} section={section} view={view} />
-  return <ShaftCadModel model={model} section={section} view={view} />
-}
-
-function BracketCadModel({ model, section, view }) {
-  const L = Math.max(20, finiteDimension(model.baseLength, 100))
-  const W = Math.max(16, finiteDimension(model.baseWidth, 50))
-  const T = Math.max(1, finiteDimension(model.baseThickness, 10))
-  const UL = Math.min(L - 2, Math.max(4, finiteDimension(model.upperLength, 70)))
-  const UW = Math.min(W - 2, Math.max(4, finiteDimension(model.upperWidth, 30)))
-  const requestedHeight = finiteDimension(model.totalHeight, T + finiteDimension(model.upperHeight, 30))
-  const H = Math.max(T + 1, requestedHeight)
-  const opening = Math.min(UL - 2, Math.max(2, finiteDimension(model.notchOpening, 40)))
-  const radius = Math.min(opening / 2, Math.max(1, finiteDimension(model.notchRadius, 15)))
-  const bossDiameter = Math.min(Math.min(L, W) - 2, Math.max(2, finiteDimension(model.bossDiameter, 20)))
-  const bossRadius = bossDiameter / 2
-  const centerDistance = Math.min(L - bossDiameter, Math.max(bossDiameter, finiteDimension(model.bossCenterDistance, 70)))
-  const x0 = (L - UL) / 2
-  const x1 = x0 + UL
-  const y0 = (W - UW) / 2
-  const y1 = y0 + UW
-  const cx = (x0 + x1) / 2
-  const notchLeft = cx - opening / 2
-  const notchRight = cx + opening / 2
-  const arcLeft = cx - radius
-  const arcRight = cx + radius
-  // The drawing's R15 callout is a lower semicircle whose centre lies on the
-  // top datum (Z = total height 40).  Therefore the visible groove bottom is
-  // Z = H - R (25 mm for the acceptance drawing), not the other way around.
-  const arcCenterZ = H
-  const arc = Array.from({ length: 17 }, (_, index) => {
-    const angle = (Math.PI * index) / 16
-    return [cx + radius * Math.cos(angle), arcCenterZ - radius * Math.sin(angle)]
-  })
-  const profile = [
-    [x0, T], [x1, T], [x1, H], [notchRight, H], [notchRight, arcCenterZ], [arcRight, arcCenterZ],
-    ...arc.slice(1, -1), [arcLeft, arcCenterZ], [notchLeft, arcCenterZ], [notchLeft, H], [x0, H],
-  ]
-
-  if (view === 'front') return <BracketFrontView dimensions={{ L, W, T, H, UL, UW, opening, radius, bossDiameter, centerDistance, x0, x1, y0, y1, cx, notchLeft, notchRight, arcLeft, arcRight, arcCenterZ }} section={section} />
-  if (view === 'top') return <BracketTopView dimensions={{ L, W, T, H, UL, UW, opening, radius, bossDiameter, centerDistance, x0, x1, y0, y1, cx, notchLeft, notchRight, arcLeft, arcRight, arcCenterZ }} section={section} />
-
-  const unit = Math.min(2.75, 440 / (L + W))
-  const sx = unit
-  const sy = unit * .54
-  const sz = unit * 1.05
-  const ox = 310 - ((L - W) / 2) * sx
-  const oy = 372 - ((L + W) / 2) * sy
-  const project = (x, y, z) => [ox + (x - y) * sx, oy + (x + y) * sy - z * sz]
-  const baseTop = [project(0, 0, T), project(L, 0, T), project(L, W, T), project(0, W, T)]
-  const baseFront = [project(0, 0, 0), project(L, 0, 0), project(L, 0, T), project(0, 0, T)]
-  const baseRight = [project(L, 0, 0), project(L, W, 0), project(L, W, T), project(L, 0, T)]
-  const upperBack = profile.map(([x, z]) => project(x, y1, z))
-  const upperFront = profile.map(([x, z]) => project(x, y0, z))
-  const upperRight = [project(x1, y0, T), project(x1, y1, T), project(x1, y1, H), project(x1, y0, H)]
-  const topLeft = [project(x0, y0, H), project(notchLeft, y0, H), project(notchLeft, y1, H), project(x0, y1, H)]
-  const topRight = [project(notchRight, y0, H), project(x1, y0, H), project(x1, y1, H), project(notchRight, y1, H)]
-  const ledgeLeft = [project(notchLeft, y0, H), project(arcLeft, y0, arcCenterZ), project(arcLeft, y1, arcCenterZ), project(notchLeft, y1, H)]
-  const ledgeRight = [project(arcRight, y0, arcCenterZ), project(notchRight, y0, H), project(notchRight, y1, H), project(arcRight, y1, arcCenterZ)]
-  const innerLeft = [project(notchLeft, y0, arcCenterZ), project(notchLeft, y1, arcCenterZ), project(notchLeft, y1, H), project(notchLeft, y0, H)]
-  const innerRight = [project(notchRight, y0, H), project(notchRight, y1, H), project(notchRight, y1, arcCenterZ), project(notchRight, y0, arcCenterZ)]
-  const ym = (y0 + y1) / 2
-  const bossCenters = [(L - centerDistance) / 2, (L + centerDistance) / 2]
-  const makeCylinder = (centerX, key) => {
-    const count = 32
-    const top = Array.from({ length: count }, (_, index) => {
-      const angle = (Math.PI * 2 * index) / count
-      return project(centerX + bossRadius * Math.cos(angle), W / 2 + bossRadius * Math.sin(angle), H)
-    })
-    const bottom = Array.from({ length: count }, (_, index) => {
-      const angle = (Math.PI * 2 * index) / count
-      return project(centerX + bossRadius * Math.cos(angle), W / 2 + bossRadius * Math.sin(angle), T)
-    })
-    return <g key={key} className="bracket-boss"><polygon points={svgPointString([...top, ...bottom.slice().reverse()])} fill="url(#bracketBossSide)" stroke="#1a2a3b" strokeWidth="1.25" /><polygon points={svgPointString(top)} fill="url(#bracketBossTop)" stroke="#d8e5f1" strokeWidth="1.45" /><polyline points={svgPointString(top.slice(0, 17))} fill="none" stroke="#8ca9c3" strokeWidth=".8" opacity=".82" /><line x1={project(centerX - bossRadius, W / 2, H)[0]} y1={project(centerX - bossRadius, W / 2, H)[1]} x2={project(centerX + bossRadius, W / 2, H)[0]} y2={project(centerX + bossRadius, W / 2, H)[1]} stroke="#839db8" strokeDasharray="3 3" opacity=".65" /></g>
-  }
-  const baseCenter = project(L / 2, W / 2, 0)
-  const dimension = (a, b, label, labelPoint, key) => <g key={key} className="bracket-dimension"><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} markerStart="url(#bracketArrow)" markerEnd="url(#bracketArrow)" /><text x={labelPoint[0]} y={labelPoint[1]} textAnchor="middle">{label}</text></g>
-
-  return <svg data-testid="bracket-3d-preview" className={`cad-svg bracket-cad ${view}`} viewBox="70 100 480 400" role="img" aria-label="安装支架三维预览"><defs><linearGradient id="bracketBaseTop" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#dce8f2" /><stop offset=".42" stopColor="#9db3c8" /><stop offset="1" stopColor="#526a82" /></linearGradient><linearGradient id="bracketBaseFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#9db3c8" /><stop offset="1" stopColor="#40576d" /></linearGradient><linearGradient id="bracketBaseRight" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#839bb1" /><stop offset="1" stopColor="#344a61" /></linearGradient><linearGradient id="bracketUpperFront" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#b7c9da" /><stop offset=".46" stopColor="#7891a8" /><stop offset="1" stopColor="#4b6279" /></linearGradient><linearGradient id="bracketUpperSide" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#829ab0" /><stop offset="1" stopColor="#344b62" /></linearGradient><linearGradient id="bracketNotchSurface" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7b93a8" /><stop offset=".45" stopColor="#40566d" /><stop offset="1" stopColor="#23394d" /></linearGradient><linearGradient id="bracketBossSide" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#71899f" /><stop offset=".5" stopColor="#40566c" /><stop offset="1" stopColor="#22384d" /></linearGradient><linearGradient id="bracketBossTop" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f0f5fa" /><stop offset=".5" stopColor="#9db4c8" /><stop offset="1" stopColor="#5c748c" /></linearGradient><pattern id="bracketHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(25)"><line x1="0" y1="0" x2="0" y2="8" stroke="#ffc078" strokeWidth="2" opacity=".7" /></pattern><filter id="bracketShadow" x="-30%" y="-30%" width="160%" height="180%"><feGaussianBlur stdDeviation="10" /></filter><marker id="bracketArrow" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#e4a45e" /></marker></defs><ellipse cx={baseCenter[0]} cy={baseCenter[1] + 22} rx={Math.max(100, L * sx * .62)} ry={Math.max(18, W * sy * .3)} fill="#050c15" opacity=".65" filter="url(#bracketShadow)" /><g className="bracket-solid"><polygon points={svgPointString(baseTop)} fill="url(#bracketBaseTop)" stroke="#d6e4f0" strokeWidth="1.6" /><polygon points={svgPointString(baseFront)} fill="url(#bracketBaseFront)" stroke="#243a50" strokeWidth="1.2" /><polygon points={svgPointString(baseRight)} fill="url(#bracketBaseRight)" stroke="#22384d" strokeWidth="1.2" /><polygon points={svgPointString(upperBack)} fill="#536a80" stroke="#273e54" strokeWidth="1.1" /><polygon points={svgPointString(upperRight)} fill="url(#bracketUpperSide)" stroke="#22384d" strokeWidth="1.35" /><polygon points={svgPointString(topLeft)} fill="url(#bracketBaseTop)" stroke="#d1dfeb" strokeWidth="1.2" /><polygon points={svgPointString(topRight)} fill="url(#bracketBaseTop)" stroke="#d1dfeb" strokeWidth="1.2" /><polygon points={svgPointString(ledgeLeft)} fill="#526a80" stroke="#253c52" strokeWidth="1" /><polygon points={svgPointString(ledgeRight)} fill="#526a80" stroke="#253c52" strokeWidth="1" /><polygon points={svgPointString(upperFront)} fill="url(#bracketUpperFront)" stroke="#d2e0ec" strokeWidth="1.55" /></g><g className="bracket-notch-inner">{arc.slice(0, -1).map((point, index) => { const next = arc[index + 1]; const quad = [project(point[0], y0, point[1]), project(next[0], y0, next[1]), project(next[0], y1, next[1]), project(point[0], y1, point[1])]; return <polygon key={`arc-${index}`} points={svgPointString(quad)} fill={section ? 'url(#bracketHatch)' : 'url(#bracketNotchSurface)'} stroke="#293f54" strokeWidth=".72" /> })}<polygon points={svgPointString(innerLeft)} fill="#3a5066" stroke="#22384d" strokeWidth=".8" /><polygon points={svgPointString(innerRight)} fill="#415a70" stroke="#22384d" strokeWidth=".8" /></g>{bossCenters.map((centerX, index) => makeCylinder(centerX, `boss-${index}`))}{section && <g className="bracket-section-plane"><polygon points={svgPointString([project(x0, ym, T), project(x1, ym, T), project(x1, ym, H), project(x0, ym, H)])} fill="url(#bracketHatch)" opacity=".42" stroke="#f2ae62" strokeDasharray="4 3" /><text x={project(x1 + 8, ym, H - 4)[0]} y={project(x1 + 8, ym, H - 4)[1]} fill="#f2b16a" fontSize="10">剖切面</text></g>}<g className="bracket-center-lines" stroke="#8fb0cf" strokeDasharray="4 4" opacity=".68"><line x1={project(cx, y0 - 1, T)[0]} y1={project(cx, y0 - 1, T)[1]} x2={project(cx, y1 + 1, T)[0]} y2={project(cx, y1 + 1, T)[1]} /><line x1={project(0, W / 2, T)[0]} y1={project(0, W / 2, T)[1]} x2={project(L, W / 2, T)[0]} y2={project(L, W / 2, T)[1]} /></g><g className="bracket-dimensions" stroke="#e4a45e" fill="#e4a45e" strokeWidth="1"><line x1={project(0, -8, -3)[0]} y1={project(0, -8, -3)[1]} x2={project(L, -8, -3)[0]} y2={project(L, -8, -3)[1]} markerStart="url(#bracketArrow)" markerEnd="url(#bracketArrow)" /><text x={project(L / 2, -8, -3)[0]} y={project(L / 2, -8, -3)[1] - 7} fontSize="11" textAnchor="middle">{Math.round(L)} mm</text><line x1={project(-8, 0, -3)[0]} y1={project(-8, 0, -3)[1]} x2={project(-8, W, -3)[0]} y2={project(-8, W, -3)[1]} markerStart="url(#bracketArrow)" markerEnd="url(#bracketArrow)" /><text x={project(-8, W / 2, -3)[0] - 8} y={project(-8, W / 2, -3)[1]} fontSize="10" textAnchor="end">{Math.round(W)} mm</text><line x1={project(-11, -4, 0)[0]} y1={project(-11, -4, 0)[1]} x2={project(-11, -4, H)[0]} y2={project(-11, -4, H)[1]} markerStart="url(#bracketArrow)" markerEnd="url(#bracketArrow)" /><text x={project(-11, -4, H / 2)[0] - 9} y={project(-11, -4, H / 2)[1]} fontSize="10" textAnchor="end">{Math.round(H)} mm</text><line x1={project(notchLeft, y0 - 4, H + 6)[0]} y1={project(notchLeft, y0 - 4, H + 6)[1]} x2={project(notchRight, y0 - 4, H + 6)[0]} y2={project(notchRight, y0 - 4, H + 6)[1]} markerStart="url(#bracketArrow)" markerEnd="url(#bracketArrow)" /><text x={project(cx, y0 - 4, H + 6)[0]} y={project(cx, y0 - 4, H + 6)[1] - 7} fontSize="10" textAnchor="middle">开口 {Math.round(opening)}</text><line x1={project(cx, y0 - 2, arcCenterZ - radius)[0]} y1={project(cx, y0 - 2, arcCenterZ - radius)[1]} x2={project(cx + 30, y0 - 2, arcCenterZ - radius - 5)[0]} y2={project(cx + 30, y0 - 2, arcCenterZ - radius - 5)[1]} /><text x={project(cx + 30, y0 - 2, arcCenterZ - radius - 5)[0] + 5} y={project(cx + 30, y0 - 2, arcCenterZ - radius - 5)[1]} fontSize="10">R{Math.round(radius)}</text><line x1={project(bossCenters[1], W / 2, H)[0]} y1={project(bossCenters[1], W / 2, H)[1]} x2={project(bossCenters[1] + 18, W / 2, H + 14)[0]} y2={project(bossCenters[1] + 18, W / 2, H + 14)[1]} /><text x={project(bossCenters[1] + 18, W / 2, H + 14)[0] + 5} y={project(bossCenters[1] + 18, W / 2, H + 14)[1]} fontSize="10">2 × Ø{Math.round(bossDiameter)}</text></g><g fill="#a8bfd4" fontSize="10"><text x="78" y="118" fill="#8da9c4" fontFamily="DM Mono">BRACKET · ISO</text><text x="78" y="133" fill="#607d9b">实体预览 · 参数驱动</text></g></svg>
-}
-
-function BracketFrontView({ dimensions: d, section }) {
-  const { L, T, H, UL, opening, radius, bossDiameter, x0, x1, cx, notchLeft, notchRight, arcLeft, arcRight, arcCenterZ } = d
-  const scale = Math.min(3.65, 450 / L)
-  const left = 310 - (L * scale) / 2
-  const baseY = 407
-  const X = (value) => left + value * scale
-  const Z = (value) => baseY - value * scale
-  const upperPath = `M ${X(x0)} ${Z(T)} L ${X(x1)} ${Z(T)} L ${X(x1)} ${Z(H)} L ${X(notchRight)} ${Z(H)} L ${X(notchRight)} ${Z(arcCenterZ)} L ${X(arcRight)} ${Z(arcCenterZ)} A ${radius * scale} ${radius * scale} 0 0 1 ${X(arcLeft)} ${Z(arcCenterZ)} L ${X(notchLeft)} ${Z(arcCenterZ)} L ${X(notchLeft)} ${Z(H)} L ${X(x0)} ${Z(H)} Z`
-  const dim = (x1a, y1a, x2a, y2a, label, tx, ty, key) => <g key={key} className="bracket-dimension"><line x1={x1a} y1={y1a} x2={x2a} y2={y2a} markerStart="url(#frontArrow)" markerEnd="url(#frontArrow)" /><text x={tx} y={ty} textAnchor="middle">{label}</text></g>
-  const bossR = (bossDiameter / 2) * scale
-  const bossOne = X((L - d.centerDistance) / 2)
-  const bossTwo = X((L + d.centerDistance) / 2)
-  return <svg className="cad-svg bracket-cad bracket-front" viewBox="0 0 620 520" role="img" aria-label="安装支架前视图"><defs><linearGradient id="frontMetal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#dce8f2" /><stop offset=".5" stopColor="#8299ae" /><stop offset="1" stopColor="#40576c" /></linearGradient><pattern id="frontHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(25)"><line x1="0" y1="0" x2="0" y2="8" stroke="#f3ad62" strokeWidth="2" /></pattern><marker id="frontArrow" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#e4a45e" /></marker></defs><rect x="22" y="20" width="576" height="470" rx="8" fill="#101b29" stroke="#2c435c" /><text x="42" y="48" fill="#8ea8c2" fontSize="11" fontFamily="DM Mono">BRACKET · FRONT / 主视图</text><rect x={X(0)} y={Z(T)} width={L * scale} height={T * scale} fill="url(#frontMetal)" stroke="#d4e2ed" strokeWidth="1.6" /><rect x={X((L - d.bossDiameter) / 2)} y={Z(H)} width={d.bossDiameter * scale} height={(H - T) * scale} fill="#617990" opacity=".38" stroke="#91a9c0" strokeDasharray="4 3" /><path d={upperPath} fill="url(#frontMetal)" stroke="#d8e5ef" strokeWidth="1.7" />{section && <path d={upperPath} fill="url(#frontHatch)" opacity=".4" />}<line x1={X(cx)} y1={Z(-2)} x2={X(cx)} y2={Z(H + 5)} stroke="#80a8ce" strokeDasharray="5 4" opacity=".7" /><g className="bracket-dimensions" stroke="#e4a45e" fill="#e4a45e" strokeWidth="1">{dim(X(0), Z(-12), X(L), Z(-12), `${Math.round(L)} mm`, X(L / 2), Z(-12) - 7, 'length')}{dim(X(x0), Z(H + 10), X(x1), Z(H + 10), `${Math.round(UL)} mm`, X((x0 + x1) / 2), Z(H + 10) - 7, 'upper')}{dim(X(notchLeft), Z(H + 18), X(notchRight), Z(H + 18), `开口 ${Math.round(opening)}`, X(cx), Z(H + 18) - 7, 'opening')}<line x1={X(-13)} y1={Z(0)} x2={X(-13)} y2={Z(H)} markerStart="url(#frontArrow)" markerEnd="url(#frontArrow)" /><text x={X(-16)} y={Z(H / 2)} textAnchor="end">总高 {Math.round(H)}</text><line x1={X(-4)} y1={Z(0)} x2={X(-4)} y2={Z(T)} markerStart="url(#frontArrow)" markerEnd="url(#frontArrow)" /><text x={X(-7)} y={Z(T / 2)} textAnchor="end">{Math.round(T)}</text><line x1={X(cx)} y1={Z(arcCenterZ - radius)} x2={X(cx + 25)} y2={Z(arcCenterZ - radius - 5)} /><text x={X(cx + 27)} y={Z(arcCenterZ - radius - 5)}>R{Math.round(radius)}</text></g><g fill="#8fa8c1" fontSize="10"><text x="42" y="476">尺寸单位：mm · U 型缺口贯穿上部实体深度</text><text x="472" y="48" fill="#6d8bab">{section ? 'SECTION ON' : 'SECTION OFF'}</text></g></svg>
-}
-
-function BracketTopView({ dimensions: d, section }) {
-  const { L, W, T, H, UL, UW, opening, radius, bossDiameter, centerDistance, x0, x1, y0, y1, cx, notchLeft, notchRight } = d
-  const scale = Math.min(3.8, 430 / L, 270 / W)
-  const left = 310 - (L * scale) / 2
-  const top = 245 - (W * scale) / 2
-  const X = (value) => left + value * scale
-  const Y = (value) => top + value * scale
-  const r = bossDiameter * scale / 2
-  const bossOne = (L - centerDistance) / 2
-  const bossTwo = (L + centerDistance) / 2
-  const dim = (x1a, y1a, x2a, y2a, label, tx, ty, key) => <g key={key} className="bracket-dimension"><line x1={x1a} y1={y1a} x2={x2a} y2={y2a} markerStart="url(#topArrow)" markerEnd="url(#topArrow)" /><text x={tx} y={ty} textAnchor="middle">{label}</text></g>
-  return <svg className="cad-svg bracket-cad bracket-top" viewBox="0 0 620 520" role="img" aria-label="安装支架俯视图"><defs><linearGradient id="topMetal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#dce8f2" /><stop offset=".48" stopColor="#8ba2b8" /><stop offset="1" stopColor="#4a6278" /></linearGradient><pattern id="topHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(25)"><line x1="0" y1="0" x2="0" y2="8" stroke="#f3ad62" strokeWidth="2" /></pattern><marker id="topArrow" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#e4a45e" /></marker></defs><rect x="22" y="20" width="576" height="470" rx="8" fill="#101b29" stroke="#2c435c" /><text x="42" y="48" fill="#8ea8c2" fontSize="11" fontFamily="DM Mono">BRACKET · TOP / 俯视图</text><rect x={X(0)} y={Y(0)} width={L * scale} height={W * scale} fill="url(#topMetal)" stroke="#d4e2ed" strokeWidth="1.7" /><rect x={X(x0)} y={Y(y0)} width={UL * scale} height={UW * scale} fill="#70889e" opacity=".86" stroke="#e0ebf3" strokeWidth="1.35" /><path d={`M ${X(notchLeft)} ${Y(y0)} L ${X(notchRight)} ${Y(y0)} L ${X(notchRight)} ${Y(y1)} L ${X(notchLeft)} ${Y(y1)} Z`} fill={section ? 'url(#topHatch)' : '#263e54'} opacity=".78" stroke="#c4d6e4" strokeDasharray="4 3" /><circle cx={X(bossOne)} cy={Y(W / 2)} r={r} fill="#b6c8d7" stroke="#243b51" strokeWidth="1.4" /><circle cx={X(bossTwo)} cy={Y(W / 2)} r={r} fill="#b6c8d7" stroke="#243b51" strokeWidth="1.4" /><circle cx={X(bossOne)} cy={Y(W / 2)} r={r * .38} fill="#223b53" opacity=".78" /><circle cx={X(bossTwo)} cy={Y(W / 2)} r={r * .38} fill="#223b53" opacity=".78" /><g stroke="#7da5cb" strokeDasharray="5 4" opacity=".72"><line x1={X(0)} y1={Y(W / 2)} x2={X(L)} y2={Y(W / 2)} /><line x1={X(bossOne)} y1={Y(0)} x2={X(bossOne)} y2={Y(W)} /><line x1={X(bossTwo)} y1={Y(0)} x2={X(bossTwo)} y2={Y(W)} /></g><g className="bracket-dimensions" stroke="#e4a45e" fill="#e4a45e" strokeWidth="1">{dim(X(0), Y(W + 13), X(L), Y(W + 13), `${Math.round(L)} mm`, X(L / 2), Y(W + 13) - 7, 'length')}{dim(X(-13), Y(0), X(-13), Y(W), `${Math.round(W)} mm`, X(-13) - 8, Y(W / 2), 'width')}<line x1={X(bossOne)} y1={Y(W + 7)} x2={X(bossTwo)} y2={Y(W + 7)} markerStart="url(#topArrow)" markerEnd="url(#topArrow)" /><text x={X(L / 2)} y={Y(W + 7) - 7} textAnchor="middle">中心距 {Math.round(centerDistance)}</text><line x1={X(bossTwo) + r} y1={Y(W / 2)} x2={X(bossTwo) + r + 32} y2={Y(W / 2) - 22} /><text x={X(bossTwo) + r + 36} y={Y(W / 2) - 24}>2 × Ø{Math.round(bossDiameter)}</text></g><g fill="#8fa8c1" fontSize="10"><text x="42" y="476">底板 {Math.round(L)} × {Math.round(W)} × {Math.round(T)} · 上部投影 {Math.round(UL)} × {Math.round(UW)}</text><text x="475" y="48" fill="#6d8bab">H={Math.round(H)}</text></g></svg>
-}
-
-function ShaftCadModel({ model, section, view }) {
-  const bodyHeight = Math.max(100, Math.min(260, finiteDimension(model.length, 70) * 3.1)); const bodyWidth = Math.max(96, Math.min(210, finiteDimension(model.outerDiameter, 24) * 5.5)); const hole = Math.max(12, Math.min(60, finiteDimension(model.holeDiameter, 10) * 2.2));
-  return <svg className={`cad-svg ${view}`} viewBox="0 0 420 420" role="img" aria-label="参数化轴三维预览"><defs><linearGradient id="metal" x1="0" x2="1"><stop offset="0" stopColor="#718096" /><stop offset=".22" stopColor="#d8e2ed" /><stop offset=".5" stopColor="#8fa0b5" /><stop offset=".76" stopColor="#e8eef4" /><stop offset="1" stopColor="#5d7088" /></linearGradient><linearGradient id="metalDark" x1="0" x2="1"><stop offset="0" stopColor="#53667e" /><stop offset=".5" stopColor="#afbdd0" /><stop offset="1" stopColor="#485b72" /></linearGradient><filter id="shadow"><feGaussianBlur stdDeviation="8" /></filter></defs><ellipse cx="210" cy="352" rx={bodyWidth * .72} ry="20" fill="#08101c" opacity=".6" filter="url(#shadow)" /><g transform={view === 'front' ? 'translate(35 4) rotate(-2 210 210)' : view === 'top' ? 'translate(0 54)' : 'translate(0 0)'}><ellipse cx="210" cy={210 - bodyHeight / 2} rx={bodyWidth / 2} ry="34" fill="url(#metalDark)" stroke="#d6e2ef" strokeWidth="2" /><rect x={210 - bodyWidth / 2} y={210 - bodyHeight / 2} width={bodyWidth} height={bodyHeight} rx="10" fill="url(#metal)" stroke="#b7c9dc" strokeWidth="2" /><ellipse cx="210" cy={210 + bodyHeight / 2} rx={bodyWidth / 2} ry="34" fill="url(#metalDark)" stroke="#9db0c7" strokeWidth="2" /><ellipse cx="210" cy={210 - bodyHeight / 2} rx={hole / 2} ry="10" fill="#111c2b" stroke="#d7e5f3" strokeWidth="2" /><ellipse cx="210" cy={210 + bodyHeight / 2} rx={hole / 2} ry="10" fill="#182537" stroke="#9db0c7" strokeWidth="2" /><path d={`M ${210 - finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 - 3} L ${210 + finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 - 3} L ${210 + finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 + finiteDimension(model.keywayLength, 40) * 1.8} L ${210 - finiteDimension(model.keywayWidth, 6) * 2.4} ${210 - bodyHeight / 2 + finiteDimension(model.keywayLength, 40) * 1.8} Z`} fill={section ? '#ffb65c' : '#34465d'} opacity=".85" /><line x1={210 - bodyWidth / 2 - 24} y1={210 - bodyHeight / 2} x2={210 - bodyWidth / 2 - 24} y2={210 + bodyHeight / 2} stroke="#6f89a7" strokeDasharray="3 5" /><line x1="102" y1={210 - bodyHeight / 2} x2="102" y2={210 + bodyHeight / 2} stroke="#87a1c0" strokeWidth="1" /><text x="78" y="205" fill="#91a7c0" fontSize="11" textAnchor="middle">{model.length}</text><text x="210" y={182 - bodyHeight / 2} fill="#a8bad0" fontSize="11" textAnchor="middle">Ø{model.outerDiameter}</text></g></svg>
-}
-
-function DrawingWorkspace(props) {
-  return props.model?.kind === 'bracket' ? <BracketDrawingWorkspace {...props} /> : <ShaftDrawingWorkspace {...props} />
-}
-
-function BracketDrawingWorkspace({ model, drawingScale, setDrawingScale, exportFile, showToast }) {
-  const L = Number(model.baseLength) || 100; const W = Number(model.baseWidth) || 50; const T = Number(model.baseThickness) || 10; const H = Number(model.totalHeight) || 40; const R = Number(model.notchRadius) || 15
-  return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">2D DRAWING · LINKED MODEL</span><h1>{model.name} · 工程图</h1><p>当前视图绑定安装支架实体 · 尺寸来源与 3D 模型同步</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('已创建工程图新版本')}>＋ 新建版本</button><button className="primary-button" onClick={() => exportFile('dxf')}>导出 DXF <Icon>↓</Icon></button></div></div><div className="drawing-layout"><div className="drawing-canvas panel-card"><div className="drawing-toolbar"><div><button className="selected">选择</button><button onClick={() => showToast('标注工具将在下一版开放')}>标注</button><button onClick={() => showToast('图层面板已打开')}>图层</button></div><label>比例 <select value={drawingScale} onChange={(e) => setDrawingScale(e.target.value)}><option>1:1</option><option>1:2</option><option>2:1</option></select></label></div><svg className="drawing-svg bracket-drawing-svg" viewBox="0 0 780 500" role="img" aria-label="安装支架三视图"><rect x="25" y="25" width="730" height="450" fill="#121a26" stroke="#34465d" /><text x="52" y="58" fill="#9fb2c9" fontSize="13">JOYNIU NEWCAD · BRACKET DRAWING</text><g stroke="#c8d6e5" fill="none" strokeWidth="2"><path d="M95 205V125H190Q215 125 240 125H335V205H390V250H40V205Z" /><path d="M95 125V205M335 125V205M165 125Q190 190 215 190Q240 190 265 125" stroke="#e8a85e" /><rect x="95" y="310" width="240" height="105" /><circle cx="130" cy="362" r="23" stroke="#80a9d4" /><circle cx="300" cy="362" r="23" stroke="#80a9d4" /><rect x="180" y="337" width="24" height="55" stroke="#80a9d4" /><rect x="226" y="337" width="24" height="55" stroke="#80a9d4" /><rect x="480" y="130" width="175" height="120" /><line x1="480" y1="188" x2="655" y2="188" strokeDasharray="4 4" /><line x1="568" y1="130" x2="568" y2="250" strokeDasharray="4 4" /></g><g stroke="#e8a85e" fill="#e8a85e" strokeWidth="1"><line x1="95" y1="95" x2="335" y2="95" /><path d="M95 95l8-4v8zM335 95l-8-4v8z" /><line x1="95" y1="435" x2="335" y2="435" /><path d="M95 435l8-4v8zM335 435l-8-4v8z" /><line x1="365" y1="125" x2="365" y2="250" /><path d="M365 125l-4 8h8zM365 250l-4-8h8z" /></g><g fill="#e8a85e" fontSize="12"><text x="215" y="86" textAnchor="middle">上部长度 {Number(model.upperLength) || 70}</text><text x="215" y="457" textAnchor="middle">底板长度 {L}</text><text x="378" y="190">总高 {H}</text><text x="185" y="215">R{R} 鞍槽</text><text x="568" y="272" textAnchor="middle">中心距 {Number(model.bossCenterDistance) || 70}</text></g><g fill="#7f93ad" fontSize="11"><text x="95" y="275">主视图</text><text x="95" y="430">俯视图 · {W} mm</text><text x="480" y="275">右视图 · {T} mm</text><text x="570" y="445">比例 {drawingScale}</text></g></svg><div className="drawing-legend"><span><i className="legend-line" /> 尺寸标注 7</span><span><i className="legend-dot" /> AI 识别来源 16</span><span><i className="legend-warn" /> 待确认 0</span></div></div><aside className="drawing-inspector panel-card"><div className="inspector-title"><b>图纸属性</b><button aria-label="图纸属性" onClick={() => showToast('图纸属性已保存')}>⋯</button></div><div className="drawing-status"><span className="status-dot" /> 尺寸验证通过</div><div className="drawing-field"><span>图纸名称</span><b>{model.name} · 工程图</b></div><div className="drawing-field"><span>来源模型</span><b>{model.name}</b></div><div className="drawing-field"><span>关键尺寸</span><b>{L} × {W} × {H} mm</b></div><div className="drawing-field"><span>特征</span><b>鞍槽 · 浅槽 ×2 · 贯穿孔 ×2</b></div><button className="primary-outline full" onClick={() => showToast('已运行 2D 尺寸检查')}>运行尺寸检查 <Icon>↗</Icon></button></aside></div></div>
-}
-
-function ShaftDrawingWorkspace({ model, drawingScale, setDrawingScale, exportFile, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">2D DRAWING</span><h1>{model.name} · 工程图</h1><p>自动生成三视图 · 尺寸与来源可追溯</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('已创建工程图新版本')}>＋ 新建版本</button><button className="primary-button" onClick={() => exportFile('dxf')}>导出 DXF <Icon>↓</Icon></button></div></div><div className="drawing-layout"><div className="drawing-canvas panel-card"><div className="drawing-toolbar"><div><button className="selected">选择</button><button onClick={() => showToast('标注工具将在下一版开放')}>标注</button><button onClick={() => showToast('图层面板已打开')}>图层</button></div><label>比例 <select value={drawingScale} onChange={(e) => setDrawingScale(e.target.value)}><option>1:1</option><option>1:2</option><option>2:1</option></select></label></div><svg className="drawing-svg" viewBox="0 0 780 500"><rect x="25" y="25" width="730" height="450" fill="#121a26" stroke="#34465d" /><text x="52" y="58" fill="#9fb2c9" fontSize="13">JOYNIU NEWCAD · 2D WORKBENCH</text><g stroke="#c8d6e5" fill="none" strokeWidth="2"><rect x="100" y="130" width="230" height="76" rx="8" /><line x1="215" y1="130" x2="215" y2="206" /><circle cx="150" cy="168" r="25" stroke="#80a9d4" /><circle cx="280" cy="168" r="25" stroke="#80a9d4" /><rect x="100" y="296" width="230" height="54" rx="5" /><line x1="100" y1="323" x2="330" y2="323" strokeDasharray="4 5" /><circle cx="215" cy="323" r="16" stroke="#80a9d4" /><rect x="450" y="125" width="178" height="84" rx="8" /><circle cx="539" cy="167" r="26" stroke="#80a9d4" /><line x1="539" y1="125" x2="539" y2="209" strokeDasharray="4 4" /></g><g stroke="#e8a85e" fill="#e8a85e" strokeWidth="1"><line x1="100" y1="105" x2="330" y2="105" /><path d="M100 105l8-4v8zM330 105l-8-4v8z" /><line x1="215" y1="105" x2="215" y2="130" strokeDasharray="3 4" /><line x1="100" y1="372" x2="330" y2="372" /><path d="M100 372l8-4v8zM330 372l-8-4v8z" /><line x1="674" y1="125" x2="674" y2="209" /><path d="M674 125l-4 8h8zM674 209l-4-8h8z" /></g><g fill="#e8a85e" fontSize="12"><text x="215" y="96" textAnchor="middle">Ø{model.outerDiameter} h7</text><text x="215" y="393" textAnchor="middle">总长 {model.length}</text><text x="688" y="171">通孔 Ø{model.holeDiameter}</text><text x="106" y="120">A</text><text x="460" y="120">B</text><text x="106" y="285">C</text></g><g fill="#7f93ad" fontSize="11"><text x="100" y="235">主视图</text><text x="100" y="376">俯视图</text><text x="450" y="235">左视图</text><text x="570" y="445">比例 {drawingScale}</text></g></svg><div className="drawing-legend"><span><i className="legend-line" /> 尺寸标注 4</span><span><i className="legend-dot" /> AI 识别来源 6</span><span><i className="legend-warn" /> 待确认 0</span></div></div><aside className="drawing-inspector panel-card"><div className="inspector-title"><b>图纸属性</b><button aria-label="图纸属性" onClick={() => showToast('图纸属性已保存')}>⋯</button></div><div className="drawing-status"><span className="status-dot" /> 尺寸验证通过</div><div className="drawing-field"><span>图纸名称</span><b>{model.name} · 工程图</b></div><div className="drawing-field"><span>来源模型</span><b>{model.name}</b></div><div className="drawing-field"><span>视图数量</span><b>3 个视图</b></div><div className="drawing-field"><span>标注尺寸</span><b>6 个</b></div><div className="layer-list"><div className="field-group-title">图层</div>{[['DIM', '尺寸标注', '#e8a85e'], ['CENTER', '中心线', '#80a9d4'], ['OBJECT', '可见轮廓', '#c8d6e5']].map(([id, name, color]) => <div className="layer-row" key={id}><span className="layer-color" style={{ background: color }} /><span>{id}</span><small>{name}</small><button aria-label={`${name}图层`} onClick={() => showToast(`${name}图层已切换`)}>◉</button></div>)}</div><button className="primary-outline full" onClick={() => showToast('已运行 2D 尺寸检查')}>运行尺寸检查 <Icon>↗</Icon></button></aside></div></div> }
-
-function AssemblyWorkspace(props) {
-  if (props.model?.kind === 'bracket') {
-    return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">ASSEMBLY WORKSPACE</span><h1>{props.model.name} · 装配</h1><p>当前项目还没有装配实例。先在 3D 设计工作台完成实体，再添加配合关系。</p></div><div className="heading-actions"><button className="primary-button" onClick={() => props.showToast('请先返回 3D 建模并保存一个实体版本')}>返回 3D 设计 <Icon>↗</Icon></button></div></div><div className="assembly-empty panel-card"><div className="quick-start-icon">◈</div><h2>尚未创建装配</h2><p>安装支架是单个零件。装配树、同轴配合和干涉检查会在添加第二个零件后显示。</p><button className="secondary-button" onClick={() => props.showToast('标准件库可用于添加轴承、紧固件等实例')}>去标准件库</button></div></div>
-  }
-  return <LegacyAssemblyWorkspace {...props} />
-}
-
-function LegacyAssemblyWorkspace({ model, assemblyChecked, setAssemblyChecked, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">ASSEMBLY AGENT</span><h1>{model.name} · 装配</h1><p>2 个实例 · 1 个同轴配合 · 0 个干涉</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('装配向导已打开')}>✦ 装配 Agent</button><button className="primary-button" onClick={() => { setAssemblyChecked(true); showToast('装配检查完成') }}>运行检查 <Icon>↗</Icon></button></div></div><div className="assembly-grid"><div className="assembly-view panel-card"><div className="assembly-toolbar"><span><i className="live-dot" /> 实时装配预览</span><div><button onClick={() => showToast('已切换爆炸视图')}>爆炸视图</button><button onClick={() => showToast('已打开截面分析')}>截面</button></div></div><div className="assembly-scene"><div className="assembly-axis-line" /><div className="assembly-part bearing"><div className="bearing-ring" /><span>6204 轴承</span></div><div className="assembly-part shaft"><div className="shaft-body" /><span>{model.name}</span></div><div className="assembly-part washer"><div className="washer-ring" /><span>垫圈</span></div></div><div className="assembly-footer"><span>拖拽零件调整位置</span><span>同轴度 <b>0.02 mm</b></span></div></div><aside className="assembly-inspector panel-card"><div className="inspector-title"><b>装配树</b><span className="muted">2 实例</span></div><div className="assembly-tree"><div className="assembly-node root"><Icon>▣</Icon><span>{model.name} · 组件</span></div><div className="assembly-node"><span className="tree-branch">└</span><Icon>◉</Icon><div><b>{model.name}</b><small>实例 01 · 固定</small></div><span className="node-badge">固定</span></div><div className="assembly-node"><span className="tree-branch">└</span><Icon>◉</Icon><div><b>深沟球轴承 6204</b><small>实例 02 · 可移动</small></div></div></div><div className="mates"><div className="field-group-title">配合关系 <b>1</b></div><div className="mate-card"><span className="mate-icon">◎</span><div><b>同轴配合</b><small>轴 · 圆柱面 ↔ 轴承 · 内圈</small></div><span className="check-status pass">通过</span></div></div><div className={`assembly-check ${assemblyChecked ? 'checked' : ''}`}><span>{assemblyChecked ? '✓' : 'i'}</span>{assemblyChecked ? '装配检查通过，未发现干涉。' : '运行检查以验证间隙与配合。'}</div></aside></div></div> }
-
-function LibraryWorkspace({ libraryQuery, setLibraryQuery, libraryGroup, setLibraryGroup, filteredLibrary, insertLibrary, showToast }) { return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">STANDARD LIBRARY</span><h1>标准件库</h1><p>常用机械件已按国标整理，可直接插入当前项目</p></div><div className="heading-actions"><button className="secondary-button" onClick={() => showToast('标准件同步完成 · 1,248 项')}>↻ 同步库</button><button className="primary-button" onClick={() => showToast('已打开自定义标准件向导')}>＋ 自定义零件</button></div></div><div className="library-layout"><div className="library-main panel-card"><div className="library-toolbar"><div className="search-box"><Icon>⌕</Icon><input value={libraryQuery} onChange={(e) => setLibraryQuery(e.target.value)} placeholder="搜索名称、规格或国标号" /></div><div className="library-filters">{['全部', '紧固件', '轴承', '定位件'].map((group) => <button className={libraryGroup === group ? 'selected' : ''} key={group} onClick={() => setLibraryGroup(group)}>{group}</button>)}</div></div><div className="library-grid">{filteredLibrary.map((item) => <div className="library-card" key={item.name}><div className="library-icon">{item.icon}</div><div className="library-card-copy"><b>{item.name}</b><span>{item.spec}</span><small>{item.group} · GB/T 推荐</small></div><button className="insert-button" onClick={() => insertLibrary(item)}>插入</button></div>)}{filteredLibrary.length === 0 && <div className="empty-state">没有找到匹配的标准件，试试搜索 “M8” 或 “轴承”。</div>}</div></div><aside className="library-side panel-card"><div className="inspector-title"><b>项目零件库</b><span className="muted">3 个</span></div><div className="project-part"><span className="part-preview shaft-mini" /><div><b>动力轴 · 版本 04</b><small>当前模型</small></div><span className="part-check">✓</span></div><div className="project-part"><span className="part-preview bearing-mini" /><div><b>深沟球轴承 6204</b><small>已插入 · 实例 02</small></div><span className="part-check">✓</span></div><div className="project-part"><span className="part-preview washer-mini" /><div><b>弹簧垫圈 M8</b><small>最近使用</small></div><span className="part-check muted">＋</span></div><div className="library-tip"><Icon>✦</Icon><span>从标准件库插入的零件会保留规格来源，方便后续替换和追溯。</span></div></aside></div></div> }
-
-function ProjectWorkspace({ selectedProject, files, setFiles, setActiveMode, exportFile, showToast }) {
-  const [query, setQuery] = useState('')
-  const visibleFiles = files.filter((file) => `${file.name}${file.type}`.includes(query))
-  const addFile = () => { const number = files.length + 1; setFiles((prev) => [{ id: `f${Date.now()}`, name: `未命名零件 ${number}`, type: '零件', size: '—', version: 'v01', updated: '刚刚', status: '仅本地' }, ...prev]); showToast('已创建新的零件文件') }
-  const saveVersion = () => { setFiles((prev) => prev.map((file, index) => index === 0 ? { ...file, version: `v${String(Number(file.version.slice(1)) + 1).padStart(2, '0')}`, updated: '刚刚', status: '已同步' } : file)); showToast('新版本已保存') }
-  return <div className="secondary-workspace"><div className="secondary-heading"><div><span className="eyebrow">PROJECT FILES</span><h1>{selectedProject}</h1><p>项目文件、版本和交付物统一管理 · {files.length} 个文件</p></div><div className="heading-actions"><button className="secondary-button" onClick={saveVersion}>↥ 保存新版本</button><button className="primary-button" onClick={addFile}>＋ 新建文件</button></div></div><div className="project-layout"><div className="file-table panel-card"><div className="file-table-toolbar"><div className="search-box"><Icon>⌕</Icon><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索项目文件" /></div><div className="file-toolbar-meta"><span><i className="status-dot" /> 已自动保存</span><button onClick={() => showToast('排序：最近更新')}>最近更新 ⌄</button></div></div><div className="file-table-head"><span>名称</span><span>类型</span><span>版本</span><span>大小</span><span>最近更新</span><span>状态</span><span /></div>{visibleFiles.map((file) => <div className="file-row" key={file.id}><div className="file-name"><span className={`file-type-icon ${file.type === '工程图' ? 'orange' : file.type === '装配体' ? 'violet' : file.type === '文档' ? 'green' : 'blue'}`}>{file.type === '工程图' ? '▱' : file.type === '装配体' ? '◈' : file.type === '文档' ? '≡' : '◉'}</span><div><b>{file.name}</b><small>{file.id === 'f1' ? '当前打开 · 可编辑' : `文件 ID ${file.id}`}</small></div></div><span className="file-type">{file.type}</span><span className="file-version">{file.version}</span><span className="file-size">{file.size}</span><span className="file-updated">{file.updated}</span><span className={`file-status ${file.status === '仅本地' ? 'local' : ''}`}>{file.status}</span><div className="file-actions"><button onClick={() => { setActiveMode(file.type === '工程图' ? '2D 工程图' : file.type === '装配体' ? '装配' : '3D 建模'); showToast(`正在打开 ${file.name}`) }}>打开</button><button onClick={() => exportFile(file.type === '工程图' ? 'dxf' : 'step')}>下载</button></div></div>)}{visibleFiles.length === 0 && <div className="empty-state">没有找到匹配的项目文件。</div>}<div className="file-table-footer"><span>已显示 {visibleFiles.length} / {files.length} 个文件</span><span>回收站中的文件保留 15 天</span></div></div><aside className="project-summary panel-card"><div className="inspector-title"><b>项目概览</b><button onClick={() => showToast('项目属性已保存')}>⋯</button></div><div className="project-health"><div className="health-ring">94<small>%</small></div><div><b>交付准备度</b><small>模型、图纸与参数均已同步</small></div></div><div className="summary-item"><span>零件</span><b>3</b></div><div className="summary-item"><span>工程图</span><b>2</b></div><div className="summary-item"><span>装配体</span><b>1</b></div><div className="summary-item"><span>版本总数</span><b>12</b></div><div className="project-summary-tip"><Icon>✦</Icon><span>建议在导出前保存一个新版本，便于回溯尺寸与设计意图。</span></div></aside></div></div>
-}
-
-function LegacyHomeWorkspace({ projects, selectedProject, createProject, setActiveMode, showToast }) { return <div className="home-workspace"><div className="home-hero"><div><span className="eyebrow">WELCOME BACK, JOY</span><h1>把想法，变成可制造的形状。</h1><p>用自然语言驱动参数化设计，所有尺寸、特征和版本都可追溯。</p><div className="hero-actions"><button className="primary-button" onClick={() => setActiveMode('3D 建模')}>✦ 开始 AI 建模</button><button className="secondary-button" onClick={() => setActiveMode('2D 工程图')}>打开工程图</button></div></div><div className="hero-orbit"><div className="orbit orbit-1" /><div className="orbit orbit-2" /><div className="hero-cube">N</div></div></div><div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div><div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => { setActiveMode('3D 建模'); showToast(`正在打开 ${project.name}`) }}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div><div className="quick-grid"><button onClick={() => setActiveMode('3D 建模')}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>三视图与尺寸标注</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>配合与干涉检查</small></div><span>→</span></button></div></div> }
-
-function HomeWorkspace({ projects, selectedProject, setSelectedProject, createProject, setActiveMode, showToast, attachDrawingToConversation }) {
+function HomeWorkspace({ projects, onSelectProject, onStartText, createProject, setActiveMode, showToast, attachDrawingToConversation }) {
   const inputRef = useRef(null)
-  const openTextWorkbench = () => {
-    setActiveMode('3D 建模')
-    showToast('已打开设计工作台 · 可直接输入尺寸')
-  }
+  const [description, setDescription] = useState('')
+  const openTextWorkbench = () => onStartText(description)
   const chooseDrawing = () => inputRef.current?.click()
   return <div className="home-workspace currentcad-home">
     <section className="home-hero">
       <input ref={inputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="上传图纸开始 AI 分析" onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; attachDrawingToConversation?.(files) }} />
-      <div className="home-launch-badge"><b>JoyNiu AI V2.0</b><span>Agent 驱动的零件与装配体 CAD 智能设计平台</span><button onClick={() => showToast('上传图纸或输入自然语言，即可开始参数化建模')}>查看流程 <Icon>→</Icon></button></div>
+      <div className="home-launch-badge"><b>JoyNiu AI V2.0</b><span>Agent 驱动的零件与装配体 CAD 智能设计平台</span><button onClick={() => setActiveMode('帮助与反馈')}>查看流程 <Icon>→</Icon></button></div>
       <span className="home-kicker">AI PARAMETRIC CAD</span>
       <h1>Hi，开启您的 AI 建模旅程</h1>
       <p>用文字或工程图生成可编辑的参数化模型，完整保留尺寸来源、特征树和交付版本。</p>
-      <div className="home-agent-modes" aria-label="选择 Agent 模式">
-        <button className="active" onClick={openTextWorkbench}><Icon>✦</Icon> 自动选择</button>
-        <button onClick={openTextWorkbench}><Icon>◉</Icon> 标准模式</button>
-        <button onClick={openTextWorkbench}><Icon>⚙</Icon> 零件 Agent</button>
-        <button onClick={() => setActiveMode('装配')}><Icon>⌘</Icon> 装配 Agent</button>
-      </div>
+      <div className="home-agent-modes" aria-label="开始设计"><button className="active" onClick={openTextWorkbench}><Icon>✦</Icon> 参数化零件</button><button onClick={() => setActiveMode('装配')}><Icon>⌘</Icon> 装配工作台</button></div>
       <div className="home-composer-frame">
-        <button className="home-composer-input" onClick={openTextWorkbench}><span>描述你想设计的零件，或上传一张工程图…</span><small>例如：创建一个外径 24、长 70、带键槽的动力轴</small></button>
-        <div className="home-composer-footer"><div><button onClick={openTextWorkbench}><Icon>✦</Icon> 提示词指南</button><button onClick={() => showToast('模型校验会在生成后自动运行')}><Icon>◇</Icon> 模型校验</button></div><span>JPG / PDF / DWG / DXF · ≤ 20 MB</span><button className="home-composer-submit" aria-label="上传图纸" onClick={chooseDrawing}>↑</button></div>
+        <textarea className="home-composer-input" aria-label="描述零件设计" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="描述你想设计的零件，例如：创建一个外径 24、长 70、带键槽的动力轴" />
+        <div className="home-composer-footer"><div><button onClick={chooseDrawing}><Icon>＋</Icon> 上传图纸</button><button onClick={() => setActiveMode('帮助与反馈')}><Icon>?</Icon> 使用指南</button></div><span>JPG / PDF / DWG / DXF · ≤ 20 MB</span><button className="home-composer-submit" aria-label="开始文字设计" onClick={openTextWorkbench}>↑</button></div>
       </div>
       <div className="home-capability-strip">
         <button onClick={openTextWorkbench}><span className="capability-art text-art">Aa</span><b>文字生成模型</b><Icon>›</Icon></button>
         <button onClick={chooseDrawing}><span className="capability-art image-art">▧</span><b>图片生成模型</b><Icon>›</Icon></button>
         <button onClick={chooseDrawing}><span className="capability-art drawing-art">▱</span><b>二维图生成模型</b><Icon>›</Icon></button>
-        <button onClick={() => setActiveMode('标准件库')}><span className="capability-art lab-art">◇</span><b>模型创意实验室</b><Icon>›</Icon></button>
+        <button onClick={() => setActiveMode('标准件库')}><span className="capability-art lab-art">◇</span><b>标准件与自定义零件</b><Icon>›</Icon></button>
       </div>
       <div className="hero-format-note">上传 → AI 分析 → 确认数据 → 生成 3D → 二次修改 → 导出交付</div>
     </section>
 
     <div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div>
-    <div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => { setSelectedProject?.(project.name); setActiveMode('3D 建模'); showToast(`正在打开 ${project.name}`) }}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div>
+    <div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => onSelectProject(project.id)}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div>
     <div className="quick-grid"><button onClick={() => { setActiveMode('3D 建模'); showToast('已打开 AI 设计助手') }}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>由当前模型生成视图</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>已有实体后再创建装配</small></div><span>→</span></button></div>
   </div>
 }

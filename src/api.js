@@ -6,7 +6,54 @@
  * service when it is available.
  */
 
-export const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8010/api/v1').replace(/\/$/, '')
+import { readableError } from './workspaceFeedback.js'
+
+export const API_BASE = (import.meta.env?.VITE_API_BASE || 'http://localhost:8010/api/v1').replace(/\/$/, '')
+
+const fieldLabels = { email: '邮箱', password: '密码', displayName: '显示名称', display_name: '显示名称', roles: '角色', file: '文件', files: '文件', message: '消息' }
+function validationMessage(value) {
+  return String(value || '')
+    .replace(/^Field required$/i, '此项必填')
+    .replace(/^String should have at least (\d+) characters$/i, '至少需要 $1 个字符')
+    .replace(/^String should have at most (\d+) characters$/i, '最多允许 $1 个字符')
+    .replace(/^Input should be greater than (.+)$/i, '输入值必须大于 $1')
+    .replace(/^Input should be less than (.+)$/i, '输入值必须小于 $1')
+    .replace(/^Input should be a valid number.*$/i, '请输入有效数字')
+    .replace(/^Input should be a valid integer.*$/i, '请输入整数')
+    .replace(/^value is not a valid email address.*$/i, '请输入有效邮箱地址')
+}
+
+function responseMessage(payload) {
+  if (typeof payload === 'string') return payload
+  if (Array.isArray(payload)) return payload.map((item) => {
+    const location = Array.isArray(item?.loc) ? item.loc.filter((part) => !['body', 'query', 'path'].includes(part)).map((part) => fieldLabels[part] || part).join('.') : ''
+    const detail = validationMessage(item?.msg || responseMessage(item))
+    return location ? `${location}：${detail}` : detail
+  }).filter(Boolean).join('；')
+  if (!payload || typeof payload !== 'object') return ''
+  return responseMessage(payload.detail ?? payload.message ?? payload.msg ?? payload.error ?? '')
+}
+
+function responseError(payload, status) {
+  const fallback = { 400: '请求参数不正确，请检查后重试。', 404: '请求的文件或记录不存在，请刷新后重试。', 409: '记录已发生变更或已存在，请刷新后重试。', 413: '文件超过服务允许的大小，请选择较小的文件。', 422: '输入内容未通过校验，请检查后重试。', 429: '请求过于频繁，请稍后重试。', 500: '服务处理失败，请稍后重试。', 502: '上游服务暂时不可用，请稍后重试。', 503: '服务暂时不可用，请稍后重试。', 504: '服务响应超时，请重试。' }
+  const error = new Error(responseMessage(payload) || fallback[status] || '请求未完成，请重试。')
+  error.status = status
+  error.payload = payload
+  error.message = readableError(error)
+  return error
+}
+
+function transportError(error) {
+  // Callers distinguish cancellation from failure by name and identity.
+  if (error?.name === 'AbortError') return error
+  const message = readableError(error)
+  if (error instanceof Error && message === error.message) return error
+  const localized = new Error(message, { cause: error })
+  if (error?.name) localized.name = error.name
+  if (error?.status !== undefined) localized.status = error.status
+  if (error?.payload !== undefined) localized.payload = error.payload
+  return localized
+}
 
 async function request(path, options = {}) {
   const controller = new AbortController()
@@ -23,6 +70,8 @@ async function request(path, options = {}) {
       signal: controller.signal,
       headers: { Accept: 'application/json', ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(fetchOptions.headers || {}) },
     })
+  } catch (error) {
+    throw transportError(error)
   } finally {
     window.clearTimeout(timeout)
     externalSignal?.removeEventListener('abort', forwardAbort)
@@ -30,11 +79,7 @@ async function request(path, options = {}) {
   const contentType = response.headers.get('content-type') || ''
   const payload = contentType.includes('application/json') ? await response.json() : await response.text()
   if (!response.ok) {
-    const detail = typeof payload === 'string' ? payload : payload?.detail || payload?.message
-    const error = new Error(detail || `API ${response.status}`)
-    error.status = response.status
-    error.payload = payload
-    throw error
+    throw responseError(payload, response.status)
   }
   return payload
 }
@@ -48,15 +93,11 @@ async function streamRequest(path, options = {}, onEvent = () => {}) {
       ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...(fetchOptions.headers || {}),
     },
-  })
+  }).catch((error) => { throw transportError(error) })
   if (!response.ok) {
     const contentType = response.headers.get('content-type') || ''
     const payload = contentType.includes('application/json') ? await response.json() : await response.text()
-    const detail = typeof payload === 'string' ? payload : payload?.detail || payload?.message
-    const error = new Error(detail || `API ${response.status}`)
-    error.status = response.status
-    error.payload = payload
-    throw error
+    throw responseError(payload, response.status)
   }
   if (!response.body) throw new Error('浏览器未提供流式响应体')
 
@@ -75,13 +116,13 @@ async function streamRequest(path, options = {}, onEvent = () => {}) {
     if (!dataLines.length) return
     let payload
     try { payload = JSON.parse(dataLines.join('\n')) } catch { throw new Error('AI 流返回了无效事件') }
-    onEvent(eventName, payload)
-    if (eventName === 'turn.result') finalResult = payload
     if (eventName === 'turn.error') {
-      const error = new Error(payload?.message || 'AI 对话处理失败')
-      error.status = payload?.status
+      const error = responseError(payload, payload?.status)
+      onEvent(eventName, { ...payload, message: error.message })
       throw error
     }
+    onEvent(eventName, payload)
+    if (eventName === 'turn.result') finalResult = payload
   }
 
   try {
@@ -94,6 +135,8 @@ async function streamRequest(path, options = {}, onEvent = () => {}) {
       if (done) break
     }
     if (buffer.trim()) consumeBlock(buffer)
+  } catch (error) {
+    throw transportError(error)
   } finally {
     reader.releaseLock()
   }
@@ -175,6 +218,7 @@ export const api = {
   me: (token) => request('/auth/me', { headers: authHeaders(token) }),
   projects: (token, includeArchived = false) => request(`/pdm/projects?include_archived=${includeArchived ? 'true' : 'false'}`, { headers: authHeaders(token) }),
   createProject: (payload, token) => request('/pdm/projects', { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
+  renameProject: (projectId, name, token) => request(`/pdm/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: JSON.stringify({ name }), headers: authHeaders(token) }),
   projectManifest: (projectId, token) => request(`/pdm/projects/${encodeURIComponent(projectId)}/manifest`, { headers: authHeaders(token) }),
   createDocument: (projectId, payload, token) => request(`/pdm/projects/${encodeURIComponent(projectId)}/documents`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
   createVersion: (documentId, payload, token) => request(`/pdm/documents/${encodeURIComponent(documentId)}/versions`, { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),

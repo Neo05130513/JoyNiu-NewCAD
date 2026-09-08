@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
 from . import __version__
+from .download_headers import attachment_content_disposition
 from .geometry import (
     GeneratedArtifact,
     MEDIA_TYPES,
@@ -1184,7 +1185,7 @@ async def export_bracket_format(
     descriptor = result.artifacts[0]
     record = _artifacts[descriptor.id]
     headers = {
-        "Content-Disposition": f'attachment; filename="{descriptor.filename}"',
+        "Content-Disposition": attachment_content_disposition(descriptor.filename),
         "X-JoyNiu-Artifact-Id": descriptor.id,
         "X-JoyNiu-Engine": descriptor.engine,
         "X-JoyNiu-Production-Ready": str(descriptor.production_ready).lower(),
@@ -1225,7 +1226,7 @@ async def download_artifact(artifact_id: str, format: str | None = None) -> Resp
     if format and format.lower().lstrip(".") != record["format"]:
         raise HTTPException(status_code=409, detail="artifact format does not match URL")
     headers = {
-        "Content-Disposition": f'attachment; filename="{record["filename"]}"',
+        "Content-Disposition": attachment_content_disposition(record["filename"]),
         "X-JoyNiu-Artifact-Id": lookup_id,
         "X-JoyNiu-Engine": record["engine"],
         "X-JoyNiu-Production-Ready": str(record["production_ready"]).lower(),

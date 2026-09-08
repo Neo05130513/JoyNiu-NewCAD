@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import replace
 import hashlib
+from urllib.parse import unquote
 
 import pytest
 
@@ -23,6 +24,36 @@ def _client_for(services):
 
 def _auth_for(services, user) -> dict[str, str]:
     return {"Authorization": f"Bearer {services.auth.issue_token(user).token}"}
+
+
+def test_pdm_chinese_version_filename_downloads_original_content() -> None:
+    services = build_platform_services(":memory:", auth_secret="u" * 32)
+    try:
+        user = services.auth.create_user(
+            "unicode-download@example.com", "a-very-long-password", "Designer", roles=["designer"]
+        )
+        _app, client = _client_for(services)
+        auth = _auth_for(services, user)
+        project = services.pdm.create_project("中文文件下载", user.id)
+        document = services.pdm.create_document(project.id, "零件参数", "model", user.id)
+        filename = '安装支架 · "复核" 版本 02.json'
+        content = '{"name":"安装支架","baseLength":125}'.encode("utf-8")
+        created = client.post(
+            f"/api/v1/pdm/documents/{document.id}/versions",
+            headers=auth,
+            json={"contentBase64": base64.b64encode(content).decode("ascii"), "fileName": filename, "contentType": "application/json"},
+        )
+        assert created.status_code == 201, created.text
+        response = client.get(f"/api/v1/pdm/versions/{created.json()['id']}/content", headers=auth)
+        assert response.status_code == 200, response.text
+        assert response.content == content
+        assert response.headers["content-type"] == "application/json"
+        disposition = response.headers["content-disposition"]
+        disposition.encode("ascii")
+        assert disposition.startswith('attachment; filename="')
+        assert unquote(disposition.split("filename*=UTF-8''", 1)[1]) == filename
+    finally:
+        services.close()
 
 
 def test_platform_openapi_resolves_lazy_request_annotation() -> None:

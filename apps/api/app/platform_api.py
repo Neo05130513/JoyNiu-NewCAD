@@ -48,6 +48,7 @@ from .cam import (
     StockDefinition,
 )
 from .ai_proxy import AIFile, AIProxy, AIProxyError, MAX_FILE_BYTES, PARAMETER_FIELDS
+from .download_headers import attachment_content_disposition
 from .ocr import DrawingRecognition, OCRService
 from .platform import (
     AccessToken,
@@ -1443,7 +1444,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             return Response(
                 content=services.pdm.get_version_content(version_id),
                 media_type=version.content_type,
-                headers={"Content-Disposition": f'attachment; filename="{version.file_name}"'},
+                headers={"Content-Disposition": attachment_content_disposition(version.file_name)},
             )
         except PlatformError as exc:
             raise _domain_http_exception(exc)
@@ -2303,7 +2304,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             return PlainTextResponse(
                 program.text,
                 media_type="text/plain",
-                headers={"Content-Disposition": f'attachment; filename="{program.id}.nc"'},
+                headers={"Content-Disposition": attachment_content_disposition(f"{program.id}.nc")},
             )
         except PlatformError as exc:
             raise _domain_http_exception(exc)

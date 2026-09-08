@@ -6,6 +6,7 @@ import struct
 import tempfile
 import warnings
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +25,26 @@ from app.platform_api import build_platform_services
 
 
 CLIENT = TestClient(app)
+
+
+def test_artifact_download_preserves_unicode_filename(monkeypatch) -> None:
+    from app import main as main_module
+
+    filename = "安装支架 · 版本 02.step"
+    payload = b"ISO-10303-21;\nEND-ISO-10303-21;"
+    monkeypatch.setitem(main_module._artifacts, "unicode-download-test", {
+        "filename": filename, "format": "step", "data": payload,
+        "media_type": "application/step", "engine": "test", "production_ready": False,
+        "sha256": "a" * 64,
+    })
+    response = CLIENT.get("/api/v1/artifacts/unicode-download-test.step")
+    assert response.status_code == 200, response.text
+    assert response.content == payload
+    disposition = response.headers["content-disposition"]
+    disposition.encode("ascii")
+    assert unquote(disposition.split("filename*=UTF-8''", 1)[1]) == filename
+
+
 BRACKET = {
     "baseLength": 100,
     "baseWidth": 50,
