@@ -133,3 +133,23 @@
   .platform-action-row > button { min-width: 0; white-space: normal; height: auto; min-height: 37px; }
   .text-size-large :is(button,input,textarea,select) { font-size: 13px; }
 }
+
+/* Blank files have no CAD entity until the user creates one. */
+.viewport-empty { display: grid; place-items: center; }
+.model-empty-state { position: relative; z-index: 2; display: grid; justify-items: center; gap: 14px; max-width: 360px; margin: 32px 20px; text-align: center; }
+.model-empty-symbol { display: grid; place-items: center; width: 68px; height: 68px; border: 1px solid #dbe7fa; border-radius: 20px; background: #f0f6ff; color: #4085e8; font-size: 38px; }
+.model-empty-state h2 { margin: 0; color: #344258; font-size: 18px; }
+.model-empty-state p { margin: 0; color: #7c899d; font-size: 12px; line-height: 1.8; }
+.model-empty-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.model-empty-template { border: 0; background: transparent; color: #5d789c; font-size: 11px; line-height: 1.8; cursor: pointer; }
+.model-empty-template:hover { color: #2875e1; }
+.inspector-empty-state { padding: 28px 18px; color: #66758b; font-size: 12px; }
+.inspector-empty-state p { color: #8490a3; font-size: 11px; line-height: 1.8; }
+.viewport-toolbar button:disabled { opacity: .45; cursor: default; }
+
+/* Keep long recognition notes from consuming the model's viewing area. */
+.workbench-analysis { flex: 1 0 100%; min-width: 0; box-sizing: border-box; }
+.workbench-analysis > summary { cursor: pointer; list-style: none; min-height: 20px; }
+.workbench-analysis > summary::-webkit-details-marker { display: none; }
+.workbench-analysis > summary:focus-visible { outline: 2px solid #2f7cff; outline-offset: 4px; border-radius: 3px; }
+.analysis-details-content { display: grid; gap: 8px; max-height: 160px; overflow: auto; margin-top: 8px; }

@@ -2,6 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  aiEditOutcome,
+  applyAiModelPatch,
+  canApplyAiModelEdit,
+  isRecipeIncompatible,
+  syncAiDrawingEdit,
   normalizeAiParameterEvidence,
   normalizeAiParameterPatch,
   resolveAiPartKind,
@@ -27,6 +32,36 @@ const definitions = Object.fromEntries([
 }]))
 const kindAliases = Object.fromEntries(Object.values(definitions).map(({ kind, recipeId }) => [recipeId, kind]))
 const resolveKind = (result, fallback) => resolveAiPartKind(result, { definitions, fallback, kindAliases, parameterAliases: aliases })
+
+test('a rejected drawing recipe cannot be revived by its identity or old parameter fields', () => {
+  for (const compatibility of [{ status: 'unsupported', unsupportedFeatures: [] }, { status: 'uncertain', unsupportedFeatures: ['双耳外轮廓'] }]) {
+    const result = { partType: 'bracket', recipeId: 'bracket_support_v1', parameterPatch: { notchRadius: 16 }, recipeCompatibility: compatibility }
+    assert.equal(isRecipeIncompatible(result), true)
+    assert.equal(resolveKind(result, 'bracket'), '')
+  }
+  assert.equal(isRecipeIncompatible({ parameterPatch: { material: '钢' } }), false)
+  assert.equal(resolveKind({ partType: 'shaft', recipeCompatibility: { status: 'supported', unsupportedFeatures: [] } }, ''), 'shaft')
+})
+
+test('blank conversations do not infer a sample part from greetings or material-only responses', () => {
+  for (const result of [{}, { parameterPatch: {} }, { parameterPatch: { material: 'AL6061 铝合金' } }]) {
+    assert.equal(resolveKind(result, ''), '')
+  }
+  for (const accepted of [{}, { material: 'AL6061 铝合金' }, { units: 'mm', holeThrough: true }]) {
+    assert.equal(canApplyAiModelEdit({ baseModel: { kind: '' }, accepted, identityChanged: true }), false)
+  }
+})
+
+test('a blank project can create a real parameterized part and then accept property-only edits', () => {
+  const seed = seedAiModel({ baseModel: { kind: '', name: '零件 01' }, definition: definitions.shaft })
+  assert.equal(seed.name, '零件 01')
+  assert.equal(seed.kind, 'shaft')
+  for (const [parameterPatch, kind] of [[{ length: 100 }, 'shaft'], [{ notchRadius: 15 }, 'bracket'], [{ boreDiameter: 36 }, 'split_clamp_support'], [{ mainLength: 98 }, 'stepped_tapered_nozzle']]) {
+    assert.equal(resolveKind({ parameterPatch }, ''), kind)
+    assert.equal(canApplyAiModelEdit({ baseModel: { kind: '' }, accepted: parameterPatch, identityChanged: true }), true)
+    assert.equal(canApplyAiModelEdit({ baseModel: { kind }, accepted: { material: 'AL6061 铝合金' }, identityChanged: false }), true)
+  }
+})
 
 test('material and unit edits preserve all four existing model types and their custom dimensions', () => {
   for (const definition of Object.values(definitions)) {
@@ -76,6 +111,15 @@ test('recipe-specific fields still classify legacy results that omit a supported
   }
   assert.equal(resolveKind({ parameterPatch: {}, candidate_parameters: { main_length: 98 } }, 'shaft'), 'stepped_tapered_nozzle')
   assert.equal(resolveKind({ baseLength: 140, material: 'AL6061 铝合金' }, 'split_clamp_support'), 'split_clamp_support')
+})
+
+test('ambiguous recipe fields cannot create a sample part or switch an existing topology', () => {
+  const parameterPatch = { outerDiameter: 36, length: 100, notchRadius: 15 }
+  assert.equal(resolveKind({ parameterPatch }, ''), '')
+  assert.equal(resolveKind({ parameterPatch }, 'shaft'), 'shaft')
+  assert.equal(resolveKind({ parameterPatch }, 'split_clamp_support'), 'split_clamp_support')
+  assert.equal(resolveKind({ parameterPatch: { outerDiameter: 36, notchRadius: null, mainLength: null } }, ''), 'shaft')
+  assert.equal(resolveKind({ parameterPatch: { outerDiameter: null, notchRadius: null } }, ''), '')
 })
 
 test('switching recipes uses the resolved recipe without inheriting unrelated old dimensions', () => {
@@ -147,4 +191,82 @@ test('concurrent edit protection applies only to text-only model edits', () => {
     baseRevision: 4,
     currentRevision: 5,
   }), false)
+})
+
+test('chat dimension changes accept snake case and numeric strings, rejecting unsupported and invalid fields', () => {
+  const base = definitions.shaft.preview
+  const patch = normalizeAiParameterPatch({ parameterPatch: { outer_diameter: '36', length: 100, bevel: 5, mainLength: 120, holeDiameter: true } })
+  const result = applyAiModelPatch(base, patch, definitions.shaft.keys)
+  assert.equal(result.model.outerDiameter, 36)
+  assert.equal(result.model.length, 100)
+  assert.equal(result.model.holeDiameter, base.holeDiameter)
+  assert.deepEqual(result.changed, { outerDiameter: 36, length: 100 })
+  assert.deepEqual(result.rejected, ['bevel', 'mainLength', 'holeDiameter'])
+  assert.equal(base.outerDiameter, 24)
+})
+
+test('empty, ignored and numerically unchanged replies cannot report an applied geometry change', () => {
+  const base = definitions.shaft.preview
+  for (const patch of [{}, { bevel: 4 }, { length: '70' }, { length: null }, { length: '' }]) {
+    const result = applyAiModelPatch(base, patch, definitions.shaft.keys)
+    assert.equal(result.model, base)
+    assert.deepEqual(result.changed, {})
+    assert.match(aiEditOutcome({ ...result, changed: false }), /预览未改变/)
+  }
+  const material = applyAiModelPatch(base, { material: 'AL6061 铝合金' }, definitions.shaft.keys)
+  assert.deepEqual(material.changed, { material: 'AL6061 铝合金' })
+  assert.match(aiEditOutcome({ changed: true, geometryChanged: false }), /没有改变几何尺寸/)
+  assert.match(aiEditOutcome({ changed: true, geometryChanged: true, modelValid: false }), /预览已暂停/)
+})
+
+test('bracket chat edits keep through-depth helper parameters aligned', () => {
+  const base = { kind: 'bracket', upperWidth: 50, saddleDepth: 50, totalHeight: 40, holeDepth: 40 }
+  const result = applyAiModelPatch(base, { upperWidth: 60, totalHeight: 45 }, Object.keys(base))
+  assert.equal(result.model.saddleDepth, 60)
+  assert.equal(result.model.holeDepth, 45)
+})
+
+test('follow-up chat updates every drawing candidate consumer before confirm and generate', () => {
+  const definition = { ...definitions.bracket, required: ['baseLength', 'baseWidth', 'upperLength', 'notchRadius'] }
+  const parameters = { baseLength: 100, baseWidth: 50, upperLength: 70 }
+  const job = {
+    status: 'ready', customerAccepted: false, humanConfirmed: false,
+    evidence: { id: 'drawing-1', partType: 'bracket', status: 'pending', parameters, candidateParameters: parameters, modelRecipe: { recipeId: definition.recipeId, parameters } },
+    analysis: { candidateSources: { baseLength: 'manual' }, defaultedFields: ['notchRadius'] }, humanEditedFields: ['baseLength'],
+  }
+  const result = syncAiDrawingEdit(job, { model: { ...definition.preview, baseLength: 140 }, patch: { baseLength: 140, notchRadius: 15 }, definition })
+  for (const candidate of [result.evidence.parameters, result.evidence.candidateParameters, result.evidence.recognizedParameters, result.evidence.modelRecipe.parameters, result.analysis.candidateParameters]) {
+    assert.equal(candidate.baseLength, 140)
+    assert.equal(candidate.notchRadius, 15)
+  }
+  assert.equal(result.evidence.id, 'drawing-1')
+  assert.equal(result.evidence.status, 'pending')
+  assert.equal(result.analysis.needsInput, false)
+  assert.deepEqual(result.analysis.defaultedFields, [])
+  assert.deepEqual(result.humanEditedFields, [])
+  assert.equal(job.evidence.parameters.baseLength, 100)
+})
+
+test('no-op chat preserves generated drawing status and topology changes detach old evidence', () => {
+  const definition = { ...definitions.bracket, required: ['baseLength'] }
+  const job = { status: 'generated', generation: { requestId: 'old' }, evidence: { partType: 'bracket', status: 'confirmed', candidateParameters: { baseLength: 100 } }, customerAccepted: true }
+  assert.equal(syncAiDrawingEdit(job, { model: definition.preview, patch: { baseLength: 100 }, definition }), job)
+  const switched = syncAiDrawingEdit(job, { model: definitions.shaft.preview, patch: { outerDiameter: 36 }, definition: { ...definitions.shaft, required: ['length'] } })
+  assert.equal(switched.evidence, null)
+  assert.equal(switched.generation, null)
+  assert.equal(switched.customerAccepted, false)
+})
+
+test('recipe-only legacy evidence survives follow-up edits and unchanged manual fields keep provenance', () => {
+  const definition = { ...definitions.bracket, required: ['baseLength', 'baseWidth', 'upperLength', 'notchRadius'] }
+  const parameters = { base_length: 100, base_width: 50, upper_length: 70, notch_radius: 15 }
+  const job = { status: 'ready', evidence: { partType: 'bracket', status: 'pending', model_recipe: { parameters }, candidateParameterMeta: { baseLength: { source: 'manual' } } }, humanEditedFields: ['baseLength'], analysis: { candidateSources: { baseLength: 'manual' } } }
+  const result = syncAiDrawingEdit(job, { model: definition.preview, patch: { baseLength: 100, notchRadius: 20 }, definition })
+  assert.deepEqual(result.evidence.candidateParameters, { baseLength: 100, baseWidth: 50, upperLength: 70, notchRadius: 20 })
+  assert.deepEqual(result.humanEditedFields, ['baseLength'])
+  assert.equal(result.analysis.candidateSources.baseLength, 'manual')
+  assert.equal(result.evidence.candidateParameterMeta.baseLength.source, 'manual')
+  assert.equal(result.analysis.needsInput, false)
+  const review = syncAiDrawingEdit(job, { model: definition.preview, patch: {}, definition, needsReview: true })
+  assert.equal(Object.keys(review.evidence.candidateParameters).length, 4)
 })

@@ -40,6 +40,90 @@ class _Response:
         return self.payload
 
 
+def _parse_patch_envelope(**fields):
+    return _parse_result({
+        "id": "resp_patch_envelope",
+        "output_text": json.dumps({"message": "将外径调整为 36 mm", "needs_review": False, "questions": [], **fields}),
+    })
+
+
+@pytest.mark.parametrize("container", ["parameters", "candidate_parameters", "candidateParameters", "parameter_patch", "parameterPatch", "recognized_parameters", "recognizedParameters"])
+def test_parse_result_accepts_top_level_remote_parameter_containers(container):
+    result = _parse_patch_envelope(**{container: {"outer_diameter": 36}})
+    assert result.parameter_patch == {"outerDiameter": 36}
+    assert result.to_dict()["parameterPatch"] == {"outerDiameter": 36}
+
+
+def test_parse_result_merges_fields_with_canonical_camel_patch_priority():
+    result = _parse_patch_envelope(
+        parameters={"outerDiameter": 24, "length": 70, "holeDiameter": 8},
+        candidate_parameters={"outerDiameter": 26, "length": 75},
+        candidateParameters={"outerDiameter": 28, "length": 80},
+        parameter_patch={"outerDiameter": 32, "length": None, "keywayDepth": 3},
+        parameterPatch={"outer_diameter": 36, "outerDiameter": 40, "keywayLength": 45},
+    )
+    assert result.parameter_patch == {"outerDiameter": 40, "length": 80, "holeDiameter": 8, "keywayDepth": 3, "keywayLength": 45}
+
+
+def test_parse_result_empty_snake_patch_does_not_erase_camel_edit():
+    result = _parse_patch_envelope(parameter_patch={}, parameterPatch={"outerDiameter": 36})
+    assert result.parameter_patch == {"outerDiameter": 36}
+
+
+def test_legacy_text_response_without_identity_still_preserves_explicit_parameters():
+    result = _parse_patch_envelope(parameter_patch={"outerDiameter": 36, "keywayLength": 40})
+    assert result.part_type == "unknown"
+    assert result.recipe_id == ""
+    assert result.parameter_patch == {"outerDiameter": 36, "keywayLength": 40}
+
+
+def test_unknown_identity_is_supported_without_selecting_a_recipe_from_material():
+    from app.ai_proxy import response_schema
+
+    schema = response_schema()
+    assert "unknown" in schema["properties"]["part_type"]["enum"]
+    assert "" in schema["properties"]["recipe_id"]["enum"]
+    result = _parse_patch_envelope(part_type="unknown", recipe_id="", parameter_patch={"material": "AL6061 铝合金"})
+    assert result.part_type == "unknown"
+    assert result.recipe_id == ""
+    assert result.parameter_patch == {"material": "AL6061 铝合金"}
+
+
+@pytest.mark.parametrize("canonical", [{}, None, {"outerDiameter": None}])
+def test_parse_result_explicit_edit_container_never_revives_recognition_snapshot(canonical):
+    result = _parse_patch_envelope(
+        parameterPatch=canonical,
+        recognized_parameters={"outerDiameter": 70},
+        recognizedParameters={"outerDiameter": 80},
+        drawingRecognition={"parameters": {"outerDiameter": 90}},
+    )
+    assert result.parameter_patch == {}
+
+
+def test_parse_result_never_promotes_nested_drawing_recognition_to_an_edit():
+    result = _parse_patch_envelope(drawingRecognition={"candidateParameters": {"outerDiameter": 90}})
+    assert result.parameter_patch == {}
+
+
+def test_parse_result_merging_preserves_zero_offsets_and_false_booleans():
+    result = _parse_patch_envelope(
+        candidateParameters={"insertAxialOffset": 2, "holeThrough": True},
+        parameterPatch={"insert_axial_offset": 0, "holeThrough": False},
+    )
+    assert result.parameter_patch == {"insertAxialOffset": 0, "holeThrough": False}
+
+
+@pytest.mark.parametrize("patch,expected", [({"outerDiameter": "36"}, "invalid numeric parameter"), ({"shellCommand": "ignore"}, "unsupported parameter")])
+def test_parse_result_compatibility_containers_still_enforce_parameter_allowlist(patch, expected):
+    with pytest.raises(AIProxyError, match=expected):
+        _parse_patch_envelope(candidateParameters=patch)
+
+
+def test_parse_result_rejects_malformed_compatibility_container():
+    with pytest.raises(AIProxyError, match="invalid parameter patch"):
+        _parse_patch_envelope(parameterPatch="outerDiameter=36")
+
+
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [
@@ -341,6 +425,59 @@ def test_proxy_sends_responses_schema_reasoning_and_previous_id(monkeypatch):
     # The credential is only an Authorization header and is not put in the
     # model input, structured result, or any client-facing field.
     assert "test-provider-key" not in json.dumps(captured["body"])
+
+
+def test_blank_design_text_request_can_return_explicit_shaft_identity_and_keyway_fields(monkeypatch):
+    captured = {}
+    shaft_patch = {"outerDiameter": 36, "length": 100, "holeDiameter": 10, "keywayWidth": 6, "keywayDepth": 3, "keywayLength": 40}
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode())
+        schema = captured["body"]["text"]["format"]["schema"]
+        # A strict Responses schema previously prohibited these identity keys,
+        # leaving the UI to mistake generic slot fields for a saddle bracket.
+        assert schema["additionalProperties"] is False
+        assert {"part_type", "recipe_id"}.issubset(schema["required"])
+        assert "shaft" in schema["properties"]["part_type"]["enum"]
+        assert "shaft_v1" in schema["properties"]["recipe_id"]["enum"]
+        parameter_properties = schema["properties"]["parameter_patch"]["properties"]
+        assert "shaft/shaft_v1 only" in parameter_properties["keywayLength"]["description"]
+        assert "never a shaft keyway" in parameter_properties["slotLength"]["description"]
+        return _Response({
+            "id": "resp_blank_shaft",
+            "output_text": json.dumps({
+                "message": "将创建外径36、总长100、通孔10，键槽6×3×40的轴。",
+                "part_type": "shaft", "recipe_id": "shaft_v1",
+                "parameter_patch": {key: shaft_patch.get(key) for key in parameter_properties},
+                "needs_review": False, "questions": [],
+            }),
+        })
+
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    result = AIProxy(timeout_seconds=7).converse(
+        "创建一个轴，外径36、总长100、通孔10，键槽宽6、深3、长40。",
+        model_state={"kind": "", "name": "AI从空白建模", "material": "45# 钢"},
+    )
+    assert result.part_type == "shaft"
+    assert result.recipe_id == "shaft_v1"
+    assert result.parameter_patch == shaft_patch
+    instructions = captured["body"]["instructions"]
+    assert "keywayLength=键槽长度" in instructions
+    assert "A shaft keyway is never slotLength, slotWidth or pocketDepth" in instructions
+    context = "\n".join(item["text"] for item in captured["body"]["input"][-1]["content"])
+    assert "The current design is empty" in context
+    assert "Do not assume a default shaft or bracket" in context
+
+
+def test_blank_design_guard_survives_schema_free_relay_retry():
+    from app.ai_proxy import _provider_body
+
+    body = _provider_body("把材料改为铝", {"kind": "", "name": "空白零件"}, (), None, include_schema=False)
+    assert "text" not in body
+    assert "part_type=unknown" in body["instructions"]
+    context = "\n".join(item["text"] for item in body["input"][-1]["content"])
+    assert "material-only request without a part" in context
 
 
 def test_proxy_does_not_add_input_or_output_token_caps(monkeypatch):
@@ -960,13 +1097,11 @@ def test_drawing_pipeline_audits_and_arbitrates_remote_candidates_before_emittin
         "高度基准专项复核 1/2：远程模型正在独立核对尺寸界线…",
         "高度基准专项复核 2/2：远程模型正在独立核对尺寸界线…",
     ]
-    assert updates == [
-        "三轮远程裁决完成\n\n"
-        "位置基准专项复核：远程独立复读已对 mountHoleCenterFromRear、"
-        "pedestalCenterFromRear 形成两票一致。\n\n"
-        "高度基准专项复核：远程独立复读已对 boreFloorZ、crossHoleCenterZ、"
-        "pedestalHeight、rearClampRise 形成两票一致。"
-    ]
+    assert updates == [result.message]
+    assert result.message.startswith("当前候选参数（专项复读后")
+    assert "圆筒轴距后缘：35 mm" in result.message
+    assert "横孔中心绝对高度：40 mm → 55 mm" in result.message
+    assert "早期分析记录，尺寸结论已被当前候选取代：\n\n> 三轮远程裁决完成" in result.message
     assert result.response_id == "resp_height_datum_2"
     assert result.parameter_patch == final_patch
     assert result.provider["mode"] == "remote"
@@ -1123,13 +1258,10 @@ def test_complex_split_clamp_always_enters_third_remote_arbitration_when_first_t
         "高度基准专项复核 1/2：远程模型正在独立核对尺寸界线…",
         "高度基准专项复核 2/2：远程模型正在独立核对尺寸界线…",
     ]
-    assert updates == [
-        "一致的开口夹紧座候选，第 3 轮\n\n"
-        "位置基准专项复核：远程独立复读已对 mountHoleCenterFromRear、"
-        "pedestalCenterFromRear 形成两票一致。\n\n"
-        "高度基准专项复核：远程独立复读已对 boreFloorZ、crossHoleCenterZ、"
-        "pedestalHeight、rearClampRise 形成两票一致。"
-    ]
+    assert updates == [result.message]
+    assert result.message.startswith("当前候选参数（专项复读后")
+    assert "本轮修正或撤回" not in result.message
+    assert "早期分析记录，尺寸结论已被当前候选取代：\n\n> 一致的开口夹紧座候选，第 3 轮" in result.message
     assert result.response_id == "resp_consistent_split_7"
     assert result.parameter_patch == split_patch
     assert result.provider["attempts"] == 7
@@ -1202,6 +1334,386 @@ def test_partial_remote_blind_review_merges_without_erasing_prior_fields():
 
     assert merged.response_id == "resp_blind"
     assert merged.parameter_patch == {"baseLength": 125, "baseWidth": 96}
+
+
+def test_explicit_unknown_review_withdraws_old_recipe_and_dimensions():
+    from app.ai_proxy import _merge_remote_review_result
+
+    base = AIConversationResult("resp_old", "支架候选", {"upperHeight": 55, "totalHeight": 63, "bossDiameter": 30}, True, (), part_type="bracket", recipe_id="bracket_support_v1")
+    rejection = _parse_patch_envelope(part_type="unknown", recipe_id="", parameter_patch={})
+    merged = _merge_remote_review_result(base, rejection)
+    assert merged.part_type == "unknown"
+    assert merged.recipe_id == ""
+    assert merged.parameter_patch == {}
+    assert merged.recipe_compatibility["status"] == "uncertain"
+    assert merged.recipe_compatibility["unsupportedFeatures"]
+
+
+def test_unsupported_remote_features_are_visible_and_cannot_select_a_similar_recipe():
+    result = _parse_result({
+        "id": "resp_unrepresentable",
+        "output_text": json.dumps({
+            "message": "存在无法表达的倾斜支臂", "part_type": "bracket", "recipe_id": "bracket_support_v1",
+            "parameter_patch": {"baseLength": 100, "obliqueArmAngle": 35},
+            "needs_review": False, "questions": [],
+        }),
+    }, tolerate_patch_errors=True)
+    assert result.parameter_patch == {"baseLength": 100}
+    assert result.part_type == "unknown"
+    assert result.recipe_id == ""
+    assert result.needs_review is True
+    assert "obliqueArmAngle" in " ".join(result.questions)
+    assert result.to_dict()["recipeCompatibility"]["unsupportedFeatures"]
+
+
+def test_cross_recipe_geometry_is_not_silently_accepted_as_a_bracket():
+    result = _parse_patch_envelope(part_type="bracket", recipe_id="bracket_support_v1", parameter_patch={"bossDiameter": 30, "archOuterRadius": 28, "earHoleDiameter": 13})
+    assert result.part_type == "unknown"
+    assert result.recipe_compatibility["status"] == "uncertain"
+    assert "earHoleDiameter" in " ".join(result.questions)
+
+
+def test_mixed_exclusive_recipe_fields_without_identity_remain_unknown():
+    result = _parse_patch_envelope(parameter_patch={"archOuterRadius": 32, "pedestalOuterRadius": 33})
+    assert result.part_type == "unknown"
+    assert result.recipe_id == ""
+    assert result.recipe_compatibility["status"] == "uncertain"
+
+
+def test_supported_label_cannot_override_an_explicit_unrepresented_feature():
+    result = _parse_patch_envelope(part_type="bracket", recipe_id="bracket_support_v1", parameter_patch={"baseLength": 100}, recipe_compatibility={"status": "supported", "unsupportedFeatures": ["斜向封闭筋板尚不能表达"]})
+    assert result.part_type == "unknown"
+    assert result.recipe_compatibility["status"] == "uncertain"
+    assert result.needs_review is True
+
+
+def test_new_clevis_identity_is_allowed_in_schema_and_platform_registration():
+    from app.ai_proxy import response_schema
+    from app.platform_api import _supported_ai_recipe_identity
+
+    schema = response_schema()
+    assert "arched_clevis_support" in schema["properties"]["part_type"]["enum"]
+    assert "arched_clevis_support_v1" in schema["properties"]["recipe_id"]["enum"]
+    assert _supported_ai_recipe_identity("arched_clevis_support", "arched_clevis_support_v1")
+
+
+def test_arched_clevis_remote_review_changes_topology_without_inheriting_bracket_fields(monkeypatch):
+    from app import ai_proxy
+
+    patch = {"archOuterRadius": 32, "archInnerRadius": 18, "baseWidth": 60, "baseThickness": 10, "earRadius": 16, "earHoleDiameter": 14, "earCenterHeight": 45, "earThickness": 12, "earGap": 36, "mountEarRadius": 18, "mountHoleDiameter": 14, "mountHoleCenterDistance": 92}
+    bodies = []
+    answers = [
+        {"message": "首轮误判", "part_type": "bracket", "recipe_id": "bracket_support_v1", "parameter_patch": {"baseLength": 100, "bossDiameter": 30}},
+        {"message": "重新识别为双耳拱形支座", "part_type": "arched_clevis_support", "recipe_id": "arched_clevis_support_v1", "parameter_patch": patch},
+        {"message": "独立复核拱体和分离耳板", "part_type": "arched_clevis_support", "recipe_id": "arched_clevis_support_v1", "parameter_patch": patch},
+    ]
+    def fake_urlopen(request, timeout):
+        bodies.append(json.loads(request.data.decode()))
+        answer = {**answers[min(len(bodies) - 1, 2)], "needs_review": True, "questions": [], "recipe_compatibility": {"status": "supported", "unsupportedFeatures": []}}
+        answer["parameter_evidence"] = _arched_test_evidence(answer["parameter_patch"])
+        return _Response({"id": f"resp_clevis_{len(bodies)}", "output_text": json.dumps(answer)})
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _: None)
+    result = AIProxy(timeout_seconds=7).converse("请按图建模", files=(AIFile("customer-design.png", "image/png", base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+ A8AAQUBAScY42YAAAAASUVORK5CYII=".replace(" ", ""))),))
+    assert len(bodies) == 7  # Changed identity requires arbitration, then four focused votes.
+    assert result.part_type == "arched_clevis_support"
+    assert result.recipe_id == "arched_clevis_support_v1"
+    assert result.parameter_patch == patch
+    assert "bossDiameter" not in result.parameter_patch
+    assert result.recipe_compatibility["status"] == "supported"
+    prompts = json.dumps(bodies, ensure_ascii=False)
+    assert "earCenterHeight+earRadius" in prompts
+    assert "也可能错误，必须独立接受或否定" in prompts
+    assert "archOuterRadius=外拱半径" in prompts
+
+
+def _arched_test_evidence(patch):
+    return {key: {"sourceView": "俯视图" if key == "mountHoleCenterDistance" else "主视图", "sourceText": str(value), "derivation": "沿箭头及尺寸界线追踪到对应特征", "confidence": 0.9} for key, value in patch.items()}
+
+
+@pytest.mark.parametrize("pitch_votes,expected_pitch", [([92, 92], 92), ([56, 56, 92], None), ([92, 94, 96], None)])
+def test_arched_focused_reads_correct_ambiguous_dimensions_and_withdraw_unconfirmed_pitch(monkeypatch, pitch_votes, expected_pitch):
+    from PIL import Image
+    from app import ai_proxy
+
+    original_patch = {"archOuterRadius": 29, "archInnerRadius": 18, "baseWidth": 60, "baseThickness": 6, "earRadius": 16, "earHoleDiameter": 14, "earCenterHeight": 45, "earThickness": 12, "earGap": 36, "mountEarRadius": 18, "mountHoleDiameter": 14, "mountHoleCenterDistance": 56}
+    output = io.BytesIO()
+    Image.new("RGB", (1000, 700), "white").save(output, format="PNG")
+    bodies = []
+    mounting_calls = []
+    def fake_urlopen(request, timeout):
+        body = json.loads(request.data.decode())
+        bodies.append(body)
+        prompt = "\n".join(item.get("text", "") for item in body["input"][-1]["content"])
+        if "独立主视图尺寸复读" in prompt:
+            patch = {"archOuterRadius": 32, "baseThickness": 10}
+        elif "独立俯视图孔距复读" in prompt:
+            patch = {"mountHoleCenterDistance": pitch_votes[len(mounting_calls)]}
+            mounting_calls.append(body)
+        else:
+            patch = original_patch
+        answer = {"message": "从图纸复读候选", "part_type": "arched_clevis_support", "recipe_id": "arched_clevis_support_v1", "parameter_patch": patch, "parameter_evidence": _arched_test_evidence(patch), "needs_review": True, "questions": [], "recipe_compatibility": {"status": "supported", "unsupportedFeatures": []}}
+        return _Response({"id": f"resp_focus_{len(bodies)}", "output_text": json.dumps(answer)})
+    monkeypatch.setenv("JOYNIU_AI_API_KEY", "test-provider-key")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(ai_proxy, "_recognize_attachment", lambda _: None)
+
+    result = AIProxy(timeout_seconds=7).converse("请按图建模", files=(AIFile("unrelated-customer-drawing.png", "image/png", output.getvalue()),))
+
+    assert len(bodies) == 4 + len(pitch_votes)  # Two agreeing full passes replace a third full pass.
+    assert result.parameter_patch["archOuterRadius"] == 32
+    assert result.parameter_patch["baseThickness"] == 10
+    assert result.parameter_evidence["archOuterRadius"]["sourceText"] == "32"
+    assert result.parameter_evidence["baseThickness"]["sourceText"] == "10"
+    for key, value in original_patch.items():
+        if key not in {"archOuterRadius", "baseThickness", "mountHoleCenterDistance"}:
+            assert result.parameter_patch[key] == value
+    if expected_pitch is not None:
+        assert result.parameter_patch["mountHoleCenterDistance"] == expected_pitch
+        assert result.parameter_evidence["mountHoleCenterDistance"]["sourceText"] == str(expected_pitch)
+        assert not result.questions
+    else:
+        assert "mountHoleCenterDistance" not in result.parameter_patch
+        assert "mountHoleCenterDistance" not in result.parameter_evidence
+        assert any("mountHoleCenterDistance" in question for question in result.questions)
+        if pitch_votes[0] == 56:
+            assert any("mountHoleCenterDistance/2 - mountHoleDiameter/2 > archOuterRadius" in question for question in result.questions)
+    assert result.needs_review is True
+    assert result.message.startswith("当前候选参数（专项复读后")
+    summary = result.message.split("早期分析记录，尺寸结论已被当前候选取代：")[0]
+    assert "外拱半径：32 mm" in summary
+    assert "底板厚度：10 mm" in summary
+    if expected_pitch is None:
+        assert "缺失待确认：安装孔中心距" in summary
+        assert "安装孔中心距：已撤回早期读值 56 mm" in summary
+    else:
+        assert "安装孔中心距：92 mm" in summary
+    for body in bodies[2:]:
+        prompt = "\n".join(item.get("text", "") for item in body["input"][-1]["content"])
+        assert "不能假定主视图或俯视图位于固定象限" in prompt
+        assert "若目标不在局部块，回到全图" in prompt
+        assert "必须给出全部必需字段" not in prompt
+        assert "待审校的远程候选JSON" not in prompt
+        assert "\"archOuterRadius\":29" not in prompt
+        assert "\"mountHoleCenterDistance\":56" not in prompt
+        images = [item for item in body["input"][-1]["content"] if item["type"] == "input_image"]
+        assert len(images) >= 2  # Original full drawing remains available if the assumed crop misses a view.
+        dimensions = []
+        for item in images:
+            assert item["detail"] == "high"
+            with Image.open(io.BytesIO(base64.b64decode(item["image_url"].split(",", 1)[1]))) as image:
+                dimensions.append(image.size)
+        assert (1000, 700) in dimensions
+        assert any(max(size) == 1800 for size in dimensions)
+
+
+def test_arched_focus_requires_reading_evidence_and_never_reuses_old_value_evidence():
+    from app.ai_proxy import _merge_focused_remote_result, _reject_inconsistent_arched_focus
+
+    base = AIConversationResult("before", "之前读值", {"archOuterRadius": 29, "archInnerRadius": 18}, True, (), part_type="arched_clevis_support", recipe_id="arched_clevis_support_v1", parameter_evidence=_arched_test_evidence({"archOuterRadius": 29}))
+    vote = AIConversationResult("after", "新读值", {"archOuterRadius": 32}, True, (), part_type=base.part_type, recipe_id=base.recipe_id)
+    allowed = frozenset({"archOuterRadius"})
+    rejected = _reject_inconsistent_arched_focus(base, vote, allowed)
+    assert rejected.parameter_patch == {}
+    assert any("尺寸界线证据" in question for question in rejected.questions)
+    merged = _merge_focused_remote_result(base, vote, allowed, "专项复读")
+    assert merged.parameter_patch["archOuterRadius"] == 32
+    assert "archOuterRadius" not in merged.parameter_evidence
+
+
+def test_focused_final_summary_uses_current_values_and_preserves_unresolved_question_origins():
+    from dataclasses import replace
+    from app.ai_proxy import _finalize_focused_summary
+
+    before = AIConversationResult("before", "结构假设为带分离耳板的拱形支座。外拱半径 29 mm，底厚 6 mm。", {"archOuterRadius": 29, "baseThickness": 6, "mountHoleCenterDistance": 56}, True, ("底厚 6 mm 是否正确？", "未注明材料与公差。"), part_type="arched_clevis_support", recipe_id="arched_clevis_support_v1")
+    final = replace(before, parameter_patch={"archOuterRadius": 32, "baseThickness": 10}, parameter_evidence=_arched_test_evidence({"archOuterRadius": 32, "baseThickness": 10}), questions=(*before.questions, "安装孔距的尺寸线仍不清晰。"))
+    result = _finalize_focused_summary(before, final, frozenset({"archOuterRadius", "baseThickness", "mountHoleCenterDistance"}))
+
+    current, historical = result.message.split("早期分析记录，尺寸结论已被当前候选取代：")
+    assert current.startswith("当前候选参数")
+    assert "外拱半径：32 mm" in current
+    assert "底板厚度：10 mm" in current
+    assert "外拱半径：29 mm → 32 mm" in current
+    assert "底板厚度：6 mm → 10 mm" in current
+    assert "安装孔中心距：已撤回早期读值 56 mm，待人工确认" in current
+    assert "缺失待确认：" in current
+    assert "分离耳板" not in current
+    assert "> " + before.message in historical
+    assert len(result.questions) == 3
+    assert result.questions[0].startswith("早期待核查问题（旧读数以当前候选为准")
+    assert result.questions[0].endswith("底厚 6 mm 是否正确？")
+    assert result.questions[1].endswith("未注明材料与公差。")
+    assert result.questions[2] == "专项待解决问题：安装孔距的尺寸线仍不清晰。"
+    assert result.parameter_patch == final.parameter_patch
+    assert result.parameter_evidence == final.parameter_evidence
+
+
+def test_focused_summary_formats_hole_count_as_count_and_labels_existing_split_recipe():
+    from app.ai_proxy import _finalize_focused_summary
+
+    candidate = AIConversationResult("split", "开口夹紧座", {"mountHoleCount": 4, "pedestalHeight": 27.5, "material": "Q235", "units": "mm"}, True, (), part_type="split_clamp_support", recipe_id="split_clamp_support_v1")
+    result = _finalize_focused_summary(candidate, candidate, frozenset({"pedestalHeight"}))
+    assert "安装孔数量：4 个" in result.message
+    assert "低圆筒净高：27.5 mm" in result.message
+    assert "材料：Q235" in result.message
+    assert "本轮修正或撤回" not in result.message
+
+
+def test_summary_does_not_change_a_path_without_focused_reviews():
+    from app.ai_proxy import _finalize_focused_summary
+
+    candidate = _parse_patch_envelope(part_type="shaft", recipe_id="shaft_v1", parameter_patch={"outerDiameter": 36}, questions=["还需要轴长。"])
+    assert _finalize_focused_summary(candidate, candidate, frozenset()) is candidate
+
+
+def test_focused_summary_has_chinese_labels_for_all_supported_focused_recipe_fields():
+    from app.ai_proxy import _ARCHED_CLEVIS_REVIEW_FIELDS, _FOCUSED_PARAMETER_LABELS, _SPLIT_CLAMP_REVIEW_FIELDS
+
+    assert (_ARCHED_CLEVIS_REVIEW_FIELDS | _SPLIT_CLAMP_REVIEW_FIELDS).issubset(_FOCUSED_PARAMETER_LABELS)
+
+
+def test_rotated_reading_tiles_keep_original_pixels_and_use_opposite_orientations():
+    from PIL import Image
+    from app.ai_proxy import _focused_review_files
+
+    source = Image.new("RGB", (100, 60), "white")
+    source.paste((255, 0, 0), (0, 0, 20, 20))
+    output = io.BytesIO()
+    source.save(output, format="PNG")
+    original = AIFile("layout.png", "image/png", output.getvalue())
+    tile = AIFile("layout__detail-top-left.png", "image/png", output.getvalue())
+    left = _focused_review_files((original, tile), "top-left", 0, keep_originals=True, rotate_for_reading=True)
+    right = _focused_review_files((original, tile), "top-left", 1, keep_originals=True, rotate_for_reading=True)
+    assert left[0] is original and right[0] is original
+    assert len(left) == len(right) == 2
+    assert "reading-90" in left[1].filename
+    assert "reading-270" in right[1].filename
+    with Image.open(io.BytesIO(left[1].data)) as rotated_left, Image.open(io.BytesIO(right[1].data)) as rotated_right:
+        assert rotated_left.size == rotated_right.size == (60, 100)
+        assert rotated_left.getpixel((5, 94))[0] > 230 and rotated_left.getpixel((5, 94))[1] < 30
+        assert rotated_right.getpixel((54, 5))[0] > 230 and rotated_right.getpixel((54, 5))[1] < 30
+
+
+def test_arched_focus_accepts_equivalent_evidence_field_names_and_structured_derivation():
+    from app.ai_proxy import _reject_inconsistent_arched_focus
+
+    base = _parse_patch_envelope(part_type="arched_clevis_support", recipe_id="arched_clevis_support_v1", parameter_patch={"archOuterRadius": 32, "mountHoleDiameter": 14})
+    vote = _parse_patch_envelope(part_type=base.part_type, recipe_id=base.recipe_id, parameter_patch={"mountHoleCenterDistance": 92}, parameter_evidence={"mount_hole_center_distance": {"view": "俯视图", "raw_text": "92", "derive": ["尺寸界线穿过左右孔圆心", {"mapping": "中心距直接读值"}]}})
+    checked = _reject_inconsistent_arched_focus(base, vote, frozenset({"mountHoleCenterDistance"}))
+    assert checked.parameter_patch == {"mountHoleCenterDistance": 92}
+    assert checked.parameter_evidence["mountHoleCenterDistance"]["sourceView"] == "俯视图"
+    assert "左右孔圆心" in checked.parameter_evidence["mountHoleCenterDistance"]["derivation"]
+    assert checked.questions == ()
+
+
+@pytest.mark.parametrize("evidence_shape", ["list", "object"])
+def test_single_geometric_parameter_safely_binds_unlabelled_evidence_even_with_material_units(evidence_shape):
+    row = {"sourceView": "俯视图", "sourceText": "92", "derivation": "两端延长线分别与两安装孔中心线重合"}
+    result = _parse_patch_envelope(part_type="arched_clevis_support", recipe_id="arched_clevis_support_v1", parameter_patch={"mountHoleCenterDistance": 92, "units": "mm", "material": "钢"}, parameter_evidence=[row] if evidence_shape == "list" else row)
+    assert result.parameter_evidence["mountHoleCenterDistance"] == row
+    assert "material" not in result.parameter_evidence
+
+
+def test_multiple_geometric_parameters_do_not_guess_unlabelled_evidence_assignment():
+    result = _parse_patch_envelope(part_type="arched_clevis_support", recipe_id="arched_clevis_support_v1", parameter_patch={"archOuterRadius": 32, "baseThickness": 10}, parameter_evidence=[{"sourceView": "主视图", "sourceText": "10", "derivation": "尺寸界线映射"}])
+    assert result.parameter_evidence == {}
+
+
+def test_differing_rotated_readings_cannot_be_overruled_by_a_third_matching_vote():
+    from app.ai_proxy import _focused_consensus, _orientation_conflicts
+
+    fields = frozenset({"archOuterRadius", "baseThickness"})
+    def reading(thickness):
+        return _parse_patch_envelope(part_type="arched_clevis_support", recipe_id="arched_clevis_support_v1", parameter_patch={"archOuterRadius": 32, "baseThickness": thickness}, parameter_evidence=_arched_test_evidence({"archOuterRadius": 32, "baseThickness": thickness}))
+    results = (reading(12), reading(21), reading(12))
+    conflicts = _orientation_conflicts(results, fields)
+    assert conflicts == frozenset({"baseThickness"})
+    consensus, unresolved = _focused_consensus(results, fields, blocked_fields=conflicts)
+    assert consensus.parameter_patch == {"archOuterRadius": 32}
+    assert unresolved == frozenset({"baseThickness"})
+
+
+def test_ambiguous_digit_orientation_cannot_become_a_high_confidence_vote():
+    from app.ai_proxy import _reject_inconsistent_arched_focus
+
+    base = _parse_patch_envelope(part_type="arched_clevis_support", recipe_id="arched_clevis_support_v1", parameter_patch={"archOuterRadius": 32})
+    evidence = _arched_test_evidence({"baseThickness": 6})
+    evidence["baseThickness"].update({"orientationAmbiguous": True, "confidence": 0.99})
+    vote = _parse_patch_envelope(part_type=base.part_type, recipe_id=base.recipe_id, parameter_patch={"baseThickness": 6}, parameter_evidence=evidence)
+    checked = _reject_inconsistent_arched_focus(base, vote, frozenset({"baseThickness"}))
+    assert checked.parameter_patch == {}
+    assert "baseThickness" not in checked.parameter_evidence
+    assert any("阅读方向仍有歧义" in question for question in checked.questions)
+
+
+@pytest.mark.parametrize("context_kind,ids,reading,expected", [
+    ("image_geometry_candidate", ["dimension_00001"], 98, "ai_interpreted"),
+    ("pdf_text_and_geometry_candidates", ["dimension_00001"], 98, "ai_interpreted"),
+    ("joyniu.dwg-vector-summary.v1", ["dimension_00001"], 98, "direct_dimension"),
+    ("joyniu.dwg-vector-summary.v1", ["dimension_99999"], 98, "ai_interpreted"),
+    ("joyniu.dwg-vector-summary.v1", ["dimension_00001"], 89, "ai_interpreted"),
+    ("joyniu.dwg-vector-summary.v1", [], 98, "ai_interpreted"),
+])
+def test_native_dimension_source_requires_matching_server_vector_id_and_measurement(context_kind, ids, reading, expected):
+    from app.ai_proxy import _validated_parameter_provenance
+
+    context = {"schemaVersion": context_kind, "sourceType": context_kind, "dimensions": [{"id": "dimension_00001", "measurement": 98}]}
+    result = _parse_patch_envelope(part_type="shaft", recipe_id="shaft_v1", parameter_patch={"length": reading}, parameter_evidence={"length": {"sourceType": "dimension", "sourceIds": ids, "sourceText": str(reading)}})
+    evidence = _validated_parameter_provenance(result, (context,))
+    assert evidence["length"]["sourceType"] == expected
+    assert evidence["length"]["provenanceVerified"] is (expected == "direct_dimension")
+    assert evidence["length"]["sourceText"] == str(reading)
+    assert result.parameter_patch["length"] == reading
+
+
+def test_vector_derived_label_needs_matching_server_field_evidence_not_only_dimension_ids():
+    from app.ai_proxy import _validated_parameter_provenance
+
+    result = _parse_patch_envelope(part_type="shaft", recipe_id="shaft_v1", parameter_patch={"length": 98}, parameter_evidence={"length": {"sourceType": "vector_derived", "sourceIds": ["dimension_00001"]}})
+    context = {"schemaVersion": "joyniu.dwg-vector-summary.v1", "dimensions": [{"id": "dimension_00001", "measurement": 100}]}
+    assert _validated_parameter_provenance(result, (context,))["length"]["sourceType"] == "ai_interpreted"
+    context["vectorParameterCandidates"] = {"fieldCandidates": {"length": {"sourceType": "vector_derived", "sourceIds": ["dimension_00001"], "value": 98}}}
+    assert _validated_parameter_provenance(result, (context,))["length"]["sourceType"] == "vector_derived"
+    context["vectorParameterCandidates"]["fieldCandidates"]["length"]["value"] = 89
+    assert _validated_parameter_provenance(result, (context,))["length"]["sourceType"] == "ai_interpreted"
+
+
+def test_raster_context_prompt_does_not_claim_native_cad_dimension_evidence():
+    from app.ai_proxy import _provider_body
+
+    body = _provider_body("读图", None, (AIFile("image.png", "image/png", b"image"),), None, drawing_contexts=({"sourceType": "image_geometry_candidate", "dimensions": []},))
+    prompt = json.dumps(body, ensure_ascii=False)
+    assert "IMAGE_ANALYSIS_CONTEXT" in prompt
+    assert "CAD_VECTOR_EVIDENCE（" not in prompt
+    assert "不是原生尺寸，必须标为ai_interpreted" in prompt
+
+
+@pytest.mark.parametrize("route", ["/api/v1/ai/conversation", "/api/v1/ai/conversation/stream"])
+def test_platform_never_registers_incompatible_drawing_as_confirmable_old_recipe(monkeypatch, route):
+    services = build_platform_services(":memory:", auth_secret="u" * 32)
+    class FakeAI:
+        allow_anonymous = True
+        def status(self): return {"mode": "remote", "configured": True}
+        def converse(self, *args, **kwargs):
+            return AIConversationResult("resp_not_supported", "配方无法表达倾斜支臂", {"baseLength": 100}, True, ("请选择能够表达该形体的配方",), part_type="bracket", recipe_id="bracket_support_v1", recipe_compatibility={"status": "unsupported", "unsupportedFeatures": ["倾斜支臂"]})
+    services.ai = FakeAI()
+    monkeypatch.setenv("JOYNIU_AI_ALLOW_ANONYMOUS", "1")
+    monkeypatch.setenv("JOYNIU_ENV", "development")
+    response = _client_for(services).post(route, data={"message": "按图建模"}, files={"file": ("customer-design.pdf", b"%PDF test", "application/pdf")})
+    assert response.status_code == 200, response.text
+    if route.endswith("/stream"):
+        lines = response.text.splitlines()
+        payload = json.loads(lines[lines.index("event: turn.result") + 1].removeprefix("data: "))
+    else:
+        payload = response.json()
+    assert payload["partType"] == "unknown"
+    assert payload["recipeId"] == ""
+    assert payload["parameterPatch"] == {}
+    assert "drawingRecognition" not in payload
+    assert payload["recipeCompatibility"]["status"] == "unsupported"
+    assert payload["attachments"][0]["filename"] == "customer-design.pdf"
+    assert not services.recognitions
 
 
 def test_nozzle_pipeline_keeps_ai_candidate_field_when_later_reviews_do_not_repeat_it(

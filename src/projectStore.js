@@ -1,6 +1,9 @@
+import { validateModelParameters } from './modelValidation.js'
+
 export const PROJECT_STORE_KEY = 'joyniu-workspace-v1'
 export const FILE_TYPES = ['零件', '工程图', '装配体', '文档']
 
+// An optional starter template. Blank projects never select it implicitly.
 export const DEFAULT_PROJECT_MODEL = {
   name: '新建零件', kind: 'shaft', type: '零件', outerDiameter: 24, length: 70,
   holeDiameter: 10, keywayWidth: 6, keywayDepth: 3, keywayLength: 40,
@@ -32,6 +35,7 @@ function serializable(value, seen = new WeakSet(), key = '') {
 /** A durable snapshot contains data only; browser file bytes and credentials never belong to a project. */
 export function sanitizeWorkspaceSnapshot(snapshot = {}) {
   const result = serializable(snapshot) || {}
+  result.model = result.model ?? null
   const sourceFile = snapshot.drawingJob?.file
   result.drawingJob = { status: 'idle', evidence: null, ...(result.drawingJob || {}), file: null, previewUrl: '' }
   if (sourceFile?.name) result.drawingJob.fileMeta = { name: sourceFile.name, size: sourceFile.size, type: sourceFile.type, lastModified: sourceFile.lastModified }
@@ -46,23 +50,32 @@ export function sanitizeWorkspaceSnapshot(snapshot = {}) {
 export function recoverWorkspaceSnapshot(snapshot = {}) {
   const result = sanitizeWorkspaceSnapshot(snapshot)
   const job = result.drawingJob
-  const interrupted = ['queued', 'analyzing', 'generating'].includes(job.status) || (job.status === 'error' && job.interrupted === true)
+  const recoverableTask = Boolean(job.cadTask?.runId && job.cadTask.status === 'running')
+  const durableAgentRun = result.model?.kind === 'feature_model' && result.model.agentRun?.runId
+  const interrupted = !recoverableTask && (['queued', 'analyzing', 'generating'].includes(job.status) || (job.status === 'error' && job.interrupted === true))
   const sourceFileUnavailable = Boolean(job.fileMeta?.name)
   const hasCompletedGeneration = Boolean(result.generation && !result.generation.pendingDrawing && !result.generation.stale)
-  const needsNewAnalysis = sourceFileUnavailable && !job.evidence && !hasCompletedGeneration && job.status !== 'generated'
+  // A completed parameter edit can retain the drawing's filename as provenance.
+  // Building those saved dimensions does not require reading the drawing again.
+  // Only idle, valid drafts qualify; an interrupted upload may still carry an
+  // unrelated old model and must continue to require its original source.
+  const hasBuildableParameterDraft = job.status === 'idle' && !job.interrupted && !job.evidence
+    && result.model?.kind !== 'feature_model' && validateModelParameters(result.model).valid
+  const needsNewAnalysis = sourceFileUnavailable && !job.evidence && !hasCompletedGeneration
+    && !hasBuildableParameterDraft && job.status !== 'generated'
   // Saved evidence and generated solids remain usable without the original
   // file. Only a missing analysis or interrupted request needs re-upload.
   job.sourceFileUnavailable = sourceFileUnavailable
-  job.requiresFileReselection = interrupted || needsNewAnalysis
+  job.requiresFileReselection = !recoverableTask && !durableAgentRun && (interrupted || needsNewAnalysis)
   if (!interrupted) job.interrupted = false
   if (interrupted) {
     result.drawingJob.status = 'error'
-    result.drawingJob.error = '上次处理已中断；浏览器只保留文件信息，请重新选择原图后继续。'
-    result.drawingJob.requiresFileReselection = true
+    result.drawingJob.error = durableAgentRun ? '上次处理已中断；项目与原图记录已保存，可以继续发送要求。' : '上次处理已中断；浏览器只保留文件信息，请重新选择原图后继续。'
+    result.drawingJob.requiresFileReselection = !durableAgentRun
     result.drawingJob.interrupted = true
     if (result.generation) result.generation = { ...result.generation, stale: true, pendingDrawing: false }
   }
-  if (result.aiConversation) result.aiConversation = { ...result.aiConversation, previousResponseId: '', turnStatus: 'idle', activeTurnId: '', statusMessage: '' }
+  if (result.aiConversation) result.aiConversation = { ...result.aiConversation, previousResponseId: '', turnStatus: 'idle', activeTurnId: '', statusMessage: '', cadProgress: null }
   result.messages = result.messages.map((message) => ['streaming', 'pending', 'sending'].includes(message.status)
     ? { ...message, status: 'interrupted', text: message.text || '上次回复已中断，请重新发送。' }
     : message)
@@ -71,9 +84,9 @@ export function recoverWorkspaceSnapshot(snapshot = {}) {
   return result
 }
 
-export function createWorkspaceSnapshot({ name = '新建零件', type = '零件', model = DEFAULT_PROJECT_MODEL, snapshot } = {}) {
+export function createWorkspaceSnapshot({ name = '新建零件', type = '零件', model = null, snapshot } = {}) {
   const initial = snapshot ? sanitizeWorkspaceSnapshot(snapshot) : {
-    model: type === '文档' ? null : { ...clone(model || DEFAULT_PROJECT_MODEL), name },
+    model: type === '文档' || model == null ? null : { ...clone(model), name },
     drawingJob: { status: 'idle', evidence: null }, generation: null, messages: [], assemblyItems: [], prompt: '',
   }
   if (type === '文档') initial.documentText = typeof initial.documentText === 'string' ? initial.documentText : ''
@@ -108,10 +121,10 @@ function updateFile(store, projectId, fileId, update) {
   return found ? { ...store, projects } : store
 }
 
-export function createProject(store, { name, model = DEFAULT_PROJECT_MODEL } = {}) {
+export function createProject(store, { name, model = null, snapshot } = {}) {
   const projectId = id('project')
   const now = timestamp()
-  const file = makeFile(projectId, { name: '零件 01', type: '零件', model })
+  const file = makeFile(projectId, { name: '零件 01', type: '零件', model, snapshot })
   const project = { id: projectId, name: cleanName(name, `新建项目 ${store.projects.length + 1}`), color: 'blue', createdAt: now, updatedAt: now, files: [file] }
   return { ...store, projects: [...store.projects, project], activeProjectId: project.id, activeFileId: file.id }
 }
@@ -176,6 +189,15 @@ export function saveFileVersion(store, projectId, fileId, { snapshot, note = '' 
   })
 }
 
+export function saveBeforeDrawingReplacement(store, projectId, fileId, snapshot) {
+  const file = getProjectFile(store, projectId, fileId)
+  const saved = sanitizeWorkspaceSnapshot(snapshot ?? file?.snapshot)
+  if (!file || file.contentUnavailable || !saved.model?.kind) return store
+  const identity = (value) => JSON.stringify({ model: value?.model, generation: value?.generation })
+  if (file.versions.some((version) => identity(version.snapshot) === identity(saved))) return store
+  return saveFileVersion(store, projectId, fileId, { snapshot: saved, note: '更换图纸前自动保留；可恢复此版本继续设计' })
+}
+
 export function restoreFileVersion(store, projectId, fileId, versionId) {
   const version = getProjectFile(store, projectId, fileId)?.versions.find((item) => item.id === versionId)
   if (!version) return store
@@ -187,7 +209,7 @@ function readJson(storage, key, fallback = null) {
 }
 function readText(storage, key, fallback = '') { try { return storage?.getItem(key) || fallback } catch { return fallback } }
 
-export function loadProjectStore(storage = globalThis.localStorage, { defaultModel = DEFAULT_PROJECT_MODEL, defaultProjects = [], defaultFiles = [] } = {}) {
+export function loadProjectStore(storage = globalThis.localStorage, { defaultModel = null, defaultProjects = [], defaultFiles = [] } = {}) {
   const persisted = readJson(storage, PROJECT_STORE_KEY)
   if (persisted?.schemaVersion === 1 && Array.isArray(persisted.projects) && persisted.projects.every((project) => project?.id && Array.isArray(project.files))) {
     const projects = persisted.projects.map((project) => ({ ...project, files: project.files.filter((file) => file?.id).map((file) => ({
@@ -223,7 +245,7 @@ export function loadProjectStore(storage = globalThis.localStorage, { defaultMod
       ...(!hasContent ? { contentUnavailable: true, contentUnavailableReason: '旧版仅记录文件名，未保存此文件内容。请新建独立内容。' } : {}),
     }
   })
-  if (!activeProject.files.some((file) => !file.contentUnavailable)) activeProject.files.push(makeFile(activeProject.id, { name: legacyModel?.name || '零件 01', model: defaultModel, snapshot: legacyModel ? recoverWorkspaceSnapshot(legacySnapshot) : undefined }))
+  if (!activeProject.files.some((file) => !file.contentUnavailable)) activeProject.files.push(makeFile(activeProject.id, { name: legacyModel?.name || '零件 01', snapshot: legacyModel ? recoverWorkspaceSnapshot(legacySnapshot) : undefined }))
   return { schemaVersion: 1, projects, activeProjectId: activeProject.id, activeFileId: activeProject.files.find((file) => !file.contentUnavailable)?.id || null, migratedFromLegacy: true }
 }
 

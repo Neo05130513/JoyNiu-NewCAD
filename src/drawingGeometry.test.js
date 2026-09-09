@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildDrawingScene, dxfForModel, drawingScaleFactor, drawingEntityBounds, isDrawingKernelReady } from './drawingGeometry.js'
+import { archedClevisSupportDefaults } from './archedClevisSupport.js'
 
 const shaft = { name: '动力轴', kind: 'shaft', outerDiameter: 24, length: 70, holeDiameter: 10, keywayWidth: 6, keywayDepth: 3, keywayLength: 40 }
 const bracket = { name: '支架', kind: 'bracket', baseLength: 100, baseWidth: 50, baseThickness: 10, upperLength: 70, upperWidth: 50, upperHeight: 30, totalHeight: 40, notchOpening: 40, notchRadius: 15, slotLength: 30, slotWidth: 10, pocketDepth: 10, bossDiameter: 20, bossCenterDistance: 70 }
@@ -8,7 +9,7 @@ const clamp = { name: '夹紧座', kind: 'split_clamp_support', baseLength: 125,
 const nozzle = { name: '锥管嘴', kind: 'stepped_tapered_nozzle', mainLength: 98, headLength: 50, neckLength: 20, headLeftDiameter: 54.2544935, headRightDiameter: 56, neckDiameter: 30, tipDiameter: 25, counterboreDiameter: 40, counterboreDepth: 40, axialBoreDiameter: 13, outletDiameter: 17, outletTaperHalfAngle: 15, insertOuterDiameter: 39.4, insertLength: 40, insertThreadDesignation: 'M12', insertAxialOffset: 0 }
 
 test('every recipe produces its own three views, section and finite exportable geometry', () => {
-  for (const model of [shaft, bracket, clamp, nozzle]) {
+  for (const model of [shaft, bracket, clamp, nozzle, archedClevisSupportDefaults]) {
     const scene = buildDrawingScene(model)
     assert.equal(scene.valid, true, JSON.stringify(scene.errors))
     assert.deepEqual(scene.views.map((view) => view.id), ['front', 'end', 'top', 'section'])
@@ -17,6 +18,21 @@ test('every recipe produces its own three views, section and finite exportable g
     for (const entity of scene.entities) for (const point of drawingEntityBounds(entity)) assert.ok(point.every(Number.isFinite), entity.id)
     assert.ok(!/NaN|Infinity/.test(dxfForModel(model)))
   }
+})
+
+test('arched clevis drawing separates the arch, transverse ear bores and vertical mounting holes', () => {
+  const scene = buildDrawingScene(archedClevisSupportDefaults)
+  assert.ok(scene.entities.some((e) => e.view === 'front' && e.feature === 'outer-arch' && e.r === 28))
+  assert.ok(scene.entities.some((e) => e.view === 'front' && e.feature === 'inner-arch' && e.r === 16))
+  assert.ok(scene.entities.some((e) => e.view === 'front' && e.feature === 'ear-hole' && e.r === 6.5))
+  assert.equal(scene.entities.filter((e) => e.view === 'top' && e.feature === 'mount-hole' && e.r === 6.5).length, 2)
+  assert.equal(scene.dimensions.find((d) => d.field === 'earCenterHeight').value, 40)
+  assert.equal(scene.dimensions.find((d) => d.field === 'earGap').value, 30)
+  assert.equal(scene.dimensions.find((d) => d.field === 'baseThickness').value, 9)
+  const foot = scene.entities.find((e) => e.view === 'end' && e.feature === 'mount-ear')
+  assert.equal(foot.points[1][1] - foot.points[0][1], 9)
+  assert.equal(scene.entities.filter((e) => e.view === 'end' && e.feature === 'mount-hole' && e.layer === 'HIDDEN').length, 2)
+  assert.ok(!scene.entities.some((e) => e.feature === 'pocket' || e.feature === 'saddle'))
 })
 
 test('shaft geometry expresses the through bore and keyway in views and section', () => {

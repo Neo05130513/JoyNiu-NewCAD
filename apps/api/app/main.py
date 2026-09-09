@@ -1078,6 +1078,26 @@ async def generate_model(body: dict[str, Any] = Body(...)) -> ModelGeometryRespo
         if recorded_recipe_id and recorded_recipe_id != request.recipe_id:
             raise HTTPException(status_code=422, detail="confirmed drawing recipeId does not match request")
         recorded_parameters = recipe.get("parameters") if isinstance(recipe, Mapping) else None
+        if request.recipe_id == "arched_clevis_support_v1":
+            # Template defaults are useful for a deliberate new template,
+            # but must never fill absent dimensions in confirmed evidence.
+            # Check both wire objects before Pydantic can supply defaults.
+            for label, raw in (("parameters", request.parameters), ("confirmedParameters", recorded_parameters)):
+                missing = []
+                for name, field in type(parameters).model_fields.items():
+                    if name in {"material", "units"}:
+                        continue
+                    keys = (field.alias, name)
+                    if not isinstance(raw, Mapping) or not any(
+                        key in raw and raw[key] is not None and raw[key] != "" for key in keys
+                    ):
+                        missing.append(field.alias or name)
+                if missing:
+                    raise HTTPException(status_code=422, detail={
+                        "message": "confirmed arched clevis drawing requires all explicit dimensions; template defaults cannot complete source evidence",
+                        "source": label,
+                        "missingFields": sorted(missing),
+                    })
         if isinstance(recorded_parameters, Mapping) and recorded_parameters:
             try:
                 confirmed = parse_model_parameters(request.recipe_id, recorded_parameters)
@@ -1291,6 +1311,17 @@ except Exception as exc:  # pragma: no cover - optional platform dependency
     platform_services = None
     platform_router = None
     _platform_error = f"{type(exc).__name__}: {exc}"
+
+
+if platform_services is not None:
+    from .cad_agent_api import create_cad_agent_router
+    from .cad_agent_store import CadRunStore
+
+    cad_agent_store = CadRunStore(os.getenv(
+        "JOYNIU_CAD_AGENT_DIR", str(Path(__file__).resolve().parents[1] / "data" / "cad-agent"),
+    ))
+    app.state.cad_agent_store = cad_agent_store
+    app.include_router(create_cad_agent_router(platform_services, cad_agent_store))
 
 
 def run() -> None:

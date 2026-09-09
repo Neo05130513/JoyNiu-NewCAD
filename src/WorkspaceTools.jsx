@@ -18,7 +18,7 @@ export function NewProjectDialog({ suggestedName, onSubmit, onClose }) {
   const [name, setName] = useState(suggestedName)
   return <WorkspaceDialog title="新建项目" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (name.trim()) onSubmit(name.trim()) }}>
     <label>项目名称<input autoFocus required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label>
-    <p>创建独立项目和首个零件草稿。模型、图纸、对话与版本按文件保存。</p>
+    <p>创建独立项目和首个空白零件文件。模型、图纸、对话与版本按文件保存。</p>
     <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!name.trim()}>创建项目</button></div>
   </form></WorkspaceDialog>
 }

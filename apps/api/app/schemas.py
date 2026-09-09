@@ -157,6 +157,52 @@ class BracketParameters(ApiModel):
         return float(self.saddle_depth if self.saddle_depth is not None else self.base_width)
 
 
+class ArchedClevisSupportParameters(ApiModel):
+    """An XZ arch with two Y-end clevis ears and Z-axis mounting feet.
+
+    Base length, total height and the inter-ear bridge height are derived
+    datums. They are deliberately not independent inputs that can disagree.
+    """
+
+    arch_outer_radius: float = Field(28.0, alias="archOuterRadius")
+    arch_inner_radius: float = Field(16.0, alias="archInnerRadius")
+    base_width: float = Field(50.0, alias="baseWidth")
+    base_thickness: float = Field(9.0, alias="baseThickness")
+    ear_radius: float = Field(15.0, alias="earRadius")
+    ear_hole_diameter: float = Field(13.0, alias="earHoleDiameter")
+    ear_center_height: float = Field(40.0, alias="earCenterHeight")
+    ear_thickness: float = Field(10.0, alias="earThickness")
+    ear_gap: float = Field(30.0, alias="earGap")
+    mount_ear_radius: float = Field(15.0, alias="mountEarRadius")
+    mount_hole_diameter: float = Field(13.0, alias="mountHoleDiameter")
+    mount_hole_center_distance: float = Field(80.0, alias="mountHoleCenterDistance")
+    material: str = "45# 钢"
+    units: Literal["mm"] = "mm"
+
+    @field_validator(
+        "arch_outer_radius", "arch_inner_radius", "base_width", "base_thickness",
+        "ear_radius", "ear_hole_diameter", "ear_center_height", "ear_thickness",
+        "ear_gap", "mount_ear_radius", "mount_hole_diameter", "mount_hole_center_distance",
+    )
+    @classmethod
+    def finite_number(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("dimension must be finite")
+        return value
+
+    @property
+    def bridge_height(self) -> float:
+        return math.sqrt(max(0.0, self.arch_outer_radius ** 2 - self.ear_radius ** 2))
+
+    @property
+    def base_length(self) -> float:
+        return self.mount_hole_center_distance + 2 * self.mount_ear_radius
+
+    @property
+    def total_height(self) -> float:
+        return self.ear_center_height + self.ear_radius
+
+
 class SplitClampSupportParameters(ApiModel):
     """Dimensions of the split cylindrical clamp support shown in drawing 9.
 
@@ -461,9 +507,10 @@ class GeometryResponse(ApiModel):
 class ModelGeometryRequest(ApiModel):
     """Recipe-dispatched geometry request used by the generic model API."""
 
-    part_type: Literal["bracket", "split_clamp_support", "stepped_tapered_nozzle"] = Field(alias="partType")
+    part_type: Literal["bracket", "arched_clevis_support", "split_clamp_support", "stepped_tapered_nozzle"] = Field(alias="partType")
     recipe_id: Literal[
         "bracket_support_v1",
+        "arched_clevis_support_v1",
         "split_clamp_support_v1",
         "stepped_tapered_nozzle_with_insert_v1",
     ] = Field(alias="recipeId")
@@ -483,6 +530,7 @@ class ModelGeometryRequest(ApiModel):
     def recipe_matches_part_type(self) -> "ModelGeometryRequest":
         expected = {
             "bracket_support_v1": "bracket",
+            "arched_clevis_support_v1": "arched_clevis_support",
             "split_clamp_support_v1": "split_clamp_support",
             "stepped_tapered_nozzle_with_insert_v1": "stepped_tapered_nozzle",
         }[self.recipe_id]
@@ -494,9 +542,10 @@ class ModelGeometryRequest(ApiModel):
 class ModelGeometryResponse(ApiModel):
     request_id: str = Field(alias="requestId")
     status: Literal["completed", "failed"]
-    part_type: Literal["bracket", "split_clamp_support", "stepped_tapered_nozzle"] = Field(alias="partType")
+    part_type: Literal["bracket", "arched_clevis_support", "split_clamp_support", "stepped_tapered_nozzle"] = Field(alias="partType")
     recipe_id: Literal[
         "bracket_support_v1",
+        "arched_clevis_support_v1",
         "split_clamp_support_v1",
         "stepped_tapered_nozzle_with_insert_v1",
     ] = Field(alias="recipeId")

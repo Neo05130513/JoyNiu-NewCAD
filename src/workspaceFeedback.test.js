@@ -18,3 +18,8 @@ test('invalid login credentials ask for correction rather than merely asking to 
   assert.equal(notificationFor('登录失败：invalid credentials').type, 'error')
   assert.equal(notificationFor('账号或密码不正确，请重新输入。').type, 'error')
 })
+
+test('unfinished or malformed AI responses explain why the preview did not change', () => {
+  assert.match(readableError('AI provider returned a non-completed response'), /模型保持原样/)
+  assert.match(readableError('AI provider returned an invalid numeric parameter'), /本轮未修改模型/)
+})

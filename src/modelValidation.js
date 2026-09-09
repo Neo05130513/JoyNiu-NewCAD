@@ -1,4 +1,8 @@
+import { validateCadPlan } from './cadAgentState.js'
+import { archedClevisSupportDefinition, validateArchedClevisSupport } from './archedClevisSupport.js'
+
 const aliases = {
+  arched_clevis_support_v1: 'arched_clevis_support',
   shaft_v1: 'shaft', bracket_support_v1: 'bracket',
   split_clamp_support_v1: 'split_clamp_support', split_clamp_pedestal: 'split_clamp_support',
   clamp_pedestal: 'split_clamp_support', circular_clamp: 'split_clamp_support', circular_clamp_v1: 'split_clamp_support',
@@ -6,6 +10,7 @@ const aliases = {
   tapered_nozzle_with_insert: 'stepped_tapered_nozzle',
 }
 const parameters = {
+  arched_clevis_support: archedClevisSupportDefinition.required,
   shaft: ['outerDiameter', 'length', 'holeDiameter', 'keywayWidth', 'keywayDepth', 'keywayLength'],
   bracket: ['baseLength', 'baseWidth', 'baseThickness', 'upperLength', 'upperWidth', 'upperHeight', 'totalHeight', 'notchOpening', 'notchRadius', 'slotLength', 'slotWidth', 'pocketDepth', 'bossDiameter', 'bossCenterDistance'],
   split_clamp_support: ['baseLength', 'baseWidth', 'baseThickness', 'baseMainDepth', 'frontTongueWidth', 'rearBridgeWidth', 'totalHeight', 'pedestalOuterRadius', 'pedestalCenterFromRear', 'pedestalHeight', 'rearClampRise', 'boreDiameter', 'boreFloorZ', 'splitWidth', 'mountHoleCount', 'mountHoleDiameter', 'mountHoleCenterDistance', 'mountHoleCenterFromRear', 'crossHoleDiameter', 'crossHoleCenterZ', 'ribHeight', 'ribThickness', 'outerCornerRadius', 'neckConcaveRadius', 'neckConvexRadius'],
@@ -27,6 +32,8 @@ export function validationParameterKeys(model) { return [...(parameters[canonica
 
 export function validateModelParameters(model) {
   const kind = canonicalModelKind(model)
+  if (kind === 'feature_model') return validateCadPlan(model)
+  if (kind === 'arched_clevis_support') return validateArchedClevisSupport(model)
   const errors = []
   const add = (field, message) => { if (!errors.some((item) => item.field === field && item.message === message)) errors.push({ field, message }) }
   const check = (condition, field, message) => { if (!condition) add(field, message) }

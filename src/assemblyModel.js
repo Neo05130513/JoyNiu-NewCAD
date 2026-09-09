@@ -98,9 +98,12 @@ export function instanceBounds(item) {
 }
 
 export function mainModelEnvelope(model = {}) {
-  const kind = String(model.kind || model.recipeId || '').toLowerCase()
+  const kind = String(model?.kind || model?.recipeId || '').toLowerCase()
   let length; let width; let height; let axial = false
   if (['shaft', 'shaft_v1'].includes(kind)) { length = model.length; width = model.outerDiameter; height = model.outerDiameter; axial = true }
+  else if (['arched_clevis_support', 'arched_clevis_support_v1'].includes(kind)) {
+    length = Number(model.mountHoleCenterDistance) + Number(model.mountEarRadius) * 2; width = model.baseWidth; height = Number(model.earCenterHeight) + Number(model.earRadius)
+  }
   else if (['stepped_tapered_nozzle', 'stepped_tapered_nozzle_with_insert_v1', 'stepped_tapered_nozzle_v1', 'tapered_nozzle_with_insert'].includes(kind)) {
     length = model.mainLength; width = Math.max(Number(model.headLeftDiameter), Number(model.headRightDiameter), Number(model.neckDiameter), Number(model.tipDiameter)); height = width; axial = true
   } else if (['bracket', 'bracket_support_v1', 'split_clamp_support', 'split_clamp_support_v1', 'split_clamp_pedestal', 'clamp_pedestal', 'circular_clamp', 'circular_clamp_v1'].includes(kind)) {
@@ -131,7 +134,9 @@ export function checkAssembly(model, items = []) {
   const bounds = []
   const fits = []
   const envelope = mainModelEnvelope(model)
-  if (!envelope) issues.push({ severity: 'error', code: 'model-envelope', message: '当前模型类型或外形尺寸无效，无法计算主件包络。' })
+  const hasModel = Boolean(model?.kind || model?.recipeId)
+  if (hasModel && !envelope) issues.push({ severity: 'error', code: 'model-envelope', message: '当前模型类型或外形尺寸无效，无法计算主件包络。' })
+  if (!hasModel && !items.length) issues.push({ severity: 'info', code: 'empty-assembly', message: '当前装配为空，请先创建主件或插入标准件。' })
   const ids = new Set()
   for (const item of items) {
     const errors = [...validatePartDefinition(item), ...validateTransform(item.position, item.rotation)]
@@ -155,5 +160,11 @@ export function checkAssembly(model, items = []) {
   for (let i = 0; i < bounds.length; i++) for (let j = i + 1; j < bounds.length; j++) {
     if (boundsOverlap(bounds[i], bounds[j])) issues.push({ severity: 'warning', code: 'instance-overlap', itemIds: [bounds[i].item.id, bounds[j].item.id], message: `${bounds[i].item.name}（${i + 1}）与 ${bounds[j].item.name}（${j + 1}）包络重叠，需进一步检查实体。` })
   }
-  return { fingerprint: assemblyFingerprint(model, items), checkedAt: new Date().toISOString(), issues, fits, instanceCount: items.length + (envelope ? 1 : 0), scope: '旋转后的轴对齐包络盒；直轴与环件同轴时的公称径向间隙。未进行实体布尔干涉、螺纹或公差校验。' }
+  const instanceCount = items.length + (envelope ? 1 : 0)
+  const scope = instanceCount === 0
+    ? '当前装配没有可检查的实例，尚未进行重叠检查。'
+    : envelope
+      ? '旋转后的轴对齐包络盒；直轴与环件同轴时的公称径向间隙。未进行实体布尔干涉、螺纹或公差校验。'
+      : '已插入实例的数据与旋转后包络盒；没有主件，不检查主件配合。未进行实体布尔干涉、螺纹或公差校验。'
+  return { fingerprint: assemblyFingerprint(model, items), checkedAt: new Date().toISOString(), issues, fits, instanceCount, scope }
 }

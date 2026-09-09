@@ -61,6 +61,13 @@ _REQUIRED_SPLIT_CLAMP_CANDIDATE_FIELDS = frozenset(
         "outerCornerRadius", "neckConcaveRadius", "neckConvexRadius",
     }
 )
+_REQUIRED_ARCHED_CLEVIS_CANDIDATE_FIELDS = frozenset(
+    {
+        "archOuterRadius", "archInnerRadius", "baseWidth", "baseThickness",
+        "earRadius", "earHoleDiameter", "earCenterHeight", "earThickness", "earGap",
+        "mountEarRadius", "mountHoleDiameter", "mountHoleCenterDistance",
+    }
+)
 _REQUIRED_STEPPED_TAPERED_NOZZLE_CANDIDATE_FIELDS = frozenset(
     {
         "mainLength", "headLength", "neckLength", "headLeftDiameter",
@@ -748,6 +755,14 @@ class OCRService:
                 raise ValidationError(
                     "split_clamp_support candidate requires recipeId split_clamp_support_v1"
                 )
+        elif recognition.part_type == "arched_clevis_support" or (
+            was_unknown and recipe_id == "arched_clevis_support_v1"
+        ):
+            effective_part_type = "arched_clevis_support"
+            if recipe_id != "arched_clevis_support_v1":
+                raise ValidationError(
+                    "arched_clevis_support candidate requires recipeId arched_clevis_support_v1"
+                )
         elif recognition.part_type in {"unknown", "bracket"}:
             # Preserve the historical unknown → bracket confirmation bridge.
             effective_part_type = "bracket"
@@ -801,6 +816,14 @@ class OCRService:
                 raise ValidationError(
                     "unknown parameter override(s): " + ", ".join(unknown)
                 )
+        elif effective_part_type == "arched_clevis_support":
+            from .schemas import ArchedClevisSupportParameters
+
+            allowed = set(ArchedClevisSupportParameters.model_fields)
+            allowed.update(field.alias for field in ArchedClevisSupportParameters.model_fields.values() if field.alias)
+            unknown = sorted(str(key) for key in set(raw_parameters).union(overrides) if str(key) not in allowed)
+            if unknown:
+                raise ValidationError("unknown parameter override(s): " + ", ".join(unknown))
         else:
             from .schemas import SteppedTaperedNozzleParameters
 
@@ -821,6 +844,19 @@ class OCRService:
                 )
         parameters = dict(raw_parameters)
         parameters.update(dict(overrides))
+
+        if effective_part_type == "arched_clevis_support":
+            from .schemas import ArchedClevisSupportParameters
+
+            aliases = {name: field.alias or name for name, field in ArchedClevisSupportParameters.model_fields.items()}
+            # Normalize before merging so a snake_case human correction wins
+            # over the corresponding camelCase AI candidate, and vice versa.
+            parameters = {aliases.get(str(key), str(key)): value for key, value in raw_parameters.items()}
+            parameters.update({aliases.get(str(key), str(key)): value for key, value in overrides.items()})
+            supplied = {key for key, value in parameters.items() if value is not None and value != ""}
+            missing = sorted(_REQUIRED_ARCHED_CLEVIS_CANDIDATE_FIELDS - supplied)
+            if missing:
+                raise ValidationError("arched clevis candidate is incomplete; provide: " + ", ".join(missing))
 
         if was_unknown and effective_part_type == "bracket":
             aliases = {
@@ -896,6 +932,7 @@ class OCRService:
                 from .model_recipes import parse_model_parameters, validate_model_recipe
 
                 confirmed_recipe_id = {
+                    "arched_clevis_support": "arched_clevis_support_v1",
                     "split_clamp_support": "split_clamp_support_v1",
                     "stepped_tapered_nozzle": "stepped_tapered_nozzle_with_insert_v1",
                 }[effective_part_type]

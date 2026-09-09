@@ -139,3 +139,25 @@ test('corrupt instance dimensions and duplicate IDs are rejected without a false
   const invalidModel = checkAssembly({ ...shaft, kind: 'other' }, [])
   assert.equal(invalidModel.issues[0].code, 'model-envelope')
 })
+
+test('a new empty design has no phantom main instance and supports independent library inserts', () => {
+  for (const model of [null, undefined, { kind: '', name: '新零件', material: '45# 钢' }]) {
+    assert.equal(mainModelEnvelope(model), null)
+    const empty = checkAssembly(model, [])
+    assert.equal(empty.instanceCount, 0)
+    assert.equal(empty.issues[0].code, 'empty-assembly')
+    const first = createPartInstance(standardParts[0], { position: initialPartPosition(model, [], standardParts[0]) })
+    const second = createPartInstance(standardParts[1], { position: initialPartPosition(model, [first], standardParts[1]) })
+    for (const coordinate of [...Object.values(first.position), ...Object.values(second.position)]) assert.equal(Number.isFinite(coordinate), true)
+    assert.equal(boundsOverlap(instanceBounds(first), instanceBounds(second)), false)
+    const report = checkAssembly(model, [first, second])
+    assert.equal(report.instanceCount, 2)
+    assert.deepEqual(report.issues, [])
+    assert.deepEqual(report.fits, [])
+    assert.match(report.scope, /没有主件/)
+    const overlapping = applyPartTransform(second, first.position, second.rotation)
+    const collision = checkAssembly(model, [first, overlapping])
+    assert.ok(collision.issues.some((issue) => issue.code === 'instance-overlap'))
+    assert.equal(collision.issues.some((issue) => issue.code === 'model-envelope' || issue.code === 'shaft-fit'), false)
+  }
+})

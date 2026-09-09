@@ -8,11 +8,14 @@ CurrentCAD 线程中验证过的交互，并在 v0.5.0 将“工作台 AI 对话
 
 前端工作台仍可离线演示，同时通过 `src/api.js` 连接 FastAPI：
 
+- 通用 CAD 建模流程：新图纸先独立转录原文、尺寸界线与基准，再进入建模工具循环，记录尺寸依据、组合通用特征、执行 CadQuery、测量实体并查看真实投影。发现差异后继续修正，必要信息不明确时提问；空白文字设计直接进入建模循环。
+- 通用特征计划支持方体、圆柱、含圆弧的轮廓拉伸/旋转、布尔运算、平移和圆角。服务端只解释受限 JSON 和算术表达式，执行工作进程设有时间、内存与文件上限。
+- 通用模型只显示真实 GLB，2D 页面显示由同一实体生成的三视图；手动改参数后先重新检查并更新预览，再确认导出 STEP。原图、计划、检查依据和不可变修订保存在服务端，刷新后可继续对话。
 - AI 参数化零件 Agent：解析中文描述、编辑参数、同步特征树和三维预览。
 - 多模态 AI Copilot：在设计工作台对话框上传图片、PDF、DXF 或 DWG，携带当前模型状态进行
   多轮尺寸编辑；DWG 先在服务端转换为 DXF、提取矢量/尺寸并渲染高清图，原始 DWG 二进制
   不直接发送给中转站。服务端通过 GPTX Responses 兼容端点调用
-  `gpt-5.6-sol` / `high`，并只把白名单参数补丁交给 CAD 编辑器。结果可携带
+  `gpt-5.6-sol` / `high`。旧配方项目的兼容编辑路径只把白名单参数补丁交给 CAD 编辑器。其结果可携带
   `partType`、`recipeId` 和 `parameterEvidence`，工作台据此切换正确的参数面板、特征树与三维草稿。
 - Three.js WebGL 三维查看器：优先加载 FastAPI 生成的真实 GLB 网格，支持 OrbitControls
   旋转/缩放、等轴/前/俯视相机、剖切平面和可见的参数化 fallback 状态。
@@ -37,6 +40,15 @@ CurrentCAD 线程中验证过的交互，并在 v0.5.0 将“工作台 AI 对话
 apps/api/app/main.py              FastAPI 几何入口（/api 与 /api/v1）
 apps/api/app/geometry.py          CadQuery/OCCT + 可审计 fallback 导出
 apps/api/app/model_recipes.py     零件类型/配方白名单与通用调度
+apps/api/app/cad_agent.py         读图、独立尺寸依据、执行与修正循环
+apps/api/app/cad_plan.py          通用特征计划及受限表达式校验
+apps/api/app/cad_source_reader.py 按内容区域独立转录、来源缓存及有界图像准备
+apps/api/app/cad_plan_edit.py     原子保存参数/特征增量，校验完整引用关系
+apps/api/app/cad_executor.py      隔离的 CadQuery 执行与真实产物
+apps/api/app/cad_inspector.py     实体测量、截面和实际三视图
+apps/api/app/cad_acceptance.py    独立尺寸依据与实体测量逐项对照
+apps/api/app/cad_agent_api.py     SSE、确认、版本与产物下载
+apps/api/app/cad_agent_store.py   SQLite 不可变修订与原始文件
 apps/api/app/split_clamp_support.py 开口夹紧座建模、校验、STEP/GLB
 apps/api/app/recognition.py       上传图纸识别兼容入口
 apps/api/app/platform.py          SQLite PDM、RBAC、审计
@@ -58,12 +70,55 @@ apps/api/scripts/acceptance_check.py 端到端离线验收脚本
 | STEP/GLB 下载 | `GET /api/v1/artifacts/{id}.{format}` |
 | 认证 | `POST /api/v1/auth/users`、`POST /api/v1/auth/login`、`GET /api/v1/auth/me` |
 | AI Copilot | `GET /api/v1/ai/status`、`POST /api/v1/ai/conversation`、`POST /api/v1/ai/chat` |
+| 通用 CAD Agent | `POST /api/v1/cad-agent/run`（multipart，SSE）、`POST /api/v1/cad-agent/confirm` |
+| 通用 CAD 版本 | `GET /api/v1/cad-agent/runs/{runId}?revision=...` |
 | PDM | `/api/v1/pdm/projects`、`/api/v1/pdm/documents/{id}/versions` |
 | OCR 证据 | `/api/v1/ocr/analyze`、`/api/v1/ocr/{recognitionId}/confirm` |
 | CAM/NC | `/api/v1/cam/plans`、`/api/v1/cam/plans/{id}/simulate`/`approve`/`release`、`/api/v1/cam/nc/{id}` |
 
 平台写操作使用 `Authorization: Bearer <token>`。首次创建账号是显式本地 bootstrap；
 之后创建账号、角色变更和放行均需相应权限。
+
+通用 CAD 默认使用现有 AI 服务配置。也可显式配置本机 Codex 引擎：
+
+```dotenv
+JOYNIU_CAD_PROVIDER=codex
+JOYNIU_CAD_CODEX_MODEL=gpt-6-astra
+# 可选：Codex 可执行文件的绝对路径；未设置时检查桌面应用与 PATH
+# JOYNIU_CAD_CODEX_BINARY=/absolute/path/to/codex
+```
+
+Codex 引擎依赖该电脑已安装并登录的 CLI；界面“已配置”仅表示找到可执行文件，调用时仍可能因认证、额度或模型权限失败。软件沿用 CLI 登录，不读取/复制认证文件，不继承服务端 API 密钥。每次推理使用临时目录、只读沙箱、关闭已知工具入口、无持久会话，并严格检查最终 JSON 与完成事件；CAD 构造仍由受限计划执行器负责。CLI 是可信本机进程，这些设置不等于独立操作系统账户的访问隔离。模型切换后重新读取原图和尺寸依据，旧草稿保留以供核对。旧配方聊天仍使用原中转站配置。
+
+`JOYNIU_CAD_AGENT_DIR` 可配置原图、模型与修订存储目录，默认是 `apps/api/data/cad-agent`；`JOYNIU_CAD_AGENT_TIMEOUT_SECONDS` 默认 900 秒，每次请求最多 20 个建模工具步骤。独立读图器 v2 按实际墨迹和留白将每张栅格图分为最多四个内容区域，最多四个请求并行，共享 180 秒并计入总预算；没有可靠分区时读取整图。区域只是导航范围，不被当作已识别的投影视图。
+
+单个内容区域周围有大块空白时，会保留全部墨迹并增加局部放大图，完整原图仍一起输入。独立尺寸转录默认使用 `medium` 推理（全局为 `low` 时保留 `low`）；可用 `JOYNIU_CAD_SOURCE_REASONING_EFFORT` 显式覆盖。空间推断和建模仍使用各自实际配置，候选读数始终需要后续核对。
+
+原图、预处理图片的完整 SHA-256 及读图器版本一致时，才复用候选转录。更换来源会清除旧尺寸依据、旧计划及已检查局部；读图器版本变化也会使旧依据失效。单个区域发生瞬态错误时，仅该区域在剩余预算内重试一次，其他已成功区域不重读；认证、权限、额度和上下文等永久错误不重试。任何区域最终未完成，整图仍报告失败。各次尝试只保存安全的状态、耗时、计数与用量诊断，不记录供应商正文、推理文本或密钥。
+
+复杂计划可通过 `edit_plan` 分批增补参数和特征，每批最多 12 个特征，校验后原子保存草稿。每次保存或恢复草稿都进行最多 15 秒的实际 OCCT 构造检查，定位失败特征，并输出局部草稿的三视图供下一轮核对；这一步不生成 STEP/GLB 交付文件，也不代表完整模型。三点圆弧可带 `radius` 约束，实际圆弧半径不符时拒绝该构造。尺寸验收使用覆盖实体实际包络的完整射线截面，短探针不能隐藏额外厚度或盲孔底，原窗口仅保留为诊断。
+
+独立空间分析与建模并行，按原图记录共同坐标系、材料/开口及跨视图关系；候选缺失或失败时仍允许直接核对原图，晚到结果不能改写已结束任务。实际实体生成后，像素比较器将正交投影与原图配准，输出多余或错位边界的位置及叠图；可靠差异进入几何修正循环并阻止交付。镜像、视向或旋转无法可靠确定时标为 `uncertain`，不能当作一致证明。该比较是单向轮廓证据，不能证明所有应有特征都存在。
+
+建模代理还能查看同一实际 OCCT 草稿/实体的等轴测诊断图，以核对三维连接和开口；等轴测图单独传递，不冒充正交工程图或参与二维像素配准。即使像素比较已发现差异，独立视觉复核也会提供可供修正的具体解释；其一致意见或失败不能抹掉确定的轮廓差异。
+
+模型准备向用户提问时，先用原图及已检查局部进行一次隔离复读，尝试定位图上已有的答案。每组问题只复读一次、每轮任务最多两组，来源/问题哈希绑定；带依据的候选返回建模循环继续核对，不直接写入尺寸或代用户确认。真实未解问题仍保留。失败且无待答问题时，页面的重试按钮会直接续用服务端保存的原图。
+
+长任务在返回 `started` 时已保存 `runId`，浏览器断线后服务端继续运行，可通过 GET 恢复；服务重启后的未完成任务标记 `interrupted`。前端恢复/重试复用已存来源，确认与修改互斥并核对运行与修订，换图前自动保留旧版本。Responses 仅消费最终 assistant 消息中的单个 CAD 动作，`commentary` 不执行，同一最终消息中的多个 JSON 会被拒绝。
+
+上游长时间没有最终输出而中断时，下一次建模尝试使用较短的推理档位；同一来源反复发生这种故障后，后续操作保持该档位。已有图纸、草稿和验收条件不变。错误事件、流结束方式及未知事件类别仅记录安全诊断，不把中间文本或失败响应当作可执行动作。
+
+遇到明确畸形 SSE 事件时，下一次建模操作尝试普通 Responses JSON 传输，成功后恢复流式；最终消息和 CAD 动作验证保持不变，浏览器仍收到后台任务进度。畸形数据仅记录错误类别、长度和位置，不保存正文。
+
+图纸任务确认和 STEP 下载都要求同一计划哈希的服务端独立图纸复核：结构化对照记录非空、状态一致且无差异、问题或错误，并须通过真实尺寸检查。存量 `ready` 也受此门禁约束，旧自评或下载令牌不能绕过；纯文字任务保留 `not_applicable` 流程。独立视觉复核仍是可能出错的候选意见，不能保证与原图一致，制造交付仍需核对轮廓、基准与未测特征。
+
+图纸复刻默认严格对照原图。只有服务端验证过的已确认父版本，才允许将后续用户明确要求作为设计修改依据；客户端、模型输出和恢复快照不能自行放宽比较规则，全部修改要求随版本保留。
+
+最新 Codex 引擎原图盲测已完成：支架 `10.jpg` 的24/24项、轴类 `3.jpg` 的42/42项独立STEP检查通过，与保留参考体的布尔对称差均为0；完整任务分别433.672秒、536.515秒，均正常进入待用户确认。原图是唯一图纸输入，没有向建模流程提供审计答案。这是两个样本的实体验收，不能替代更多未知图纸评估。
+
+早期中转站原图盲测未通过：`10.jpg` 后续实际 STEP 为21/24项，但中央桥缺失，形体对称差25.44%；`3.jpg` 仍出现尺寸端点和孔槽误读，未生成 STEP。独立视觉也可能漏检，不能把候选数量、部分量测或模型自评当作完整复刻成功。各次实跑、外部审计和历史结果见[续修验收记录](docs/cad-agent-autonomy-2026-09-09.md)。
+
+最终完整回归：后端1142项、前端153项通过，生产构建通过。确定性测试不替代复杂原图的实际验收。
 
 ## 本地启动
 

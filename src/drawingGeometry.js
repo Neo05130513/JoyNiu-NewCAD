@@ -1,4 +1,5 @@
 import { canonicalModelKind, validateModelParameters } from './modelValidation.js'
+import { archedClevisSupportDimensions } from './archedClevisSupport.js'
 
 export const drawingLayers = [
   { id: 'OBJECT', label: '可见轮廓', color: '#bfd0e3', dxfColor: 7 },
@@ -140,6 +141,60 @@ function bracketViews(p) {
   return [front, end, top, section]
 }
 
+function archedClevisViews(p) {
+  const { baseLength: L, totalHeight: H, bridgeHeight: bridge, baseJoinX: join } = archedClevisSupportDimensions(p)
+  const [R, r, er, W, T, gap, t, hc, hd, mr, md, pitch] = [p.archOuterRadius, p.archInnerRadius, p.earRadius, p.baseWidth, p.baseThickness, p.earGap, p.earThickness, p.earCenterHeight, p.earHoleDiameter, p.mountEarRadius, p.mountHoleDiameter, p.mountHoleCenterDistance]
+  const front = makeView('front', '主视图 · XZ'), top = makeView('top', '俯视图 · XY'), end = makeView('end', '右视图 · YZ'), section = makeView('section', 'A–A 中心剖面 · Y = 0')
+  const a = Math.asin(T / R) * 180 / Math.PI, b = Math.acos(er / R) * 180 / Math.PI
+  front.arc(0, 0, R, a, b, 'OBJECT', 'outer-arch'); front.arc(0, 0, R, 180 - b, 180 - a, 'OBJECT', 'outer-arch')
+  front.arc(0, 0, r, 0, 180, 'OBJECT', 'inner-arch'); front.arc(0, hc, er, 0, 180, 'OBJECT', 'ear')
+  for (const sign of [-1, 1]) {
+    front.line(sign * er, bridge, sign * er, hc, 'OBJECT', 'ear')
+    front.poly([[sign * join, T], [sign * L / 2, T], [sign * L / 2, 0], [sign * r, 0]], false, 'OBJECT', 'mount-ear')
+    for (const x of [sign * pitch / 2 - md / 2, sign * pitch / 2 + md / 2]) front.line(x, 0, x, T, 'HIDDEN', 'mount-hole')
+  }
+  front.circle(0, hc, hd / 2, 'OBJECT', 'ear-hole'); front.center(0, -4, 0, H + 4)
+  front.vDim(0, hc, L / 2 + 12, er, `耳孔中心高 ${formatDimension(hc)}`, 'earCenterHeight')
+  front.leader(er / 2, hc + Math.sqrt(er * er * .75), -L / 2, H + 12, `耳外 R${formatDimension(er)} · 孔 Ø${formatDimension(hd)}`, 'earHoleDiameter')
+  front.leader(-R * .8, R * .6, -L / 2, H - 5, `外拱 R${formatDimension(R)}`, 'archOuterRadius')
+  front.leader(0, r, L / 2 + 8, -12, `内拱 R${formatDimension(r)}`, 'archInnerRadius')
+  top.rect(-R, -W / 2, 2 * R, W, 'OBJECT', 'arch')
+  top.rect(-er, -W / 2, 2 * er, W, 'OBJECT', 'ear')
+  for (const y of [-gap / 2, gap / 2]) top.line(-er, y, er, y, 'OBJECT', 'ear-gap')
+  for (const sign of [-1, 1]) {
+    const c = sign * pitch / 2
+    top.arc(c, 0, mr, sign > 0 ? 270 : 90, sign > 0 ? 450 : 270, 'OBJECT', 'mount-ear')
+    for (const y of [-mr, mr]) top.line(sign * R, y, c, y, 'OBJECT', 'mount-ear')
+    top.circle(c, 0, md / 2, 'OBJECT', 'mount-hole'); top.center(c, -mr - 4, c, mr + 4)
+    for (const x of [-hd / 2, hd / 2]) top.line(x, sign * gap / 2, x, sign * W / 2, 'HIDDEN', 'ear-hole')
+  }
+  top.hDim(-pitch / 2, pitch / 2, W / 2 + 12, 0, `安装孔距 ${formatDimension(pitch)} · 2×Ø${formatDimension(md)}`, 'mountHoleCenterDistance')
+  top.leader(pitch / 2 + mr, 0, L / 2 + 8, -W / 2 - 8, `安装耳 R${formatDimension(mr)}`, 'mountEarRadius')
+  end.poly([[-W / 2, 0], [W / 2, 0], [W / 2, H], [gap / 2, H], [gap / 2, bridge], [-gap / 2, bridge], [-gap / 2, H], [-W / 2, H]], true, 'OBJECT', 'double-ear')
+  end.line(-W / 2, r, W / 2, r, 'HIDDEN', 'inner-arch')
+  end.poly([[-mr, 0], [-mr, T], [mr, T], [mr, 0]], false, 'OBJECT', 'mount-ear')
+  for (const y of [-md / 2, md / 2]) end.line(y, 0, y, T, 'HIDDEN', 'mount-hole')
+  for (const sign of [-1, 1]) for (const z of [hc - hd / 2, hc + hd / 2]) end.line(sign * gap / 2, z, sign * W / 2, z, 'HIDDEN', 'ear-hole')
+  end.hDim(-W / 2, W / 2, -12, 0, `全宽 ${formatDimension(W)}`, 'baseWidth')
+  end.hDim(-gap / 2, gap / 2, H + 12, H, `耳间隙 ${formatDimension(gap)}`, 'earGap')
+  end.hDim(-W / 2, -W / 2 + t, H + 24, H, `耳厚 ${formatDimension(t)}`, 'earThickness')
+  const holes = [-pitch / 2, pitch / 2].map((x) => [x - md / 2, x + md / 2])
+  const breaks = [...new Set([-L / 2, -R, -er, -r, r, er, R, L / 2, ...holes.flat()])].sort((x, y) => x - y)
+  const upper = (x) => Math.max(T, Math.abs(x) <= R ? Math.min(bridge, Math.sqrt(Math.max(0, R * R - x * x))) : 0)
+  const lower = (x) => Math.abs(x) < r ? Math.sqrt(Math.max(0, r * r - x * x)) : 0
+  for (let i = 0; i < breaks.length - 1; i += 1) {
+    const lo = breaks[i], hi = breaks[i + 1], mid = (lo + hi) / 2
+    if (holes.some(([a, b]) => mid > a && mid < b)) continue
+    const n = Math.max(8, Math.ceil(hi - lo) * 3), points = []
+    for (let j = 0; j <= n; j += 1) { const x = lo + (hi - lo) * j / n; points.push([x, lower(x)]) }
+    for (let j = n; j >= 0; j -= 1) { const x = lo + (hi - lo) * j / n; points.push([x, upper(x)]) }
+    section.sectionPoly(points, 'arch-and-mount-holes')
+  }
+  section.vDim(0, T, L / 2 + 12, L / 2, `安装耳厚 ${formatDimension(T)}`, 'baseThickness')
+  section.leader(0, bridge, 0, bridge + 14, `桥面 ${formatDimension(bridge)}（推导）`, 'bridgeHeight')
+  return [front, end, top, section]
+}
+
 function roundedOutline(view, points, radii) {
   const vertices = points.map((point, i) => {
     const prev = points[(i + points.length - 1) % points.length], next = points[(i + 1) % points.length], r = radii[i] || 0
@@ -260,7 +315,7 @@ export function buildDrawingScene(model, options = {}) {
   const validation = validateModelParameters(model)
   if (!validation.valid) return { ...validation, entities: [], views: [], dimensions: [], layers: drawingLayers, notes: [], width: 420, height: 297 }
   const p = Object.fromEntries(Object.entries(model).map(([key, value]) => [key, typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) ? Number(value) : value]))
-  const factories = { shaft: shaftViews, bracket: bracketViews, split_clamp_support: clampViews, stepped_tapered_nozzle: nozzleViews }
+  const factories = { shaft: shaftViews, bracket: bracketViews, split_clamp_support: clampViews, stepped_tapered_nozzle: nozzleViews, arched_clevis_support: archedClevisViews }
   const rawViews = factories[validation.kind](p)
   const bounds = rawViews.map((view) => {
     const points = view.entities.flatMap(entityPoints), xs = points.map(([x]) => x), ys = points.map(([, y]) => y)

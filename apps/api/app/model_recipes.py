@@ -8,9 +8,14 @@ from pydantic import ValidationError as PydanticValidationError
 
 from .geometry import generate_artifacts, validate_bracket
 from .schemas import (
+    ArchedClevisSupportParameters,
     BracketParameters,
     SplitClampSupportParameters,
     SteppedTaperedNozzleParameters,
+)
+from .arched_clevis_support import (
+    generate_arched_clevis_support_artifacts,
+    validate_arched_clevis_support,
 )
 from .split_clamp_support import (
     generate_split_clamp_support_artifacts,
@@ -24,19 +29,22 @@ from .stepped_tapered_nozzle import (
 
 RECIPE_PART_TYPES = {
     "bracket_support_v1": "bracket",
+    "arched_clevis_support_v1": "arched_clevis_support",
     "split_clamp_support_v1": "split_clamp_support",
     "stepped_tapered_nozzle_with_insert_v1": "stepped_tapered_nozzle",
 }
 
 
-ModelParameters = BracketParameters | SplitClampSupportParameters | SteppedTaperedNozzleParameters
+ModelParameters = BracketParameters | ArchedClevisSupportParameters | SplitClampSupportParameters | SteppedTaperedNozzleParameters
 
 
 def _model_for(
     recipe_id: str,
-) -> type[BracketParameters] | type[SplitClampSupportParameters] | type[SteppedTaperedNozzleParameters]:
+) -> type[BracketParameters] | type[ArchedClevisSupportParameters] | type[SplitClampSupportParameters] | type[SteppedTaperedNozzleParameters]:
     if recipe_id == "bracket_support_v1":
         return BracketParameters
+    if recipe_id == "arched_clevis_support_v1":
+        return ArchedClevisSupportParameters
     if recipe_id == "split_clamp_support_v1":
         return SplitClampSupportParameters
     if recipe_id == "stepped_tapered_nozzle_with_insert_v1":
@@ -71,6 +79,8 @@ def validate_model_recipe(
 ) -> dict[str, Any]:
     if recipe_id == "bracket_support_v1" and isinstance(parameters, BracketParameters):
         return validate_bracket(parameters).model_dump(mode="json", by_alias=True)
+    if recipe_id == "arched_clevis_support_v1" and isinstance(parameters, ArchedClevisSupportParameters):
+        return validate_arched_clevis_support(parameters)
     if recipe_id == "split_clamp_support_v1" and isinstance(parameters, SplitClampSupportParameters):
         return validate_split_clamp_support(parameters)
     if recipe_id == "stepped_tapered_nozzle_with_insert_v1" and isinstance(
@@ -90,6 +100,8 @@ def generate_model_recipe_artifacts(
 ):
     if recipe_id == "bracket_support_v1" and isinstance(parameters, BracketParameters):
         return generate_artifacts(parameters, formats, require_cadquery=require_cadquery)
+    if recipe_id == "arched_clevis_support_v1" and isinstance(parameters, ArchedClevisSupportParameters):
+        return generate_arched_clevis_support_artifacts(parameters, formats, require_cadquery=require_cadquery)
     if recipe_id == "split_clamp_support_v1" and isinstance(parameters, SplitClampSupportParameters):
         return generate_split_clamp_support_artifacts(
             parameters,

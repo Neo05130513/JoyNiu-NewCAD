@@ -17,7 +17,7 @@ function SnapshotDetails({ snapshot, title }) {
   return <div className="pf-snapshot-details">
     <h4>{title}</h4>
     {typeof snapshot?.documentText === 'string' ? <pre className="pf-document-preview">{snapshot.documentText || '此版本尚无正文。'}</pre> : <>
-      <p>{model?.name || '未命名模型'}{model?.kind ? ` · ${model.kind}` : ''}</p>
+      <p>{model?.name || '空白文件 · 尚无模型'}{model?.kind ? ` · ${model.kind}` : ''}</p>
       <dl>{Object.entries(model || {}).filter(([key, value]) => !['name', 'kind', 'updatedAt'].includes(key) && ['number', 'string', 'boolean'].includes(typeof value)).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl>
       <p className="pf-muted">图纸：{snapshot?.drawingJob?.fileMeta?.name || '未附加'} · 装配实例：{snapshot?.assemblyItems?.length || 0} · 对话：{snapshot?.messages?.length || 0} 条</p>
     </>}
@@ -129,7 +129,7 @@ export default function ProjectFilesWorkspace({
     {dialog && <dialog ref={dialogRef} className="pf-dialog" onCancel={closeDialog} aria-labelledby="pf-dialog-title"><form onSubmit={submit}>
       <div className="pf-section-heading"><h2 id="pf-dialog-title">{dialogTitles[dialog.mode]}</h2><button type="button" className="pf-button" aria-label="关闭对话框" onClick={closeDialog}>×</button></div>
       {dialog.mode === 'saveVersion' ? <><p>为“{dialog.file.name}”保存一份独立快照。</p><label>版本说明<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="例如：调整轴长，确认安装间隙" autoFocus /></label></> : <label>名称<input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required autoFocus placeholder={dialog.mode.includes('Project') ? '输入项目名称' : '输入文件名称'} /></label>}
-      {dialog.mode === 'createFile' && <><label>文件类型<select value={type} onChange={(event) => { setType(event.target.value); setSource(['工程图', '装配体'].includes(event.target.value) ? 'current' : 'blank') }}>{FILE_TYPES.map((item) => <option key={item}>{item}</option>)}</select></label>{type !== '文档' && <label>初始设计<select value={source} onChange={(event) => setSource(event.target.value)}><option value="blank">独立基准零件</option><option value="current" disabled={!activeFile?.snapshot?.model}>复制当前文件的设计</option></select></label>}<p className="pf-muted">新文件拥有独立内容和版本。复制设计后，两份文件可分别修改。</p></>}
+      {dialog.mode === 'createFile' && <><label>文件类型<select value={type} onChange={(event) => { setType(event.target.value); setSource(['工程图', '装配体'].includes(event.target.value) ? 'current' : 'blank') }}>{FILE_TYPES.map((item) => <option key={item}>{item}</option>)}</select></label>{type !== '文档' && <label>初始设计<select value={source} onChange={(event) => setSource(event.target.value)}><option value="blank">空白文件</option><option value="current" disabled={!activeFile?.snapshot?.model}>复制当前文件的设计</option></select></label>}<p className="pf-muted">新文件拥有独立内容和版本。复制设计后，两份文件可分别修改。</p></>}
       {error && <p className="pf-error" role="alert">{error}</p>}
       <div className="pf-dialog-actions"><button type="button" className="pf-button" onClick={closeDialog}>取消</button><button type="submit" className="pf-button pf-primary">{dialog.mode === 'saveVersion' ? '保存版本' : '确定'}</button></div>
     </form></dialog>}

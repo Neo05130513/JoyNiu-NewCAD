@@ -548,9 +548,18 @@ def _canonical_ai_attachment_metadata(
 def _supported_ai_recipe_identity(part_type: str, recipe_id: str) -> bool:
     return (part_type, recipe_id) in {
         ("bracket", "bracket_support_v1"),
+        ("arched_clevis_support", "arched_clevis_support_v1"),
         ("split_clamp_support", "split_clamp_support_v1"),
         ("stepped_tapered_nozzle", "stepped_tapered_nozzle_with_insert_v1"),
     }
+
+
+def _incompatible_ai_recipe(result: Any) -> bool:
+    compatibility = getattr(result, "recipe_compatibility", None)
+    return isinstance(compatibility, Mapping) and (
+        compatibility.get("status") == "unsupported"
+        or (compatibility.get("status") != "supported" and bool(compatibility.get("unsupportedFeatures")))
+    )
 
 
 async def _finalize_ai_conversation_result(
@@ -573,6 +582,10 @@ async def _finalize_ai_conversation_result(
     parameter_evidence = getattr(result, "parameter_evidence", None)
     registered_drawing = None
     canonical_attachments = _canonical_ai_attachment_metadata(result, attachments)
+    if _incompatible_ai_recipe(result):
+        # Preserve attachment identity and diagnostics, but do not create a
+        # confirmable recognition whose recipe cannot express the drawing.
+        return replace(result, drawing=None, parameter_patch={}, part_type="unknown", recipe_id="", needs_review=True, attachments=tuple(canonical_attachments))
     for attachment in attachments:
         try:
             candidate = await asyncio.to_thread(
@@ -790,6 +803,8 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             if history:
                 converse_kwargs["history"] = history
             result = await asyncio.to_thread(services.ai.converse, message, **converse_kwargs)
+            if _incompatible_ai_recipe(result):
+                return replace(result, drawing=None, parameter_patch={}, part_type="unknown", recipe_id="", needs_review=True, attachments=tuple(_canonical_ai_attachment_metadata(result, attachments))).to_dict()
             # The AI adapter may expose a richer compatibility recognition,
             # but geometry generation and explicit human confirmation must use the
             # platform OCR service's own DrawingRecognition object. Register

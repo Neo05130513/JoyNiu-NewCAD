@@ -1,0 +1,44 @@
+.cad-agent-summary { align-items: start; }
+.cad-agent-summary .review-banner-copy { min-width: 0; }
+.cad-agent-summary .review-banner-copy span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cad-agent-questions { flex: 1 1 100%; max-height: 100px; overflow: auto; }
+.cad-agent-trace { flex: 1 1 100%; }
+.cad-agent-questions, .cad-agent-trace { grid-column: 2 / -1; font-size: 12px; line-height: 1.7; }
+.cad-agent-questions p { margin: 3px 0; }
+.cad-agent-trace summary { cursor: pointer; color: var(--blue, #2879ef); }
+.cad-agent-trace ol { max-height: 140px; overflow: auto; padding-left: 20px; overflow-wrap: anywhere; }
+.cad-source-transcription { flex: 1 1 100%; grid-column: 1 / -1; font-size: 11px; min-width: 0; }
+.cad-source-transcription summary { cursor: pointer; color: var(--blue, #2879ef); line-height: 1.7; }
+.cad-source-transcription summary small { margin-left: 12px; color: var(--muted, #697b93); font-size: 10px; }
+.cad-source-transcription-content { max-height: 180px; overflow: auto; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--border, #dbe3ed); border-radius: 6px; background: var(--surface, #fff); color: var(--text, #26354a); }
+.cad-source-transcription-content p { margin: 5px 0; line-height: 1.65; overflow-wrap: anywhere; }
+.cad-source-note { color: var(--muted, #697b93); }
+.cad-source-annotation { padding: 8px 0; border-bottom: 1px solid var(--border, #dbe3ed); }
+.cad-source-annotation-heading { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+.cad-source-annotation-heading span { color: var(--muted, #697b93); font-size: 10px; }
+.cad-source-question { color: #956122; }
+.cad-agent-panel h3 { font-size: 14px; margin: 0 0 14px; }
+.cad-agent-panel p { line-height: 1.65; font-size: 12px; }
+.cad-parameter-heading span { font-size: 11px; color: var(--muted); }
+.cad-parameter { display: block; margin: 14px 0; font-size: 12px; }
+.cad-parameter > span { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cad-parameter > div { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.cad-parameter input { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--border, #dbe3ed); background: var(--surface, #fff); color: var(--text, #26354a); border-radius: 6px; }
+.cad-parameter.missing input { border-color: #d6993b; }
+.cad-parameter input:disabled { opacity: .65; }
+.cad-parameter small, .cad-agent-note { font-size: 10px; color: var(--muted, #697b93); line-height: 1.6; overflow-wrap: anywhere; }
+.cad-feature-list { padding-left: 20px; }
+.cad-feature-list li { padding: 9px 0; }
+.cad-feature-list small { display: block; font-size: 10px; margin: 4px 0; color: var(--muted); }
+.cad-feature-list button { font-size: 11px; padding: 6px; }
+.cad-check-summary { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 14px; }
+.cad-inspection-metrics > div { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin: 8px 0; }
+.cad-inspection-metrics dd { margin: 0; }
+.cad-acceptance-item { padding: 9px 0; border-bottom: 1px solid var(--border, #dbe3ed); font-size: 11px; }
+.cad-acceptance-item > div { display: flex; justify-content: space-between; gap: 6px; }
+.cad-acceptance-item small { display: block; margin-top: 5px; color: var(--muted); overflow-wrap: anywhere; }
+.cad-acceptance-item.failed { color: #ae4726; }
+.cad-projection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
+.cad-projection-grid figure { margin: 0; border: 1px solid var(--border, #dbe3ed); border-radius: 10px; padding: 12px; background: white; }
+.cad-projection-grid img { width: 100%; height: 300px; object-fit: contain; }
+.cad-projection-grid figcaption { text-align: center; color: #34445b; font-size: 12px; }

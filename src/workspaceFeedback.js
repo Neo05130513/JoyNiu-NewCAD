@@ -1,6 +1,8 @@
 export function readableError(error) {
   const raw = typeof error === 'string' ? error : error?.message || ''
   const status = error?.status
+  if (/AI provider returned a non-completed response/i.test(raw)) return 'AI 服务未完成本轮生成，模型保持原样，请重试。'
+  if (/AI provider returned (?:an? )?(?:invalid|unsupported|out-of-range).*parameter/i.test(raw)) return 'AI 返回的尺寸格式无效，本轮未修改模型，请重试并写明具体尺寸。'
   if (/invalid credentials|invalid (?:email|username)(?: or| and|\/) password|incorrect (?:email|username|password)|wrong password/i.test(raw)) return '账号或密码不正确，请重新输入。'
   if (status === 401 || /bearer token|token.*expired|not authenticated|invalid.*token/i.test(raw)) return '请先登录后再继续此操作。'
   if (status === 403 || /permission.*denied|forbidden|not permitted/i.test(raw)) return '当前账号没有执行此操作的权限，请联系项目管理员。'

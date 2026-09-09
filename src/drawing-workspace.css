@@ -1,7 +1,7 @@
 .technical-drawing-workspace { padding: 24px; min-width: 0; color: #ced9e8; }
 .technical-drawing-heading { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; margin-bottom: 18px; }
-.technical-drawing-heading h1 { font-size: 24px; margin: 6px 0 8px; overflow-wrap: anywhere; }
-.technical-drawing-heading p { color: #91a5be; font-size: 13px; margin: 0; line-height: 1.7; }
+.technical-drawing-heading h1 { color: var(--text, #1d2433); font-size: 24px; margin: 6px 0 8px; overflow-wrap: anywhere; }
+.technical-drawing-heading p { color: var(--muted, #6f7b91); font-size: 13px; margin: 0; line-height: 1.7; }
 .technical-drawing-actions { display: flex; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
 .drawing-validation-banner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; padding: 12px 16px; border: 1px solid #375065; border-radius: 10px; background: #142332; margin-bottom: 16px; font-size: 13px; }
 .drawing-validation-banner span { color: #a5b9cf; }
