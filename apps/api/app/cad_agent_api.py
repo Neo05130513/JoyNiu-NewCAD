@@ -7,7 +7,6 @@ import copy
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import hashlib
-import hmac
 import json
 import logging
 import math
@@ -15,21 +14,26 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import threading
 from typing import Any, Mapping
 import unicodedata
 from uuid import uuid4
 
 from fastapi import APIRouter, Body, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from .ai_proxy import AIFile, MAX_FILE_BYTES
 from .cad_agent_store import (CadRunConflict, CadRunStore, PROCESS_INSTANCE, comparison_policy, source_question_reviews,
                               MAX_REVISION_REQUESTS, MAX_REVISION_REQUEST_CHARACTERS)
 from .cad_acceptance import acceptance_ray_probes, evaluate_cad_acceptance
+from .cad_source_preview import SourcePreviewError, source_documents, source_download, source_preview
+from .cad_source_locations import cached_source_locations, locate_source_dimensions, source_location_progress
 from .download_headers import attachment_content_disposition
 from .platform import Permission, PlatformError
 from .platform_api import _anonymous_ai_request_allowed, _domain_http_exception, _parse_ai_history, _token_user
+from .cad_job_registry import CadJobRegistry, JobConflict, JobCapacityExceeded, JobRequestCancelled
+from .metered_cad_provider import RunCallContext, CadOperationCancelled, MeteredCadProvider, instrument_runner
 
 
 _LOGGER = logging.getLogger("joyniu.cad_agent_jobs")
@@ -39,7 +43,8 @@ def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_PROVIDER_IDENTITY_FIELDS = ("mode", "name", "model", "reasoningEffort", "configured", "streaming", "authentication")
+_PROVIDER_IDENTITY_FIELDS = ("mode", "name", "model", "reasoningEffort", "configured", "streaming", "authentication",
+                             "deployment", "binaryAvailable", "proxyConfigured")
 _PROVIDER_COUNT_FIELDS = ("attempts", "retryCount", "sourceReaderAttempts", "sourceReadingPasses", "sourceSpatialAttempts")
 
 
@@ -61,11 +66,12 @@ def _public_provider(value: Any) -> dict[str, Any] | None:
         ("mode", {"codex", "remote", "local-fallback", "unknown"}),
         ("reasoningEffort", {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}),
         ("authentication", {"cli-managed", "api-key", "managed"}),
+        ("deployment", {"local", "server"}),
     ):
         item = value.get(key)
         if isinstance(item, str) and item in choices:
             result[key] = item
-    for key in ("configured", "streaming"):
+    for key in ("configured", "streaming", "binaryAvailable", "proxyConfigured"):
         if type(value.get(key)) is bool:
             result[key] = value[key]
     for key in _PROVIDER_COUNT_FIELDS:
@@ -246,12 +252,12 @@ def _step_export_issue(record: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _public_result(record: dict[str, Any], prefix: str) -> dict[str, Any]:
+def _public_result(record: dict[str, Any], prefix: str, store: CadRunStore | None = None) -> dict[str, Any]:
     result = {key: copy.deepcopy(record.get(key)) for key in (
         "runId", "revision", "status", "message", "plan", "inspection", "questions",
-        "trace", "drawingReview", "provider", "createdAt", "confirmedAt", "parentRunId",
+        "trace", "drawingReview", "provider", "createdAt", "confirmedAt", "confirmedBy", "parentRunId",
         "observations", "resolvedParameters", "sourceTranscription", "sourceSpatialContract", "sourceQuestionReviews", "projectionComparison", "comparisonPolicy", "draftInspection",
-        "progress", "updatedAt", "completedAt",
+        "progress", "updatedAt", "completedAt", "jobId", "attemptId", "requestId", "changeKind", "cancelRequested",
     )}
     result["provider"] = _public_provider(record.get("provider"))
     if isinstance(result.get("progress"), dict):
@@ -274,10 +280,18 @@ def _public_result(record: dict[str, Any], prefix: str) -> dict[str, Any]:
             "engine": "cadquery-occt", "productionReady": fmt == "step" and record["status"] == "ready",
         })
     result["sourceFiles"] = [{key: item[key] for key in ("filename", "contentType", "sha256")} for item in record.get("files", [])]
+    result["sourceDocuments"] = source_documents(store, record, prefix) if store is not None else []
+    if store is not None:
+        locations = cached_source_locations(store, record)
+        if locations is not None:
+            result["sourceDimensionLocations"] = locations
+        location_progress = source_location_progress(store, record)
+        if location_progress is not None:
+            result["sourceDimensionLocationProgress"] = location_progress
     return result
 
 
-def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api/v1", agent=None, executor=None, service_factory=None):
+def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api/v1", agent=None, executor=None, service_factory=None, billing=None, billing_policy=None):
     # Lazy imports keep API tests able to inject a deterministic provider and
     # keep the existing recipe service independent from optional CAD tooling.
     from .cad_agent import CadAgentService
@@ -286,21 +300,84 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
     make_runner = service_factory or CadAgentService
     execute = executor or execute_cad_plan
     background_tasks: set[asyncio.Task] = set()
+    registry = CadJobRegistry(store)
+    active_contexts: dict[str, RunCallContext] = {}
+    from .cad_file_access import CadFileAccess, CadFileAccessDenied
+    file_access = CadFileAccess(store, getattr(services, "auth", None), billing=billing,
+                                allow_anonymous=bool(services.ai.allow_anonymous))
+    if billing_policy is None and billing is not None and hasattr(billing, "_db"):
+        from .billing_policy import BillingPolicyService
+        billing_policy = BillingPolicyService(billing)
+    if billing_policy is not None and billing.charging_status_provider is None:
+        billing.charging_status_provider = billing_policy.status
+    registry.billing, registry.billing_policy = billing, billing_policy
+
+    def register_billing_attempt(owner, job_id, attempt_id, *, chargeable=True):
+        if billing_policy is None or (owner == "local-anonymous" and not billing_policy.status()["enabled"]):
+            return
+        if owner == "local-anonymous":
+            raise HTTPException(401, "请先登录后再开始付费任务。")
+        try:
+            result = billing_policy.register_attempt(owner_id=owner, job_id=job_id, attempt_id=attempt_id, chargeable=chargeable)
+        except PlatformError as exc:
+            raise _domain_http_exception(exc) from None
+        if not result["allowed"]:
+            raise HTTPException(402, result["message"])
+
+    def check_billing_provider(owner, job_id, attempt_id, identity):
+        if billing_policy is None or (owner == "local-anonymous" and not billing_policy.status()["enabled"]):
+            return
+        billing_policy.ensure_provider_supported(owner_id=owner, job_id=job_id, attempt_id=attempt_id,
+                                                 provider=identity.get("provider", identity.get("mode", "unknown")), model=identity.get("model", "unknown"))
+
+    def recheck_billing_admission(context):
+        if billing_policy is None or (context.owner == "local-anonymous" and not billing_policy.status()["enabled"]):
+            return
+        try:
+            guard = billing_policy.recheck_attempt_start(owner_id=context.owner, job_id=context.job_id,
+                                                         attempt_id=context.attempt_id)
+        except PlatformError as exc:
+            guard = {"allowed": False, "message": str(exc)}
+        if not guard["allowed"]:
+            context.admission_failure = guard["message"] + " 本次尚未调用 AI。"
+            context.cancel_event.set()
+            raise CadOperationCancelled(context.admission_failure)
+
+    async def billing_recovery():
+        while True:
+            try:
+                registry.reconcile()
+                await asyncio.to_thread(registry.settle_pending, billing, billing_policy)
+            except Exception as exc:
+                _LOGGER.error("Billing recovery deferred (error=%s)", type(exc).__name__)
+            await asyncio.sleep(30)
+
+    def public_result(record):
+        return file_access.protect_result(record, _public_result(registry.decorate(record), prefix, store), prefix)
 
     @asynccontextmanager
     async def lifespan(_app):
+        recovery = asyncio.create_task(billing_recovery()) if billing_policy is not None else None
         try:
             yield
         finally:
+            if recovery:
+                recovery.cancel()
+                await asyncio.gather(recovery, return_exceptions=True)
             # A browser disconnect is not a shutdown. Only an actual API
             # worker shutdown interrupts jobs and saves their checkpoints.
             pending = list(background_tasks)
+            for context in active_contexts.values():
+                context.cancel_event.set()
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
 
     router = APIRouter(prefix=prefix, tags=["cad-agent"], lifespan=lifespan)
+    router.job_registry = registry
+    router.billing_policy = billing_policy
+    router.file_access = file_access
 
     def owner_for(request: Request, authorization: str | None) -> str:
         try:
@@ -331,8 +408,14 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
     @router.post("/cad-agent/run")
     async def run(request: Request, message: str = Form(""), modelState: str = Form("{}"),
                   history: str = Form("[]"), files: list[UploadFile] | None = File(None),
-                  authorization: str | None = Header(None)):
+                  authorization: str | None = Header(None), requestId: str | None = Form(None)):
         owner = owner_for(request, authorization)
+        # Direct service tests call the endpoint without FastAPI's injection.
+        request_id = requestId if isinstance(requestId, str) else None
+        if request_id is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", request_id):
+            raise HTTPException(422, "请求编号格式不正确。")
+        request_id = request_id or uuid4().hex
+        registry.reconcile()
         if len(message) > 16000 or len(modelState) > 750000 or len(history) > 100000:
             raise HTTPException(422, "CAD request is too large")
         try:
@@ -348,6 +431,7 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
         except (ValueError, PlatformError) as exc:
             raise HTTPException(422, str(exc))
         incoming = list(files or [])
+        fingerprint_state = copy.deepcopy(state)
         if len(incoming) > 4:
             raise HTTPException(422, "最多上传 4 份图纸。")
         run_id = f"cad_{uuid4().hex}"
@@ -355,6 +439,7 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
         source_files = []
         attachments = []
         parent = None
+        explicit_revision = False
         prior_id = (state.get("agentRun") or {}).get("runId")
         if prior_id and not incoming:
             prior_revision = (state.get("agentRun") or {}).get("revision")
@@ -413,10 +498,56 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
             # not silently provide dimensions or features for it.
             state = {}
             parsed_history = ()
+        request_hash = hashlib.sha256(json.dumps({"message": message, "state": fingerprint_state,
+            "history": parsed_history, "files": [{key: item.get(key) for key in ("filename", "contentType", "sha256")} for item in source_files]},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+        try:
+            identity, created = registry.claim(run_id=run_id, owner=owner, request_id=request_id, request_hash=request_hash,
+                parent=parent, change_kind="new_drawing" if incoming else "revision" if explicit_revision else "continuation" if parent else "new_design")
+        except JobRequestCancelled:
+            if directory.exists():
+                shutil.rmtree(directory)
+            return JSONResponse({"runId": None, "requestId": request_id, "status": "cancelled", "message": "此请求已取消，不会再启动建模。", "artifacts": []})
+        except (JobConflict, JobCapacityExceeded) as exc:
+            if directory.exists():
+                shutil.rmtree(directory)
+            raise HTTPException(409 if isinstance(exc, JobConflict) else 429, str(exc)) from None
+        if not created:
+            if directory.exists():
+                shutil.rmtree(directory)
+            try:
+                return JSONResponse(public_result(owned(identity["runId"], owner)), headers={"Cache-Control": "no-store"})
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                interrupted = identity["status"] not in {"running", "queued", "cancel_requested"}
+                return JSONResponse({**identity, "message": "任务尚未启动，请使用新的请求编号重新提交原图。" if interrupted else "任务已受理，请稍后查询相同运行编号。", "artifacts": []}, status_code=200 if interrupted else 202, headers={"Cache-Control": "no-store"})
+        try:
+            register_billing_attempt(owner, identity["jobId"], run_id)
+        except Exception:
+            registry.finish(run_id, "failed")
+            if directory.exists():
+                shutil.rmtree(directory)
+            raise
         # Resolve before saving/queueing: a later request or a changed default
         # cannot choose this job's service after its running identity is sent.
-        runner = agent if agent is not None else make_runner()
-        run_provider = _runner_provider(runner)
+        try:
+            runner = agent if agent is not None else make_runner()
+            run_provider = _runner_provider(runner)
+            from .cad_provider import provider_details
+            check_billing_provider(owner, identity["jobId"], run_id, provider_details(getattr(runner, "provider_call", None)))
+            context = RunCallContext(registry=registry, billing=billing, owner=owner,
+                                     job_id=identity["jobId"], attempt_id=run_id)
+            context.admission_check = lambda: recheck_billing_admission(context)
+            context.provider_check = lambda value: check_billing_provider(owner, identity["jobId"], run_id, value)
+            runner = instrument_runner(runner, context)
+        except PlatformError as exc:
+            registry.finish(run_id, "failed")
+            raise _domain_http_exception(exc) from None
+        except Exception:
+            registry.finish(run_id, "failed")
+            raise HTTPException(503, "建模服务暂不可用，本次任务尚未启动，请稍后重试。") from None
+        active_contexts[run_id] = context
         directory.mkdir(parents=True, exist_ok=True)
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
@@ -431,8 +562,9 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
         initial_state["cadPlan"] = initial_plan
         initial_state["status"] = "running"
         initial_state["provider"] = copy.deepcopy(run_provider)
-        started = {"stage": "started", "message": "正在读取图纸与建模要求…",
-                   "runId": run_id, "revision": 1, "status": "running", "provider": copy.deepcopy(run_provider)}
+        started = {"stage": "queued" if identity["status"] == "queued" else "started",
+                   "message": "正在排队等待建模资源，可稍后回来查看。" if identity["status"] == "queued" else "正在读取图纸与建模要求…",
+                   **identity, "revision": 1, "provider": copy.deepcopy(run_provider)}
         initial_record = {"runId": run_id, "revision": 1, "owner": owner, "status": "running",
                           "createdAt": _utc(), "updatedAt": _utc(), "progress": started,
                           "message": started["message"], "plan": initial_plan, "state": initial_state,
@@ -447,14 +579,21 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
                           "drawingReview": {"status": "unverified", "humanConfirmed": False},
                           "downloadToken": secrets.token_urlsafe(32), "files": source_files,
                           "parentRunId": parent["runId"] if parent else None,
+                          **{key: identity[key] for key in ("jobId", "attemptId", "requestId", "changeKind")},
                           "workerPid": os.getpid(), "workerInstance": PROCESS_INSTANCE}
-        store.save(initial_record)
+        try:
+            store.save(initial_record)
+        except Exception:
+            active_contexts.pop(run_id, None)
+            registry.finish(run_id, "failed")
+            raise HTTPException(503, "任务保存未完成，本次尚未开始建模，请稍后重试。") from None
 
         def enqueue(event, payload):
             if subscribed.is_set():
                 queue.put_nowait((event, payload))
 
         def progress(payload):
+            context.check()
             if stopping.is_set():
                 raise RuntimeError("CAD worker shutting down")
             payload = {**payload, "runId": run_id, "revision": 1, "status": "running", "provider": copy.deepcopy(run_provider)}
@@ -469,10 +608,54 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
                 current["provider"] = _completed_provider(run_provider, current.get("provider"))
                 current["progress"]["provider"] = copy.deepcopy(current["provider"])
                 store.complete_running(current)
+                registry.finish(run_id, current["status"])
             return current
 
+        def persist_cancelled():
+            current = store.load(run_id)
+            if current.get("status") == "running":
+                current = store.interrupted_record(current, status="cancelled", code="user_cancelled")
+                current["message"] = "任务已取消，已保留原图与可恢复草稿；未继续执行后续步骤。"
+                current["progress"] = {"stage": "cancelled", "message": current["message"], "provider": copy.deepcopy(run_provider)}
+                current["provider"] = _completed_provider(run_provider, current.get("provider"))
+                store.complete_running(current)
+            registry.finish(run_id, current["status"])
+            return current
+
+        def persist_admission_failure():
+            current = store.load(run_id)
+            if current.get("status") == "running":
+                current = store.interrupted_record(current, status="failed", code="billing_admission")
+                current["message"] = context.admission_failure
+                current["progress"] = {"stage": "failed", "message": current["message"], "provider": copy.deepcopy(run_provider)}
+                current["provider"] = _completed_provider(run_provider, current.get("provider"))
+                store.complete_running(current)
+            registry.finish(run_id, current["status"])
+            return current
+
+        async def wait_calls():
+            while not context.is_idle():
+                await asyncio.sleep(0.1)
+
+        async def watch_cancel():
+            while True:
+                if (registry.get(run_id) or {}).get("cancelRequested"):
+                    context.cancel_event.set()
+                    return
+                await asyncio.sleep(0.2)
+
         async def work():
+            watcher = asyncio.create_task(watch_cancel())
             try:
+                while not registry.try_start(run_id):
+                    context.check()
+                    if (registry.get(run_id) or {}).get("cancelRequested"):
+                        raise CadOperationCancelled("Queued job cancelled")
+                    await asyncio.sleep(0.25)
+                context.check()
+                recheck_billing_admission(context)
+                if identity["status"] == "queued":
+                    progress({"stage": "started", "message": "已开始处理本次建模任务。"})
                 try:
                     duration = float(os.getenv("JOYNIU_CAD_AGENT_TIMEOUT_SECONDS", "900"))
                     if not math.isfinite(duration):
@@ -482,6 +665,16 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
                 result = await asyncio.to_thread(runner.run, message=message, files=attachments,
                     state=state, history=parsed_history, output_dir=directory / "builds", progress=progress,
                     max_turns=20, timeout_seconds=max(60, min(1800, duration)))
+                # Auxiliary reader threads may outlive the agent's final result.
+                # Stop them and retain their final usage before releasing capacity.
+                context.cancel_event.set()
+                await wait_calls()
+                if context.admission_failure:
+                    enqueue("result", public_result(persist_admission_failure()))
+                    return
+                if (registry.get(run_id) or {}).get("cancelRequested"):
+                    enqueue("result", public_result(persist_cancelled()))
+                    return
                 record = {**initial_record, **result, "runId": run_id, "revision": 1, "owner": owner,
                           "completedAt": _utc(), "updatedAt": _utc(), "files": source_files,
                           "downloadToken": initial_record["downloadToken"]}
@@ -493,26 +686,49 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
                 record["progress"] = {"stage": record["status"], "message": record.get("message", ""),
                                       "provider": copy.deepcopy(record["provider"])}
                 record = store.complete_running(record)
-                enqueue("result", _public_result(record, prefix))
+                registry.finish(run_id, record["status"])
+                enqueue("result", public_result(record))
             except asyncio.CancelledError:
                 stopping.set()
+                context.cancel_event.set()
                 try:
                     persist_interruption()
                 except Exception as exc:
                     _LOGGER.error("CAD job interruption could not be persisted (run=%s, error=%s)", run_id, type(exc).__name__)
                 raise
+            except CadOperationCancelled:
+                context.cancel_event.set()
+                await wait_calls()
+                enqueue("result", public_result(persist_admission_failure() if context.admission_failure else persist_cancelled()))
             except Exception as exc:
+                context.cancel_event.set()
+                await wait_calls()
+                if context.admission_failure:
+                    enqueue("result", public_result(persist_admission_failure()))
+                    return
+                if (registry.get(run_id) or {}).get("cancelRequested"):
+                    enqueue("result", public_result(persist_cancelled()))
+                    return
                 # Preserve recoverable state even for unexpected runner errors.
                 # Log only the class, never an upstream message or raw payload.
                 _LOGGER.error("CAD job failed (run=%s, error=%s)", run_id, type(exc).__name__)
                 try:
                     record = persist_interruption(status="failed", code="task_exception")
-                    enqueue("result", _public_result(record, prefix))
+                    enqueue("result", public_result(record))
                 except Exception as persistence_error:
                     _LOGGER.error("CAD job failure could not be persisted (run=%s, error=%s)", run_id, type(persistence_error).__name__)
                     enqueue("error", {"message": "本次建模异常结束，请查询任务状态后继续。", "code": "task_persistence_failed", "runId": run_id, "revision": 1})
             finally:
-                enqueue(None, None)
+                watcher.cancel()
+                await asyncio.gather(watcher, return_exceptions=True)
+                active_contexts.pop(run_id, None)
+                registry.deliver_usage(billing)
+                try:
+                    await asyncio.to_thread(registry.settle_pending, billing, billing_policy, owner=owner)
+                except Exception as exc:
+                    _LOGGER.error("CAD settlement deferred (run=%s, error=%s)", run_id, type(exc).__name__)
+                finally:
+                    enqueue(None, None)
 
         # Retain the task independently of the StreamingResponse/request. Its
         # lifecycle is durable even if the browser never consumes the stream.
@@ -538,12 +754,159 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
 
     @router.get("/cad-agent/runs/{run_id}")
     async def get_run(run_id: str, request: Request, revision: int | None = None, authorization: str | None = Header(None)):
+        owner = owner_for(request, authorization)
+        owned(run_id, owner, revision)
         store.recover_interrupted()
-        return _public_result(owned(run_id, owner_for(request, authorization), revision), prefix)
+        registry.reconcile()
+        registry.settle_pending(billing, billing_policy, owner=owner)
+        return public_result(owned(run_id, owner, revision))
+
+    @router.get("/cad-agent/jobs")
+    async def jobs(request: Request, limit: int = 50, offset: int = 0, authorization: str | None = Header(None)):
+        owner = owner_for(request, authorization)
+        try:
+            result = registry.list_jobs(owner, limit=limit, offset=offset)
+            registry.settle_pending(billing, billing_policy, owner=owner)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        for item in result["items"]:
+            item["provider"] = _public_provider(item.get("provider"))
+            if isinstance(item.get("progress"), dict):
+                item["progress"]["provider"] = copy.deepcopy(item["provider"])
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @router.get("/cad-agent/jobs/by-request/{request_id}")
+    async def job_by_request(request_id: str, request: Request, authorization: str | None = Header(None)):
+        owner = owner_for(request, authorization)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", request_id):
+            raise HTTPException(422, "请求编号格式不正确。")
+        registry.reconcile()
+        identity = registry.by_request(owner, request_id)
+        if identity is None:
+            raise HTTPException(404, "未找到此请求对应的任务。")
+        if identity["runId"] is None:
+            return JSONResponse(identity, headers={"Cache-Control": "no-store"})
+        try:
+            return JSONResponse(public_result(owned(identity["runId"], owner)), headers={"Cache-Control": "no-store"})
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            interrupted = identity["status"] not in {"running", "queued", "cancel_requested"}
+            return JSONResponse({**identity, "message": "任务登记期间服务中断，尚未启动建模，请重新提交原图。" if interrupted else "任务正在登记，请稍后查询。", "artifacts": []}, status_code=200 if interrupted else 202, headers={"Cache-Control": "no-store"})
+
+    @router.post("/cad-agent/jobs/by-request/{request_id}/cancel")
+    async def cancel_by_request(request_id: str, request: Request, authorization: str | None = Header(None)):
+        owner = owner_for(request, authorization)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", request_id):
+            raise HTTPException(422, "请求编号格式不正确。")
+        identity = registry.cancel_request(owner, request_id)
+        if identity["runId"] is None:
+            return JSONResponse(identity, headers={"Cache-Control": "no-store"})
+        context = active_contexts.get(identity["runId"])
+        if context is not None and identity["cancelRequested"]:
+            context.cancel_event.set()
+        try:
+            return JSONResponse(public_result(owned(identity["runId"], owner)), headers={"Cache-Control": "no-store"})
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return JSONResponse({**identity, "status": "cancel_requested" if identity["status"] in {"running", "queued", "cancel_requested"} else identity["status"]}, headers={"Cache-Control": "no-store"})
+
+    @router.post("/cad-agent/runs/{run_id}/cancel")
+    async def cancel_run(run_id: str, request: Request, authorization: str | None = Header(None)):
+        owner = owner_for(request, authorization)
+        record = owned(run_id, owner)
+        registry.reconcile()
+        if record.get("status") == "running":
+            identity = registry.request_cancel(run_id, owner)
+            if identity is None:
+                raise HTTPException(409, "此历史任务不支持在线取消，请先刷新其当前状态。")
+            context = active_contexts.get(run_id)
+            if context is not None:
+                context.cancel_event.set()
+        return JSONResponse(public_result(store.load(run_id)), headers={"Cache-Control": "no-store"})
+
+    @router.post("/cad-agent/runs/{run_id}/source-locations")
+    async def source_locations(run_id: str, request: Request, payload: dict[str, Any] = Body(default={}),
+                               authorization: str | None = Header(None)):
+        owner = owner_for(request, authorization)
+        revision = payload.get("revision")
+        if revision is not None and (type(revision) is not int or revision < 1):
+            raise HTTPException(422, "revision must be a positive integer")
+        if "force" in payload and type(payload["force"]) is not bool:
+            raise HTTPException(422, "force must be a boolean")
+        operation_id = payload.get("operationId")
+        if operation_id is not None and (not isinstance(operation_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", operation_id)):
+            raise HTTPException(422, "operationId must be a bounded request identifier")
+        record = owned(run_id, owner, revision)
+        if record.get("status") == "running":
+            raise HTTPException(409, "模型正在生成，请完成后再定位图纸尺寸。")
+        from . import ai_proxy
+        from .cad_provider import configured_cad_provider
+        provider = getattr(agent, "provider_call", None) or configured_cad_provider() or ai_proxy._call_provider
+        identity = registry.decorate(record)
+        # A review-page localization may happen after the model attempt has
+        # already ended. Keep its real calls out of that sealed billing batch.
+        location_attempt = "location_" + uuid4().hex
+        cached = cached_source_locations(store, record)
+        operation_registered = False
+        def ensure_location_operation():
+            nonlocal operation_registered
+            if not operation_registered:
+                # Opening/retrying source dimension locations enriches an
+                # existing result. Keep real usage, but never bill this viewing
+                # operation or require a funded wallet/current paid terms.
+                register_billing_attempt(owner, identity["jobId"], location_attempt, chargeable=False)
+                from .cad_provider import provider_details
+                check_billing_provider(owner, identity["jobId"], location_attempt, provider_details(provider))
+                registry.begin_operation(attempt_id=location_attempt, owner=owner, job_id=identity["jobId"])
+                operation_registered = True
+        if cached is None or payload.get("force", False):
+            try:
+                ensure_location_operation()
+            except JobCapacityExceeded as exc:
+                raise HTTPException(429, str(exc)) from None
+            except PlatformError as exc:
+                raise _domain_http_exception(exc) from None
+        location_context = RunCallContext(registry=registry, billing=billing, owner=owner,
+                                           job_id=identity["jobId"], attempt_id=location_attempt)
+        def admit_location_call():
+            ensure_location_operation()
+            recheck_billing_admission(location_context)
+        location_context.admission_check = admit_location_call
+        location_context.provider_check = lambda value: check_billing_provider(owner, identity["jobId"], location_attempt, value)
+        metered = MeteredCadProvider(provider, location_context, "source_locations")
+        outcome = "failed"
+        try:
+            result = await asyncio.to_thread(locate_source_dimensions, store, record,
+                                           force=payload.get("force", False), operation_id=operation_id,
+                                           provider_call=metered)
+            if location_context.admission_failure:
+                raise HTTPException(402, location_context.admission_failure)
+            outcome = "ready" if result.get("status") == "succeeded" else "failed"
+            return result
+        except CadOperationCancelled:
+            if location_context.admission_failure:
+                raise HTTPException(402, location_context.admission_failure) from None
+            raise
+        finally:
+            location_context.cancel_event.set()
+            async def finish_location():
+                while not location_context.is_idle():
+                    await asyncio.sleep(0.1)
+                if operation_registered:
+                    registry.finish_operation(location_attempt, outcome)
+                    await asyncio.to_thread(registry.settle_pending, billing, billing_policy, owner=owner)
+            completion = asyncio.create_task(finish_location())
+            background_tasks.add(completion)
+            completion.add_done_callback(background_tasks.discard)
 
     @router.post("/cad-agent/confirm")
     async def confirm(request: Request, payload: dict[str, Any] = Body(...), authorization: str | None = Header(None)):
         owner = owner_for(request, authorization)
+        actor = _token_user(services, authorization) if authorization else None
+        confirmed_by = {"id": actor.id, "displayName": actor.display_name} if actor else None
         record = owned(str(payload.get("runId") or ""), owner)
         if type(payload.get("revision")) is not int or payload["revision"] != record["revision"]:
             raise HTTPException(409, "模型已更新，请使用当前版本确认。")
@@ -564,7 +927,10 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
                 raise HTTPException(422, f"参数 {key} 必须是明确的有限数值。")
             if value != parameter.get("value"):
                 changed.append(key)
-                parameter.update({"value": value, "source": {"type": "user", "confirmedAt": _utc()}, "question": ""})
+                previous_source = parameter.get("source")
+                drawing_source = previous_source.get("drawingSource", previous_source) if isinstance(previous_source, Mapping) else previous_source
+                parameter.update({"value": value, "source": {"type": "user", "confirmedAt": _utc(),
+                    **({"drawingSource": copy.deepcopy(drawing_source)} if drawing_source else {})}, "question": ""})
         if changed:
             raise HTTPException(422, "参数已改变，请先检查修改并更新预览，再确认新的模型。")
         review = copy.deepcopy(record.get("drawingReview") or {})
@@ -591,7 +957,7 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
         if inspection["acceptance"]["status"] != "passed":
             raise HTTPException(422, {"message": "实际实体与记录的尺寸依据仍有差异，请继续修改或澄清后再确认。",
                 "errors": [{"message": item["label"] + "：" + item["message"]} for item in inspection["acceptance"]["checks"] if item["passed"] is not True]})
-        updated = {**record, "revision": next_revision, "status": "ready", "confirmedAt": _utc(),
+        updated = {**record, "revision": next_revision, "status": "ready", "confirmedAt": _utc(), "confirmedBy": confirmed_by,
             "message": "已按确认的数据生成 CAD 实体，可下载 STEP。", "questions": [],
             "plan": result.get("plan", plan), "inspection": inspection, "resolvedParameters": result.get("resolvedParameters"), "artifacts": result.get("artifacts", {}),
             "drawingReview": review, "downloadToken": secrets.token_urlsafe(32),
@@ -602,7 +968,59 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
             store.save(updated, previous_revision=record["revision"])
         except CadRunConflict as exc:
             raise HTTPException(409, str(exc))
-        return _public_result(updated, prefix)
+        return public_result(updated)
+
+    @router.post("/cad-agent/runs/{run_id}/revoke-file-links")
+    async def revoke_file_access(run_id: str, request: Request, authorization: str | None = Header(None)):
+        owner = owner_for(request, authorization)
+        record = owned(run_id, owner)
+        try:
+            revoked = file_access.revoke(record, owner)
+        except CadFileAccessDenied as exc:
+            raise HTTPException(403, str(exc)) from None
+        return JSONResponse({**public_result(record), **revoked}, headers={"Cache-Control": "no-store"})
+
+    def authorize_file(record, request, access, authorization, resource):
+        if authorization:
+            owned(record["runId"], owner_for(request, authorization), record["revision"])
+            return
+        if file_access.allows(record, resource, access):
+            return
+        if record.get("owner") == "local-anonymous" and services.ai.allow_anonymous and file_access.owner_active(record):
+            owned(record["runId"], owner_for(request, authorization), record["revision"])
+            return
+        raise HTTPException(403, "文件链接无效或已失效，请登录后重新打开。")
+
+    def source_record(run_id: str, revision: int, request: Request, access: str, authorization: str | None, resource: str):
+        try:
+            record = store.load(run_id, revision)
+        except (KeyError, ValueError):
+            raise HTTPException(404, "Source drawing not found")
+        authorize_file(record, request, access, authorization, resource)
+        return record
+
+    @router.get("/cad-agent/runs/{run_id}/{revision}/sources/{file_index}/download")
+    async def download_source(run_id: str, revision: int, file_index: int, request: Request,
+                              access: str = "", authorization: str | None = Header(None)):
+        record = source_record(run_id, revision, request, access, authorization, f"sources/{file_index}/download")
+        try:
+            path, filename = source_download(store, record, file_index)
+        except (ValueError, OSError):
+            raise HTTPException(404, "Source drawing is missing") from None
+        return FileResponse(path, media_type="application/octet-stream", headers={
+            "Content-Disposition": attachment_content_disposition(filename),
+            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+    @router.get("/cad-agent/runs/{run_id}/{revision}/sources/{file_index}/pages/{page}")
+    async def preview_source(run_id: str, revision: int, file_index: int, page: int, request: Request,
+                             access: str = "", authorization: str | None = Header(None)):
+        record = source_record(run_id, revision, request, access, authorization, f"sources/{file_index}/pages/{page}")
+        try:
+            path = await asyncio.to_thread(source_preview, store, record, file_index, page)
+        except (SourcePreviewError, OSError, ValueError):
+            raise HTTPException(404, "Source drawing preview is unavailable") from None
+        return FileResponse(path, media_type="image/png", headers={
+            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
     @router.get("/cad-agent/runs/{run_id}/{revision}/artifacts/{artifact_id}")
     async def artifact(run_id: str, revision: int, artifact_id: str, request: Request,
@@ -611,10 +1029,7 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
             record = store.load(run_id, revision)
         except (KeyError, ValueError):
             raise HTTPException(404, "CAD artifact not found")
-        # The scoped random capability supports GLTFLoader and ordinary file
-        # downloads without putting a user's bearer token in a URL.
-        if not access or not hmac.compare_digest(access, record["downloadToken"]):
-            owned(run_id, owner_for(request, authorization), revision)
+        authorize_file(record, request, access, authorization, f"artifacts/{artifact_id}")
         entry = next((item for item in _artifact_entries(record.get("artifacts") or {}) if item[0] == artifact_id), None)
         if entry is None:
             raise HTTPException(404, "CAD artifact not found")
@@ -625,9 +1040,7 @@ def create_cad_agent_router(services, store: CadRunStore, *, prefix: str = "/api
             path = store.checked_path(info["path"])
         except ValueError:
             raise HTTPException(404, "CAD artifact missing")
-        headers = {"Cache-Control": "private, max-age=3600", "X-JoyNiu-Engine": "cadquery-occt"}
-        if fmt == "step":
-            headers["Cache-Control"] = "private, no-store"
+        headers = {"Cache-Control": "private, no-store", "X-JoyNiu-Engine": "cadquery-occt"}
         if fmt in {"step", "glb"}:
             headers["Content-Disposition"] = attachment_content_disposition(path.name)
         return FileResponse(path, media_type=info.get("mimeType") or "application/octet-stream", headers=headers)

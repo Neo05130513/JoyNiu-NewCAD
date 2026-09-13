@@ -1,10 +1,13 @@
+import { cancellationResult } from './taskWorkspaceState.js'
 import test from 'node:test'
+import { cadDocumentTarget, cadProjectDocuments, emptyCadDocumentSnapshot, matchesCadDocumentSource } from './cadDocumentSession.js'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { cadAgent, cadArtifactUrl, readCadAgentEvents } from './cadAgentClient.js'
+import { API_BASE } from './api.js'
 import { configuredAiProvider, workspaceAiProvider, aiProviderPresentation } from './aiProviderState.js'
-import { cadModelFromResult, cadGenerationFromResult, cadGenerationIsCurrent, cadParameterValues, cadPlanSignature, cadConfirmationParameters, cadParameterEditMessage, cadRequestState, cadExplicitMaterial, cadProgressFromEvent, cadWorkflowSnapshot, cadPrimaryAction, cadRetryMessage, cadRunPresentation, cadProjectionSummary, cadTraceMessage, cadRetryFiles, cadTerminalResult, editCadParameter, shouldUseCadAgent, isLegacyDrawingDraft, normalizeCadWorkspaceMode, cadLegacySourceFiles, validateCadPlan } from './cadAgentState.js'
+import { cadModelFromResult, cadFailureSummary, cadGenerationFromResult, cadGenerationIsCurrent, cadParameterValues, cadPlanSignature, cadConfirmationParameters, cadParameterEditMessage, cadRequestState, cadExplicitMaterial, cadProgressFromEvent, cadWorkflowSnapshot, cadPrimaryAction, cadRetryMessage, cadRunPresentation, cadProjectionSummary, cadTraceMessage, cadRetryFiles, cadTerminalResult, editCadParameter, shouldUseCadAgent, isLegacyDrawingDraft, normalizeCadWorkspaceMode, cadLegacySourceFiles, validateCadPlan } from './cadAgentState.js'
 import * as ProjectStore from './projectStore.js'
 import { generationMatchesModel } from './viewerState.js'
 import { validateModelParameters } from './modelValidation.js'
@@ -35,7 +38,7 @@ test('a complete parameter draft builds STEP and GLB instead of falling through 
   const job = { status: 'idle', file: source, fileMeta: { name: source.name }, evidence: null }
   let builds = 0, exports = 0
   const context = vm.createContext({
-    featureModel: false, chatAttachments: [], canBuildParameterDraft: true, drawingJob: job,
+    featureModel: false, hasModel: true, modelValid: true, chatAttachments: [], canBuildParameterDraft: true, drawingJob: job,
     rebuildCurrentModel: () => { builds += 1 }, exportFile: () => { exports += 1 },
   })
   vm.runInContext(`${code}\nprimaryAction()`, context)
@@ -56,6 +59,16 @@ test('a complete parameter draft builds STEP and GLB instead of falling through 
   const legacyWorkflow = workflowContext.workflowSnapshot({ ...draft, drawingJob: { ...job, evidence: { status: 'candidate' } } })
   assert.equal(legacyWorkflow.current, 'recognize')
   assert.match(legacyWorkflow.label, /旧版图纸草稿/)
+  assert.equal(workflowContext.workflowSnapshot({ ...draft, modelValid: false }).label, '参数需要修正，请检查右侧提示')
+
+  const inspectorRequests = []
+  const invalidContext = vm.createContext({
+    featureModel: false, hasModel: true, modelValid: false, chatAttachments: [], canBuildParameterDraft: false,
+    showInspector: (panel) => { inspectorRequests.push(panel) },
+    drawingInputRef: { current: { click: () => assert.fail('Invalid dimensions must not open upload') } },
+  })
+  vm.runInContext(`${code}\nprimaryAction()`, invalidContext)
+  assert.deepEqual(inspectorRequests, ['参数'], 'Invalid dimensions must open the parameter inspector')
 
   const condition = app.match(/  const canBuildParameterDraft = (.+)/)[1]
   for (const status of ['queued', 'analyzing', 'error']) {
@@ -314,10 +327,10 @@ test('a failed streamed CAD result is saved as failure, clears prior artifacts, 
   const failed = result({ status: 'failed', message: '原图转录未完成', plan: null, artifacts: [], sourceTranscription: { status: 'failed', verified: false, annotations: [] } })
   let id = 0
   const context = vm.createContext({
-    AbortController, aiRequestRef: { current: 0 }, workspaceIdRef: { current: 'workspace-test' }, modelInteractionRevisionRef: { current: 0 },
+    AbortController, accountTokenRef: { current: 'test-token' }, cancelCadRef: { current: false }, cancelledCadRequestRef: { current: null }, createClientId: () => 'test-request', aiRequestRef: { current: 0 }, workspaceIdRef: { current: 'workspace-test' }, modelInteractionRevisionRef: { current: 0 },
     modelRef: { current: initial }, chatAbortRef: { current: null }, cadConfirmRef: { current: null }, drawingJobRef: { current: state.job }, isAccepting: false, setLastAiTurn: () => {}, chatId: () => `id-${++id}`, chatMessage: (role, text, extras) => ({ role, text, ...extras }),
     setMessages: update('messages'), setIsGenerating: update('busy'), setAiConversation: update('conversation'), setModel: update('model'), setGeneration: update('generation'), setDrawingJob: update('job'), setActivePanel: () => {},
-    cadModelFromResult, cadGenerationFromResult, cadRequestState, cadProgressFromEvent, cadTerminalResult, configuredAiProvider,
+    cadModelFromResult, cadFailureSummary, cadGenerationFromResult, cadRequestState, cadProgressFromEvent, cadTerminalResult, configuredAiProvider, cancellationResult,
     platform: {}, messages: [], conversationHistory: () => [], readableError: (error) => error.message,
     cadAgent: { run: async ({ onEvent }) => {
       onEvent('progress', { stage: 'source_transcription_waiting', message: '独立读图仍在进行', geometryGenerated: false })
@@ -338,7 +351,7 @@ test('a failed streamed CAD result is saved as failure, clears prior artifacts, 
   assert.equal(state.model.cadPlan, null)
   assert.equal(state.model.agentRun.sourceTranscription.verified, false)
   const footerExpression = app.match(/<i className="live-dot" \/> \{([^}]+)\} · \{model.updatedAt\}/)[1]
-  const footerState = { legacyDrawing: false, featureModel: true, generation: null, model: state.model }
+  const footerState = { legacyDrawing: false, featureModel: true, generation: null, model: state.model, reviewIncompleteDraft: false }
   assert.equal(vm.runInNewContext(footerExpression, footerState), '原图与任务状态已保存')
   assert.equal(vm.runInNewContext(footerExpression, { ...footerState, model: { ...state.model, cadPlan: plan } }), '尺寸与建模计划已保存')
   const restored = recoverWorkspaceSnapshot({ model: state.model, generation: state.generation, drawingJob: { ...state.job, fileMeta: { name: 'original.jpg' } }, aiConversation: state.conversation })
@@ -546,19 +559,20 @@ test('run transmits actual files, state and history; confirmation is bound to it
 function appCadHarness(initial = cadModelFromResult(result())) {
   const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
   const section = (start, end) => app.slice(app.indexOf(start), app.indexOf(end, app.indexOf(start)))
-  const state = { model: initial, generation: null, job: {}, messages: [], conversation: {}, prompt: '把板宽改为84', attachments: [], notices: [], switches: [], busy: false, accepting: false }
+  const state = { model: initial, generation: null, job: {}, messages: [], conversation: {}, prompt: '把板宽改为84', attachments: [], notices: [], switches: [], busy: false, accepting: false, showOriginalModel: false }
   let store = ProjectStore.loadProjectStore({ getItem: () => null })
   store = ProjectStore.updateFileSnapshot(store, store.activeProjectId, store.activeFileId, { model: initial, generation: null, messages: [] })
   state.store = store
   let context, id = 0
   const update = (key, ref) => (value) => { state[key] = typeof value === 'function' ? value(state[key]) : value; if (ref) context[ref].current = state[key] }
   context = vm.createContext({
-    AbortController, File, cadPrimaryAction, cadRetryMessage, cadAgent: {}, ProjectStore, cadModelFromResult, cadGenerationFromResult, cadRequestState, cadProgressFromEvent, cadTerminalResult, cadRetryFiles, cadPlanSignature, cadConfirmationParameters, cadParameterEditMessage, isLegacyDrawingDraft, cadLegacySourceFiles, isFeatureModel: (model) => model?.kind === 'feature_model', validateModelParameters, configuredAiProvider,
+    cadDocumentTarget, cadProjectDocuments, emptyCadDocumentSnapshot, matchesCadDocumentSource, workspaceStore: store, accountKey: 'test-account', editingTarget: null,
+    cancellationResult, AbortController, File, accountTokenRef: { current: 'test-token' }, cancelCadRef: { current: false }, cancelledCadRequestRef: { current: null }, createClientId: () => 'test-request', cadPrimaryAction, cadRetryMessage, cadAgent: {}, ProjectStore, cadModelFromResult, cadFailureSummary, cadGenerationFromResult, cadRequestState, cadProgressFromEvent, cadTerminalResult, cadRetryFiles, cadPlanSignature, cadConfirmationParameters, cadParameterEditMessage, isLegacyDrawingDraft, cadLegacySourceFiles, isFeatureModel: (model) => model?.kind === 'feature_model', validateModelParameters, configuredAiProvider,
     aiRequestRef: { current: 0 }, workspaceIdRef: { current: 'workspace-test' }, modelInteractionRevisionRef: { current: 0 }, modelRef: { current: initial }, drawingJobRef: { current: state.job }, chatAbortRef: { current: null }, cadConfirmRef: { current: null }, lastAiTurnRef: { current: null }, storeRef: { current: store }, currentSnapshotRef: { current: ProjectStore.getFileSnapshot(store) },
     chatId: () => `id-${++id}`, chatMessage: (role, text, extras) => ({ role, text, ...extras }), messages: [], conversationHistory: () => [], readableError: (error) => error.message, normalizeFilesInput: (files) => files,
     activeFile: ProjectStore.getActiveFile(store), settings: {}, platform: {}, isGenerating: false, isAccepting: false, emptyModel: () => ({ kind: '', name: '空白文件' }), prompt: state.prompt, chatAttachments: [],
     setModel: update('model', 'modelRef'), setGeneration: update('generation'), setDrawingJob: update('job', 'drawingJobRef'), setMessages: update('messages'), setAiConversation: update('conversation'), setIsGenerating: update('busy'), setIsAccepting: update('accepting'), setLastAiTurn: update('lastTurn', 'lastAiTurnRef'), setPrompt: update('prompt'), setChatAttachments: update('attachments'),
-    setActivePanel: () => {}, setActiveMode: () => {}, setDialog: (value) => state.switches.push(value), showToast: (...args) => state.notices.push(args),
+    setActivePanel: () => {}, setActiveMode: () => {}, setShowOriginalModel: update('showOriginalModel'), setChatRequest: update('chatRequest'), setDialog: (value) => state.switches.push(value), showToast: (...args) => state.notices.push(args),
     flushWorkspace: () => state.store, commitStore: (next) => { state.store = next; context.storeRef.current = next; return next }, restoreWorkspace: (...args) => state.switches.push(args),
   })
   vm.runInContext([
@@ -566,13 +580,37 @@ function appCadHarness(initial = cadModelFromResult(result())) {
     section('const retryAi = async () => {', 'const runModelChecks = async () => {'),
     section('const canSwitch = () => {', 'const renameLocalProject ='),
     section('const startNewConversation = () => {', 'const createBasicShaft = () => {'),
-    section('const runGenerate = async () => {', 'const stopAiConversation = () => {'),
-    section('const attachDrawingToConversation = (fileInput) => {', 'useEffect(() => {'),
-    'Object.assign(globalThis, {send:sendCadConversation, confirm:confirmCadModel, retry:retryAi, newConversation:startNewConversation, attach:attachDrawingToConversation, remodel:remodelLegacyDrawing, createProject, openProjectFile, selectLocalProject, runGenerate})',
+    section('const stopAiConversation = async () => {', 'const startNewConversation = () => {'),
+    section('const runGenerate = async () => {', 'const stopAiConversation = async () => {'),
+    section('const attachDrawingToConversation = ', 'useEffect(() => {'),
+    'Object.assign(globalThis, {send:sendCadConversation, confirm:confirmCadModel, retry:retryAi, cancel:stopAiConversation, newConversation:startNewConversation, attach:attachDrawingToConversation, remodel:remodelLegacyDrawing, createProject, openProjectFile, selectLocalProject, runGenerate})',
   ].join('\n'), context)
   context.sendAiConversation = (...args) => context.send(...args)
   return { state, context }
 }
+
+test('a planning timeout presents the same accurate saved-content summary in chat, error banner and run details', async () => {
+  const { state, context } = appCadHarness({ kind: '', name: '新文件' })
+  const failed = result({ status: 'failed', plan: null, artifacts: [], inspection: null,
+    provider: { mode: 'remote', configured: true, attempts: 8, sourceReaderAttempts: 1, sourceSpatialAttempts: 1, lastErrorCode: 'timeout' },
+    createdAt: '2026-09-11T02:00:00Z', completedAt: '2026-09-11T02:15:00Z', sourceTranscription: { status: 'succeeded' },
+    message: '远程 CAD Agent 本轮未完成，已保留实际计划和工具记录，可重试继续。' })
+  context.cadAgent.run = async () => failed
+  assert.equal(await context.send('继续读取9.jpg并建模'), false)
+  const expected = cadFailureSummary(failed, null)
+  assert.equal(state.model.cadPlan, null)
+  assert.equal(state.generation, null)
+  assert.equal(state.model.agentRun.message, failed.message)
+  assert.equal(state.job.error, expected)
+  assert.equal(state.conversation.error, expected)
+  assert.equal(state.messages.at(-1).text, expected)
+  assert.equal(cadRunPresentation(state.model.agentRun, false, state.model.cadPlan).message, expected)
+  const raw = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
+  const bannerExpression = raw.match(/<p>\{(aiConversation\.providerRoute.*?)\}<\/p>/)[1]
+  assert.equal(vm.runInNewContext(bannerExpression, { aiConversation: state.conversation, readableError: () => { throw new Error('must not replace the CAD summary with generic timeout text') } }), expected)
+  assert.match(aiProviderPresentation(state.conversation.status, { route: 'cad', error: expected }).label, /本轮模型调用 8 次/)
+  assert.doesNotMatch(aiProviderPresentation(state.conversation.status, { route: 'cad', error: expected }).label, /已尝试|重试/)
+})
 
 test('CAD send synchronizes configured, progress and terminal providers without changing the legacy service configuration', async () => {
   const { state, context } = appCadHarness()
@@ -635,7 +673,9 @@ test('the actual upload and send handlers use the CAD agent for blank, legacy an
     context.cadAgent.run = async (request) => { requests.push(request); return result({ runId: 'fresh-drawing-run' }) }
     vm.runInContext(router, context)
     const file = new File(['unmodified source bytes'], 'new-original.jpg', { type: 'image/jpeg' })
+    assert.equal(state.showOriginalModel, false)
     context.attach([file])
+    assert.equal(state.showOriginalModel, true, 'New source uploads must reveal the original AI model composer instead of the manual result')
     assert.equal(state.model, model)
     assert.deepEqual(model, originalModel)
     context.chatAttachments = state.attachments
@@ -859,6 +899,196 @@ test('GET polling reports live progress, waits for a terminal result and honors 
   assert.equal(reads, 1)
 })
 
+test('queued and cancellation acknowledgements keep polling until the server confirms stopped', async (t) => {
+  const statuses = ['queued', 'running', 'cancel_requested', 'cancelled']
+  const progress = []
+  t.mock.method(cadAgent, 'getRun', async () => ({ runId: 'cad_test', revision: 1, status: statuses.shift() }))
+  const stopped = await cadAgent.waitForRun({ runId: 'cad_test', intervalMs: 0, onProgress: item => progress.push(item.status) })
+  assert.equal(stopped.status, 'cancelled')
+  assert.deepEqual(progress, ['queued', 'running', 'cancel_requested'])
+})
+
+test('duplicate-submit JSON queued result resumes that exact run without creating another one', async () => {
+  const { context, state } = appCadHarness({ kind: '' })
+  let runs = 0, polls = 0
+  context.cadAgent.run = async request => { runs++; assert.equal(request.requestId, 'test-request'); return { status: 'queued', runId: 'cad_test', revision: 1 } }
+  context.cadAgent.waitForRun = async ({ runId }) => { polls++; assert.equal(runId, 'cad_test'); return result() }
+  await context.send('建模要求')
+  assert.equal(runs, 1); assert.equal(polls, 1)
+  assert.equal(state.job.cadTask, null)
+  assert.equal(state.model.agentRun.status, 'review_required')
+})
+
+test('cancel button calls server and leaves active work pending until a terminal cancellation arrives', async () => {
+  const { context, state } = appCadHarness({ kind: '' })
+  let finish, cancels = 0
+  context.cadAgent.run = async ({ onEvent }) => {
+    onEvent('progress', { status: 'running', runId: 'cad_test', revision: 1 })
+    return new Promise(resolve => { finish = resolve })
+  }
+  context.cadAgent.cancel = async ({ runId }) => { cancels++; assert.equal(runId, 'cad_test'); return { runId: 'cad_test', status: 'cancel_requested' } }
+  const pending = context.send('任务')
+  await context.cancel()
+  assert.equal(cancels, 1)
+  assert.equal(context.chatAbortRef.current.signal.aborted, false)
+  assert.equal(state.busy, true)
+  finish(result({ status: 'cancelled', message: '任务已取消，草稿已保留', artifacts: [] }))
+  assert.equal(await pending, false)
+  assert.equal(state.busy, false)
+  assert.equal(state.model.agentRun.status, 'cancelled')
+  assert.equal(state.job.cadTask, null)
+  assert.equal(cadPrimaryAction(state.model).label, '继续建模')
+})
+
+test('refresh before the first progress frame recovers by request ID without uploading again', async () => {
+  const { context, state } = appCadHarness({ kind: '' })
+  context.setDrawingJob({ cadTask: { requestId: 'accepted-request', status: 'submitted', prompt: '建模要求' } })
+  context.cadAgent.byRequest = async ({ requestId }) => { assert.equal(requestId, 'accepted-request'); return { status: 'queued', runId: 'cad_test', revision: 1 } }
+  context.cadAgent.waitForRun = async ({ runId }) => { assert.equal(runId, 'cad_test'); return result() }
+  context.cadAgent.run = async () => { throw new Error('must not start a duplicate') }
+  await context.retry()
+  assert.equal(state.job.cadTask, null)
+  assert.equal(state.model.agentRun.runId, 'cad_test')
+})
+
+for (const status of [404, 401, 429]) {
+  test(`request-id recovery preserves a paused submission after HTTP ${status}`, async () => {
+    const initial = cadModelFromResult(result())
+    const { context, state } = appCadHarness(initial)
+    context.setDrawingJob({ fileMeta: { name: 'original.jpg' }, cadTask: { requestId: 'uncertain-upload', status: 'submitted', prompt: '原始要求', paused: true } })
+    context.cadAgent.byRequest = async ({ requestId }) => {
+      assert.equal(requestId, 'uncertain-upload')
+      throw Object.assign(new Error('暂时不能确认后台结果'), { status })
+    }
+    context.cadAgent.run = async () => assert.fail('An uncertain request must not create another task')
+    context.cadAgent.waitForRun = async () => assert.fail('A missing runId cannot be polled as a known task')
+    assert.equal(await context.retry(), false)
+    assert.equal(state.job.cadTask.requestId, 'uncertain-upload')
+    assert.equal(state.job.cadTask.paused, true)
+    assert.equal(state.job.fileMeta.name, 'original.jpg')
+    assert.equal(state.model, initial)
+    assert.equal(state.busy, false)
+    assert.equal(context.chatAbortRef.current, null)
+  })
+}
+
+test('unknown-request cancellation clears only after a server tombstone and abort catch cannot restore it', async () => {
+  const { context, state } = appCadHarness({ kind: '' })
+  let signal, cancels = 0
+  context.cadAgent.run = async ({ signal: requestSignal }) => {
+    signal = requestSignal
+    return new Promise((_resolve, reject) => requestSignal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }))
+  }
+  context.cadAgent.cancelRequest = async ({ requestId, token }) => {
+    cancels += 1
+    assert.equal(requestId, 'test-request')
+    assert.equal(token, 'test-token')
+    assert.equal(signal.aborted, false)
+    return { runId: null, requestId, status: 'cancelled' }
+  }
+  const pending = context.send('开始上传')
+  assert.equal(state.job.cadTask.requestId, 'test-request')
+  await context.cancel()
+  assert.equal(await pending, false)
+  assert.equal(cancels, 1)
+  assert.equal(signal.aborted, true)
+  assert.equal(state.job.cadTask, null)
+  assert.equal(context.drawingJobRef.current.cadTask, null)
+  assert.equal(state.busy, false)
+  assert.match(state.messages.at(-1).text, /服务器不会启动这个请求/)
+})
+
+for (const terminalStatus of ['cancelled', 'ready']) {
+  test(`cancelling a paused known run reads its real ${terminalStatus} result before clearing`, async () => {
+    const { context, state } = appCadHarness({ kind: '' })
+    let cancels = 0, polls = 0
+    context.setDrawingJob({ cadTask: { runId: 'cad_test', revision: 1, requestId: 'known-request', status: 'running', paused: true, prompt: '原要求' } })
+    context.cadAgent.cancel = async ({ runId }) => {
+      cancels += 1
+      assert.equal(runId, 'cad_test')
+      return { runId, revision: 1, status: 'cancel_requested' }
+    }
+    context.cadAgent.waitForRun = async ({ runId, onProgress }) => {
+      polls += 1
+      assert.equal(runId, 'cad_test')
+      assert.equal(state.job.cadTask.runId, runId)
+      onProgress({ runId, revision: 1, status: 'cancel_requested' })
+      assert.equal(state.job.cadTask.status, 'cancel_requested')
+      return result({ status: terminalStatus, artifacts: [] })
+    }
+    context.cadAgent.run = async () => assert.fail('Cancel recovery must never generate another task')
+    await context.cancel()
+    assert.equal(cancels, 1)
+    assert.equal(polls, 1)
+    assert.equal(state.job.cadTask, null)
+    assert.equal(state.model.agentRun.status, terminalStatus)
+    assert.equal(state.busy, false)
+  })
+}
+
+test('artifact download refreshes the specified revision and uses the current token only at the same API artifact route', async t => {
+  const requests = []
+  let token = 'metadata-token'
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url: String(url), options })
+    if (requests.length === 1) {
+      assert.equal(String(url), `${API_BASE}/cad-agent/runs/cad_test?revision=3`)
+      assert.equal(options.headers.Authorization, 'Bearer metadata-token')
+      token = 'refreshed-download-token'
+      return new Response(JSON.stringify(result({ revision: 3, status: 'ready', artifacts: [{ id: 'step', format: 'step', url: `${API_BASE}/cad-agent/runs/cad_test/3/artifacts/step?access=fresh-link` }] })), { headers: { 'Content-Type': 'application/json' } })
+    }
+    assert.equal(String(url), `${API_BASE}/cad-agent/runs/cad_test/3/artifacts/step?access=fresh-link`)
+    assert.equal(options.headers.Authorization, 'Bearer refreshed-download-token')
+    return new Response('actual test file bytes', { headers: { 'Content-Type': 'application/step' } })
+  })
+  const downloaded = await cadAgent.downloadArtifact({ token: () => token, runId: 'cad_test', revision: 3, format: 'step' })
+  assert.equal(requests.length, 2)
+  assert.equal(await downloaded.blob.text(), 'actual test file bytes')
+  assert.equal(downloaded.mimeType, 'application/step')
+  assert.equal(downloaded.artifact.id, 'step')
+})
+
+for (const unsafeUrl of [
+  'https://outside.example.test/model.step',
+  `${API_BASE}/cad-agent/runs/other-run/3/artifacts/step`,
+  `${API_BASE}/cad-agent/runs/cad_test/2/artifacts/step`,
+  `${API_BASE}/unrelated-private-route`,
+]) {
+  test(`artifact download rejects an untrusted target without forwarding a bearer: ${unsafeUrl}`, async t => {
+    const requests = []
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+      requests.push({ url: String(url), options })
+      assert.equal(requests.length, 1, 'The untrusted artifact URL must never be fetched')
+      return new Response(JSON.stringify(result({ revision: 3, artifacts: [{ format: 'step', url: unsafeUrl }] })), { headers: { 'Content-Type': 'application/json' } })
+    })
+    await assert.rejects(() => cadAgent.downloadArtifact({ token: 'private-token', runId: 'cad_test', revision: 3, format: 'step' }), /地址与当前服务不一致/)
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0].url, `${API_BASE}/cad-agent/runs/cad_test?revision=3`)
+  })
+}
+
+test('artifact download refuses a mismatched revision before fetching any file', async t => {
+  let requests = 0
+  t.mock.method(globalThis, 'fetch', async () => {
+    requests += 1
+    return new Response(JSON.stringify(result({ revision: 4, artifacts: [{ format: 'step', url: `${API_BASE}/cad-agent/runs/cad_test/4/artifacts/step` }] })), { headers: { 'Content-Type': 'application/json' } })
+  })
+  await assert.rejects(() => cadAgent.downloadArtifact({ token: 'private-token', runId: 'cad_test', revision: 3, format: 'step' }), /其他模型版本/)
+  assert.equal(requests, 1)
+})
+
+test('polling resolves the current account token rather than a token captured at task start', async (t) => {
+  let token = 'fresh-token'
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    assert.equal(options.headers.Authorization, `Bearer ${token}`)
+    return new Response(JSON.stringify(result()), { headers: { 'Content-Type': 'application/json' } })
+  })
+  const getToken = () => token
+  await cadAgent.getRun({ runId: 'cad_test', token: getToken })
+  token = 'rotated-token'
+  await cadAgent.getRun({ runId: 'cad_test', token: getToken })
+})
+
 test('automatic workspace recovery starts once after StrictMode cleanup and skips user-paused tasks', () => {
   const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
   const start = app.indexOf('  useEffect(() => {\n    // Defer one tick')
@@ -928,15 +1158,27 @@ test('a genuine question keeps the answer action and never starts an automatic r
   for (const status of ['needs_input', 'failed']) {
     const initial = cadModelFromResult(result({ status, plan: null, questions: ['背面标注没有拍到，板厚是多少？'] }))
     const { state, context } = appCadHarness(initial)
-    let focuses = 0
-    context.document = { querySelector: () => ({ focus: () => { focuses += 1 } }) }
+    context.document = { querySelector: () => { throw new Error('The parent must reveal chat before focusing its possibly hidden input') } }
     context.cadAgent.run = async () => { throw new Error('wait for the actual answer') }
     context.cadAgent.confirm = async () => { throw new Error('missing information cannot be confirmed') }
     assert.equal(cadPrimaryAction(initial).kind, 'answer')
     await context.confirm()
-    assert.equal(focuses, 1)
+    assert.equal(state.chatRequest, true)
     assert.match(state.notices[0][0], /板厚是多少/)
   }
+})
+
+test('a confirmation version conflict reveals chat with a recovery draft and retains the original model', async () => {
+  const { state, context } = appCadHarness()
+  const before = structuredClone(state.model)
+  context.cadAgent.confirm = async () => { const error = new Error('version conflict'); error.status = 409; throw error }
+  context.document = { querySelector: () => { throw new Error('Focus belongs to the visible chat pane after render') } }
+  assert.equal(await context.confirm(), false)
+  assert.equal(state.chatRequest, true)
+  assert.match(state.prompt, /重新检查当前保存版本/)
+  assert.match(state.notices.at(-1)[0], /历史版本/)
+  assert.deepEqual(state.model, before)
+  assert.equal(state.accepting, false)
 })
 
 test('the top model action routes failed source reading to the shared retry handler', () => {
@@ -945,7 +1187,7 @@ test('the top model action routes failed source reading to the shared retry hand
   const source = app.slice(start, app.indexOf('  // A queued drawing', start))
   const model = cadModelFromResult(result({ status: 'failed', plan: null, sourceTranscription: { status: 'failed' } }))
   let retries = 0
-  const context = vm.createContext({ model, featureModel: true, agentStatus: 'failed', chatAttachments: [], productionReady: false,
+  const context = vm.createContext({ model, cadPrimaryAction, featureModel: true, agentStatus: 'failed', chatAttachments: [], productionReady: false,
     acceptDrawingData: () => { retries += 1 }, document: { querySelector: () => { throw new Error('must retry immediately') } } })
   vm.runInContext(`${source}\nprimaryAction()`, context)
   assert.equal(retries, 1)

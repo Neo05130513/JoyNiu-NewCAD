@@ -47,7 +47,9 @@ def test_reader_request_is_independent_compact_visual_input_without_fake_regions
     assert body["reasoning"]["effort"] == _reading_effort()
     assert 170 < timeout <= 180
     assert "不同位置的相同文字分别保留" in body["instructions"]
-    assert "不要求文字坐标框" in body["instructions"]
+    assert "bbox相对局部图" in body["instructions"]
+    assert "完整原图一次" in body["instructions"]
+    assert "不是右下角坐标" in body["instructions"]
     assert len(body["instructions"]) < 1000
     content = body["input"][0]["content"]
     assert len([item for item in content if item["type"] == "input_image"]) == 1
@@ -109,6 +111,51 @@ def test_region_box_mapping_is_explicit_without_claiming_exact_letter_coordinate
     payload = {"output_text": json.dumps({"annotations": [{"text": "12", "bbox": [.1, .2, .3, .4]}]})}
     result = _parse(payload, [focus], focus_image=focus)
     assert result["annotations"][0]["bbox"] == pytest.approx([.43, .58, .09, .16])
+    assert result["annotations"][0]["locationPrecision"] == "model_estimated_text_box"
+
+
+def test_explicit_original_box_is_not_transformed_by_the_focused_region():
+    from app.cad_source_reader import _parse
+    original = {"imageId": "source-1-original", "fileIndex": 1, "preparedSha256": "second-page", "crop": [0, 0, 1, 1]}
+    focus = {**original, "imageId": "source-1-region-2", "crop": [.4, .5, .3, .4]}
+    payload = {"output_text": json.dumps({"annotations": [
+        {"imageId": original["imageId"], "text": "12", "bbox": [.43, .58, .09, .16]},
+        {"imageId": focus["imageId"], "text": "12", "bbox": [.1, .2, .3, .4]},
+    ]})}
+    result = _parse(payload, [original, focus], focus_image=focus)
+    for annotation in result["annotations"]:
+        assert annotation["bbox"] == pytest.approx([.43, .58, .09, .16])
+        assert annotation["fileIndex"] == 1
+        assert annotation["preparedSha256"] == "second-page"
+        assert annotation["bboxFrame"] == "prepared_source_image"
+    assert result["annotations"][0]["sourceRegion"] == original["crop"]
+    assert result["annotations"][1]["sourceRegion"] == focus["crop"]
+
+
+@pytest.mark.parametrize("bbox", [None, [], [0, 0, 1], "0,0,1,1", [True, 0, .1, .1],
+                                  ["0", 0, .1, .1], [-.1, 0, .1, .1], [0, 0, 0, .1],
+                                  [.8, .1, .3, .1], [.1, .9, .1, .2], [0, 0, 1e-12, 1e-12], [0, 0, 10**1000, 1]])
+def test_unavailable_text_boxes_keep_reading_and_only_claim_region_location(bbox):
+    from app.cad_source_reader import _parse
+    focus = {"imageId": "region", "fileIndex": 1, "preparedSha256": "source", "crop": [.4, .5, .3, .4]}
+    payload = {"output_text": json.dumps({"annotations": [{"text": "12", "bbox": bbox,
+                                                          "location": "upper dimension", "confidence": "high"}]})}
+    annotation = _parse(payload, [focus], focus_image=focus)["annotations"][0]
+    assert annotation["text"] == "12" and annotation["confidence"] == "high"
+    assert annotation["bbox"] is None
+    assert annotation["sourceRegion"] == focus["crop"]
+    assert annotation["locationPrecision"] == "content_region_and_text_description"
+    assert annotation["fileIndex"] == 1 and annotation["preparedSha256"] == "source"
+
+
+@pytest.mark.parametrize("number", [float("inf"), float("nan")])
+def test_nonfinite_locator_never_produces_a_box_and_invalid_json_is_still_rejected(number):
+    from app.cad_source_reader import _bbox, _parse
+    focus = {"imageId": "region", "fileIndex": 0, "preparedSha256": "source", "crop": [0, 0, 1, 1]}
+    assert _bbox([0, 0, number, .1], focus["crop"]) is None
+    payload = {"output_text": json.dumps({"annotations": [{"text": "12", "bbox": [0, 0, number, .1]}]})}
+    with pytest.raises(ai_proxy.AIProxyError, match="invalid structured JSON"):
+        _parse(payload, [focus], focus_image=focus)
 
 
 def test_single_sparse_view_gets_a_focus_without_losing_external_annotations(tmp_path):
@@ -415,14 +462,32 @@ def test_equal_text_on_different_physical_marks_is_not_dropped_by_parser(tmp_pat
     assert result["annotations"][0]["bbox"] != result["annotations"][1]["bbox"]
 
 
-def test_agent_reader_gets_180_second_cap_inside_unchanged_600_second_total_budget(tmp_path):
-    reader = StubSourceReader()
+def test_agent_reader_gets_180_second_cap_inside_unchanged_600_second_total_budget(tmp_path, monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr("app.cad_agent.time.monotonic", lambda: clock[0])
+    monkeypatch.delenv("JOYNIU_CAD_PLANNER_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("JOYNIU_CAD_FINISH_RESERVE_SECONDS", raising=False)
+
+    class TimedReader(StubSourceReader):
+        def read(self, **kwargs):
+            value = super().read(**kwargs)
+            clock[0] += kwargs["timeout_seconds"]  # Consume the actual reader allowance.
+            return value
+
+    reader = TimedReader()
     provider = Provider([{"action": "ask_user", "message": "请补充必要尺寸。", "questions": ["槽深是多少？"]}])
     result = CadAgentService(proxy=AIProxy(timeout_seconds=600), source_reader=reader, provider_call=provider, spatial_interpreter=StubSpatialInterpreter()).run(
         message="按图建模", files=[raster(200, 100)], output_dir=tmp_path, timeout_seconds=600)
     assert result["status"] == "needs_input"
     assert len(reader.calls) == 1 and reader.calls[0]["timeout_seconds"] == 180
-    assert 500 < provider.requests[0][1] <= 600
+    assert provider.requests[0][1] == 180
+    current = context(provider.requests[0][0])
+    assert current["plannerOperationMaxSeconds"] == 180
+    assert current["executionReviewReserveSeconds"] == 120
+    assert current["remainingSeconds"] == 420  # Reading did not reset/extend the 600-second deadline.
+    assert result["elapsedSeconds"] == 180
+    assert current["remainingSeconds"] + result["elapsedSeconds"] == 600
+    assert provider.requests[0][1] <= current["remainingSeconds"] - current["executionReviewReserveSeconds"]
 
 
 def test_navigation_has_pixel_and_byte_limits_before_provider_call(monkeypatch, tmp_path):
@@ -474,10 +539,43 @@ def test_independent_reader_runs_before_planner_and_saved_candidates_reach_every
         for key in ("version", "status", "candidateEvidence", "verified", "sourceFingerprint", "questions"):
             assert evidence[key] == raw[key]
         for key in ("annotations", "structureObservations"):
-            assert evidence[key] == [{name: value for name, value in item.items() if name not in {"imageId", "preparedSha256"}}
+            assert evidence[key] == [{name: value for name, value in item.items() if name != "preparedSha256"}
                                      for item in raw[key]]
         assert "provider" not in evidence and "regionReadings" not in evidence
     assert result["trace"][0]["action"] == "read_source"
+
+
+def test_source_annotation_links_survive_planning_execution_and_saved_state(tmp_path):
+    from tests.test_cad_agent import StubDrawingReviewer
+    reading = {"annotations": [{"imageId": "source-0-original", "text": text, "bbox": bbox}
+                                for text, bbox in (("30", [.1, .2, .1, .1]), ("6", [.5, .6, .1, .1]))]}
+    height_source = {"type": "drawing", "text": "Overall height, annotation-1", "fileIndex": 0,
+                     "view": "front", "annotationIds": ["annotation-1"]}
+    thickness_source = {"type": "drawing", "text": "Plate thickness, annotation-2", "fileIndex": 0,
+                        "view": "front", "annotationIds": ["annotation-2"]}
+    derived_source = {"type": "derived", "text": "Half of annotation-1 minus annotation-2", "fileIndex": 0,
+                      "view": "front", "annotationIds": ["annotation-1", "annotation-2"]}
+    observed = record()
+    observed["observations"][0]["source"] = height_source
+    proposed = plan()
+    proposed["parameters"]["height"]["source"] = height_source
+    proposed["parameters"]["thickness"] = {"value": 6, "source": thickness_source}
+    proposed["parameters"]["offset"] = {"value": None, "expression": "(height-thickness)/2", "source": derived_source}
+    provider = Provider([reading, observed, {**execute(), "plan": proposed}, finish()])
+    result = CadAgentService(provider_call=provider, executor=Executor(), drawing_reviewer=StubDrawingReviewer(),
+                             spatial_interpreter=StubSpatialInterpreter()).run(
+        message="Create this block from its dimensions.", files=[raster(200, 100)], output_dir=tmp_path)
+    assert result["status"] == "review_required"
+    assert result["plan"]["parameters"]["offset"]["source"] == derived_source
+    assert result["state"]["cadPlan"]["parameters"] == result["plan"]["parameters"]
+    assert result["state"]["observations"][0]["source"] == height_source
+    assert result["state"]["sourceTranscription"] == result["sourceTranscription"]
+    for body, _ in provider.requests[1:]:
+        annotations = context(body)["sourceTranscription"]["annotations"]
+        assert [item["id"] for item in annotations] == ["annotation-1", "annotation-2"]
+        assert [item["bbox"] for item in annotations] == [[.1, .2, .1, .1], [.5, .6, .1, .1]]
+        assert all(item["imageId"] == "source-0-original" and item["fileIndex"] == 0 for item in annotations)
+        assert "source.annotationIds" in body["instructions"]
 
 
 def test_same_drawing_text_edit_reuses_reading_but_new_second_image_is_read_again(tmp_path):

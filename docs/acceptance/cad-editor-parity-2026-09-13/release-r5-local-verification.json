@@ -1,0 +1,146 @@
+{
+  "ok": true,
+  "networkCalls": "loopback only",
+  "usesCustomerCredentials": false,
+  "candidateRuntime": false,
+  "architecture": "arm64",
+  "compilerAbsent": false,
+  "packages": {
+    "cadquery": "2.8.0",
+    "ezdxf": "1.4.4",
+    "PyMuPDF": "1.28.2",
+    "cryptography": "50.0.1"
+  },
+  "tools": {
+    "dwgread": {
+      "sha256": "536eef295f1dfdc2e63b4f1cd2961905f98c55bbd1fe017ef3574c0f1345f1ff",
+      "versionChecked": true
+    },
+    "dwg2dxf": {
+      "sha256": "e4cca8e3f5af9a878eb0085ed14e992f64d35f03065743847701274a46781c99",
+      "versionChecked": true
+    },
+    "dxf2dwg": {
+      "sha256": "d8d27fed5519b67b977170093f3e3d2cd2aeae086ba2db75b5ded2faf2ec31e8",
+      "versionChecked": true
+    },
+    "joyniu-native-dwg-adapter": {
+      "sha256": "caa89664fcec86478b17ae1c5ac2f260109334247ab6a608f0e9cc90855d1646",
+      "versionChecked": true
+    }
+  },
+  "native": {
+    "binaryDwg": true,
+    "fullDrawingSignatureMatch": true,
+    "dimensionsRemainNative": true,
+    "measurementMm": 150,
+    "editedLinkedMeasurementMm": 160,
+    "toleranceUpper": 0.2,
+    "toleranceLower": 0.1,
+    "bubbleNumber": 7,
+    "blocksAndPaperLayoutsPreserved": true
+  },
+  "engineering": {
+    "featureWorker": true,
+    "stepValid": true,
+    "solidCount": 1,
+    "sizeMm": [
+      40.5,
+      20,
+      10
+    ],
+    "volumeMm3": 8100,
+    "dxfDimensionMm": 10,
+    "pdfPaperMm": [
+      420,
+      297
+    ],
+    "pdfChineseGlyphsRendered": true,
+    "pdfEmbeddedFontBytes": [
+      407397
+    ],
+    "cadEditor": {
+      "topologyFaces": 6,
+      "topologyEdges": 12,
+      "triangleMembership": true,
+      "selectedEdgeFillet": true,
+      "atomicFailurePreservedHead": true,
+      "idempotentRetry": true,
+      "parameterHistoryRebuilt": true,
+      "stepReadback": true,
+      "volumeMm3": 3517.8539816339744,
+      "profileHistoryRebuilt": true,
+      "profileHistory": {
+        "sourceWidthMm": 20,
+        "finalWidthMm": 22,
+        "sizeMm": [
+          22,
+          16,
+          15
+        ],
+        "selectedBossEdges": 2,
+        "bossAttachmentMovementMm": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "volumeBeforeMm3": 3595.707963267949,
+        "volumeAfterMm3": 3915.707963267949,
+        "savedRevisions": 4,
+        "stepReadback": true,
+        "previousVersionPreserved": true,
+        "failurePreservedHead": true,
+        "foreignDesignBindingRejected": true
+      },
+      "compoundBodiesRebuilt": true,
+      "compoundBodies": {
+        "solidCount": 2,
+        "savedRevisions": 4,
+        "sourceWidthMm": 20,
+        "finalWidthMm": 22,
+        "initialVolumeMm3": 4000,
+        "finalVolumeMm3": 4317.853981633975,
+        "independentSecondVolumeMm3": 797.8539816339745,
+        "overlapBeforeMm3": 199.99999999999994,
+        "overlapAfterMm3": 280.0,
+        "selectedEdgeFillet": true,
+        "stepReadback": true,
+        "parameterHistoryRebuilt": true,
+        "previousVersionPreserved": true,
+        "failurePreservedHead": true
+      }
+    }
+  },
+  "http": {
+    "anonymousStatus": {
+      "/api/cad/drawings": 401,
+      "/api/cad/features": 401,
+      "/api/cad/designs": 401,
+      "/api/cad/deliveries": 401
+    },
+    "syntheticLogin": true,
+    "authenticatedLists": true,
+    "deliveryArchiveVerified": true,
+    "cadEditor": {
+      "anonymousRejected": true,
+      "readerRejected": true,
+      "ownerOnlyArtifacts": true,
+      "staleInteractivePickRejected": true,
+      "atomicHttpCommit": true,
+      "httpIdempotency": true,
+      "foreignUpdateRejected": true,
+      "revisionConflictPreservedHead": true,
+      "maintenanceProbe": true,
+      "commitWaitedForPreviews": true,
+      "concurrency": {
+        "occupiedPreviewWorkers": 2,
+        "previewSolidsEach": 1,
+        "previewRejectedImmediately": true,
+        "previewAdmissionMs": 3,
+        "commitElapsedMs": 4345,
+        "stepReadback": true,
+        "capacityReusable": true
+      }
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "scope": "Local isolated Chromium QA only; no production or system-browser use.",
+  "businessFlow": "Two dedicated synthetic accounts: real file chooser STEP import, explicit publication, search, true browser STEP download, independent cross-account copy, parameter edit and STEP export, author withdrawal, downloaded copy persists after refresh.",
+  "layout": "Four panels checked after shared CSS fix at 1440x980 and 390x844; each truly closed; no CAD write requests. Earlier panel-layout screenshots are intentionally not final evidence.",
+  "publicationWithdrawn": true,
+  "credentialsIncluded": false,
+  "files": {
+    "04-independent-copy.png": {
+      "bytes": 107949,
+      "sha256": "ed04adc0fb024c0f53cdf5b6fa4129328ddf509140cd60ee5f9c8af65a83b1de"
+    },
+    "05-edited-copy.png": {
+      "bytes": 99208,
+      "sha256": "34fd9abc71c582d7e25f3b545464c1744e1f83e3dfac26e076b90c9cb8293a1d"
+    },
+    "08-independent-copy-survives-withdrawal-refresh.png": {
+      "bytes": 100199,
+      "sha256": "389abfdd18ca07502ad9604f2c4bd35b2a3c05cecd69a1d1b7b2a5ab327b8c64"
+    },
+    "browser-verification.json": {
+      "bytes": 18411,
+      "sha256": "80dcfb2715bdddc29147528aa461ad939aa5beb8a4d1440ba41ca38c23f2f4ac"
+    },
+    "modified-copy.step": {
+      "bytes": 15423,
+      "sha256": "299662c76b4ccb4e61d2d27d6a0440cc27719de48338f1ae380d7486fde16213"
+    },
+    "panel-desktop-PDM.png": {
+      "bytes": 118363,
+      "sha256": "0436b80830b59b48c9ca4f639b9c93825ba278d15de84effba5be43cefc0b8d4"
+    },
+    "panel-desktop-导入.png": {
+      "bytes": 115704,
+      "sha256": "15b01e02b668ff409c161c0672a04abea7c9c30d0fd071ba3411f318dd892da0"
+    },
+    "panel-desktop-标准件.png": {
+      "bytes": 113671,
+      "sha256": "f99c9e4daf52ed5d1c3f8ed2e702b8e77764bc5cc9759a00e8200b650c37b761"
+    },
+    "panel-desktop-社区.png": {
+      "bytes": 143202,
+      "sha256": "5d226a6ffdde0c7f9928ddc2c5ba1924ebb99f995f8d42dca4da210f5ad3c10d"
+    },
+    "panel-layout-verification.json": {
+      "bytes": 6516,
+      "sha256": "d5524d39f8341a766ff56e7af1625412ff67f1c3baa95dfc66ad84f8abda5b05"
+    },
+    "panel-mobile-PDM.png": {
+      "bytes": 70055,
+      "sha256": "c817141736cddd22de0a204a640065d3eaba024a371ed9d0f41482a2fcb9019d"
+    },
+    "panel-mobile-导入.png": {
+      "bytes": 69873,
+      "sha256": "01737103f36e60acc95a5973934218d78fe45c05370b2557c5aca84b554ecb1c"
+    },
+    "panel-mobile-标准件.png": {
+      "bytes": 68567,
+      "sha256": "63d4d3fe3e6c01ffe62daa4ecd71a6ad587c6d58ef39ce9067039802c6c4987c"
+    },
+    "panel-mobile-社区.png": {
+      "bytes": 92418,
+      "sha256": "2c71b4de2df7d5516dc0836e1778edd7f45293fb0cde581701db697977937fe7"
+    },
+    "published.step": {
+      "bytes": 15406,
+      "sha256": "16e574d4829ac852d58d262cc77c92416020f0b94d143a380a5c640a5dd021b3"
+    },
+    "step-readback.json": {
+      "bytes": 637,
+      "sha256": "f475f1a4742adc32a20a5e7600d8c2feb251fbf4e5241144e4fbe5e159f1252e"
+    }
+  }
+}

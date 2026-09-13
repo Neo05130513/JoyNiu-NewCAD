@@ -1,0 +1,9 @@
+ARG CAD_API_IMAGE=joyniu-cad-api
+FROM ${CAD_API_IMAGE}
+USER 0:0
+COPY deploy/.cache/mihomo-v1.19.30.gz /tmp/mihomo.gz
+RUN python -c "import gzip,hashlib,pathlib; p=pathlib.Path('/tmp/mihomo.gz'); data=p.read_bytes(); assert hashlib.sha256(data).hexdigest() == 'db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9'; target=pathlib.Path('/usr/local/bin/mihomo'); target.write_bytes(gzip.decompress(data)); target.chmod(0o755); p.unlink()" \
+    && /usr/local/bin/mihomo -v
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/mihomo"]
+CMD ["-d", "/tmp/mihomo", "-f", "/etc/mihomo/config.yaml"]

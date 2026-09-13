@@ -1,0 +1,61 @@
+.direct-feature-workspace{padding:24px;color:#25334b;background:#f3f6fb;min-height:100%;font-size:13px}.df-heading,.df-preview-heading{display:flex;align-items:center;justify-content:space-between;gap:18px}.df-heading h1{font-size:25px;margin:5px 0}.df-heading p,.df-contour p,.df-parameters>p{color:#64748b;line-height:1.6}.df-eyebrow{color:#2463d2;font-size:11px;font-weight:700;letter-spacing:.1em}.direct-feature-workspace button,.direct-feature-workspace input,.direct-feature-workspace select{font:inherit;border:1px solid #d6dfec;background:white;border-radius:6px;min-height:33px;color:#273953;box-sizing:border-box}.direct-feature-workspace button{padding:6px 10px;cursor:pointer;white-space:nowrap}.direct-feature-workspace button:hover:not(:disabled){background:#edf3ff;border-color:#9ab6eb}.direct-feature-workspace button:disabled{opacity:.45;cursor:default}.direct-feature-workspace input,.direct-feature-workspace select{padding:6px 8px;min-width:0;max-width:100%}.direct-feature-workspace button.df-primary{background:#2463d2;color:white;border-color:#2463d2}.df-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.df-row select,.df-row input{flex:1;min-width:80px}.df-notice{padding:10px 13px;background:#eaf0fb;border:1px solid #d4e0f5;line-height:1.7;border-radius:8px;margin:16px 0;color:#46607f;overflow-wrap:anywhere}.df-document{border:0;padding:0;display:grid;grid-template-columns:1fr 2fr;gap:12px}.df-document>.df-row{grid-column:1/-1;justify-content:flex-start}.df-document>.df-row select{max-width:350px}.df-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0}.df-field>span{font-size:12px;color:#596a83}.df-layout{display:grid;grid-template-columns:minmax(220px, .8fr) minmax(250px,1fr) minmax(300px,1.5fr);align-items:start;gap:15px;margin-top:17px}.df-tree,.df-properties,.df-preview{min-width:0;background:white;border:1px solid #dbe3ef;border-radius:10px;padding:15px;margin:0}.df-tree>h3,.df-feature-editor>h3,.df-preview h3,.df-parameters h3{margin:1px 0 14px;font-size:15px}.df-feature-editor>h3 small{font-weight:400;font-size:11px;color:#8a97ad}.df-tree ol{list-style:none;padding:0;margin:15px 0}.df-tree li{border:1px solid #e2e8f0;margin:7px 0;border-radius:8px;overflow:hidden}.df-tree li.selected{border-color:#80a5e9;background:#f0f5ff}.df-tree li.suppressed .df-feature-select{opacity:.45}.direct-feature-workspace .df-feature-select{display:flex;align-items:center;gap:10px;text-align:left;width:100%;border:0;background:transparent}.df-feature-select>span{width:20px;height:20px;border-radius:5px;text-align:center;background:#e6edf8;font-size:11px;line-height:20px}.df-feature-select div{display:flex;flex-direction:column;gap:4px}.df-feature-select small{font-size:10px;color:#7d8ca4;overflow-wrap:anywhere}.df-tree-actions{display:flex;gap:3px;padding:0 7px 6px;justify-content:flex-end}.df-tree-actions button{font-size:10px;padding:2px 6px;min-height:24px}.df-vector{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:5px}.df-vector input{width:100%}.df-check,.df-face-options label{display:flex;align-items:center;gap:6px;font-size:12px;margin:9px 0}.df-check input,.df-face-options input{min-height:auto}.df-face-options{display:flex;gap:10px;flex-wrap:wrap}.df-contour,.df-parameters{border-top:1px solid #e3e9f1;margin-top:20px;padding-top:14px}.df-contour h4{margin:0;font-size:13px}.df-contour>svg{display:block;width:100%;height:150px;background:#f7f9fd;border-radius:6px;margin:12px 0}.df-contour p,.df-note{font-size:11px;color:#77869d;line-height:1.6}.df-segment,.df-parameter-row{border:1px solid #e2e8f0;border-radius:7px;padding:9px;margin:10px 0;background:#fbfcfe}.df-segment .df-field{margin:8px 0}.df-parameter-row>input,.df-parameter-row>select{width:100%;margin-top:6px}.df-parameter-row .df-row>b{overflow-wrap:anywhere}.df-preview .engineering-model-canvas{min-height:350px}.df-preview-heading span{font-size:11px;color:#bd7730}.df-empty-preview{min-height:340px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:linear-gradient(135deg,#f4f7fc,#eaf0f9);border-radius:7px;text-align:center;color:#708198;padding:20px}.df-empty-preview>span{font-size:52px;margin:18px}.df-empty-preview>p{font-size:12px;line-height:1.6}.df-preview>.df-row{margin-top:14px}.df-error{border:1px solid #f2c2ba;background:#fff4f1;color:#a33d2c;padding:10px 13px;border-radius:7px;line-height:1.6;overflow-wrap:anywhere}.df-error p{margin:2px 0}.df-metrics{font-size:11px;color:#62748d;line-height:1.7}.df-versions{border-top:1px solid #e2e8f0;margin-top:20px;padding-top:15px}.df-version{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid #edf1f6}.df-version b{font-size:12px}.df-version p{font-size:11px;color:#7a8aa1;line-height:1.5;overflow-wrap:anywhere}.df-version button{align-self:center;font-size:11px}.df-versions .df-version:last-child{border-bottom:0}@media(max-width:1180px){.df-layout{grid-template-columns:minmax(200px, .8fr) minmax(250px,1fr)}.df-preview{grid-column:1/-1}.df-heading{align-items:flex-start;flex-direction:column}}@media(max-width:650px){.direct-feature-workspace{padding:14px}.df-layout,.df-document{grid-template-columns:1fr}.df-preview{grid-column:auto}.df-heading>.df-row{width:100%}.df-heading button{flex:1}.df-tree,.df-properties,.df-preview{padding:12px}.df-document>.df-row select{max-width:none;width:100%}.df-document>.df-row{align-items:stretch}.df-empty-preview{min-height:260px}}
+
+.df-switch-confirm b{display:block}.df-switch-confirm p{margin:6px 0 10px}.df-feature-select>div{min-width:0}.df-feature-select b{overflow-wrap:anywhere;white-space:normal}.df-tree-actions{flex-wrap:wrap}.df-preview-heading{flex-wrap:wrap}.df-document{min-width:0}.df-version>div{min-width:0}.df-version{flex-wrap:wrap}@media(max-width:650px){.direct-feature-workspace button{min-height:40px}.df-heading>.df-row{display:grid;grid-template-columns:1fr 1fr}.df-tree-actions button{min-height:36px}.df-row select,.df-row input{max-width:100%}.df-switch-confirm .df-row{align-items:stretch}.df-switch-confirm button{white-space:normal;flex:1}.df-preview .engineering-model-canvas{min-height:260px}}
+.df-error-details{margin-top:8px}.df-error-details summary{cursor:pointer;font-size:12px}.df-error-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;line-height:1.6;margin:8px 0 0}
+.direct-feature-workspace button.df-primary:hover:not(:disabled),
+.direct-feature-workspace button.df-primary:focus-visible:not(:disabled) { background: #1d4fa9; color: #fff; border-color: #1d4fa9; }
+
+.direct-feature-workspace{padding:16px;background:#f7f8fa}
+.df-heading{gap:12px;margin-bottom:10px}
+.df-heading>div:first-child{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.df-heading h1{font-size:18px;margin:0}
+.df-heading-state{font-size:11px;color:#6b7b90}
+.df-scope-note{font-size:11px;color:#6c7889;margin:0 0 10px;line-height:1.5}
+.df-document{grid-template-columns:minmax(180px,1fr) minmax(260px,2fr);gap:8px 16px;align-items:end}
+.df-document>.df-field{margin:0}
+.df-document>.df-row{grid-column:auto;min-width:0}
+.df-provenance{grid-column:1/-1}
+.df-disclosure{border-top:1px solid #e2e7ee;padding-top:9px;margin-top:6px;min-width:0}
+.df-disclosure>summary{cursor:pointer;font-size:12px;color:#53657b;line-height:1.6;padding:3px 0}
+.df-disclosure>summary small{margin-left:5px;font-weight:400;color:#8190a3}
+.df-disclosure>summary:focus-visible{outline:2px solid #8eb1ee;outline-offset:3px}
+.df-disclosure>p{font-size:11px;color:#6d7c90;line-height:1.6;overflow-wrap:anywhere}
+.df-formulas .df-parameters{border:0;padding-top:12px;margin-top:0}
+.df-formulas .df-parameters>h3{display:none}
+.df-tree-actions[hidden]{display:none}
+.df-tree,.df-properties,.df-preview{border-radius:6px;padding:12px}
+.df-layout{gap:12px;margin-top:12px}
+.df-versions{padding-top:10px}
+@media(max-width:1180px){
+  .df-heading{flex-direction:row;align-items:center;flex-wrap:wrap}
+  .df-layout.has-preview{grid-template-columns:minmax(200px,.75fr) minmax(0,1.5fr)}
+  .df-layout.has-preview>.df-tree{grid-column:1;grid-row:1/span 2}
+  .df-layout.has-preview>.df-preview{grid-column:2;grid-row:1}
+  .df-layout.has-preview>.df-properties{grid-column:2;grid-row:2}
+}
+@media(max-width:650px){
+  .direct-feature-workspace{padding:10px}
+  .df-document,.df-layout.has-preview{grid-template-columns:minmax(0,1fr)}
+  .df-document>.df-row{grid-column:1}
+  .df-layout.has-preview>.df-preview{grid-column:1;grid-row:1}
+  .df-layout.has-preview>.df-tree{grid-column:1;grid-row:2}
+  .df-layout.has-preview>.df-properties{grid-column:1;grid-row:3}
+}
+
+/* A modeling workspace keeps the solid central and exposes only the selected feature. */
+.df-tool-ribbon{display:flex;gap:6px;flex-wrap:wrap;border:0;border-block:1px solid #e0e6ee;padding:9px 0;margin:0 0 12px;min-width:0}
+.df-document>.df-row[hidden]{display:none}
+.df-document:has(>.df-row[hidden]){grid-template-columns:minmax(180px,320px) minmax(220px,1fr)}
+.df-document:has(>.df-row[hidden])>.df-provenance{grid-column:2}
+.df-layout.has-preview{grid-template-columns:220px minmax(300px,1fr) 310px;align-items:start}
+.df-layout.has-preview>.df-tree{grid-column:1;grid-row:1}
+.df-layout.has-preview>.df-preview{grid-column:2;grid-row:1;position:sticky;top:10px}
+.df-layout.has-preview>.df-properties{grid-column:3;grid-row:1;max-height:calc(100vh - 240px);overflow:auto}
+.df-preview .engineering-model-canvas,.df-source-preview{min-height:460px;height:calc(100vh - 340px);max-height:780px}
+.df-source-preview{position:relative;overflow:hidden;background:#eef1f6}
+.df-source-preview>div{height:100%}
+.df-tree ol{max-height:calc(100vh - 415px);min-height:100px;overflow:auto}
+.df-tree li{border:0;border-radius:3px;margin:2px 0}
+.df-tool-ribbon button{background:transparent;border-color:transparent}
+@media(max-width:1400px){.df-layout.has-preview{grid-template-columns:190px minmax(0,1fr)}.df-layout.has-preview>.df-tree{grid-column:1;grid-row:1/span 2}.df-layout.has-preview>.df-preview{grid-column:2;grid-row:1;position:static}.df-layout.has-preview>.df-properties{grid-column:2;grid-row:2;max-height:none}.df-preview .engineering-model-canvas,.df-source-preview{height:400px;min-height:350px}}
+@media(max-width:650px){.df-layout.has-preview{grid-template-columns:minmax(0,1fr)}.df-layout.has-preview>.df-tree{grid-column:1;grid-row:2}.df-layout.has-preview>.df-preview{grid-column:1;grid-row:1}.df-layout.has-preview>.df-properties{grid-column:1;grid-row:3}.df-document:has(>.df-row[hidden]){grid-template-columns:minmax(0,1fr)}.df-document:has(>.df-row[hidden])>.df-provenance{grid-column:1}.df-tree ol{max-height:240px}.df-preview .engineering-model-canvas,.df-source-preview{height:300px;min-height:280px}}

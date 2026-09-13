@@ -6,16 +6,17 @@ import * as candidateSync from './candidateSync.js'
 import * as arched from './archedClevisSupport.js'
 import { validateModelParameters } from './modelValidation.js'
 import { archedClevisSupportGeometries } from './viewerGeometry.js'
+import { modeForProjectFile } from './workspaceNavigation.js'
 
 // Exercise App's actual definitions, envelope normalization and candidate
 // construction. A helper-only test would miss the template spread that caused
 // an eleven-dimension AI answer to render a complete twelve-dimension support.
 const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
-const context = vm.createContext({ ...candidateSync, ...arched, validateModelParameters })
+const context = vm.createContext({ ...candidateSync, ...arched, validateModelParameters, modeForProjectFile })
 vm.runInContext([
   app.slice(app.indexOf('const defaultPreferences ='), app.indexOf('const chatId =')),
   app.slice(app.indexOf('function rawParametersFromRecognition('), app.indexOf('function recognitionEvidence(')),
-  app.slice(app.indexOf('const evidenceAcceptedForPreview ='), app.indexOf('\nfunction App()')),
+  app.slice(app.indexOf('const evidenceAcceptedForPreview ='), app.indexOf('\nfunction WorkbenchApp(')),
   'globalThis.helpers = { partDefinition, parametersFromRecognition, rawParametersFromRecognition, modelFromCandidate, seedModelForAi, modelForPendingDrawing, modelBoundsText, requiredParameterPresent, recognitionParameterAliases }',
 ].join('\n'), context)
 const h = context.helpers

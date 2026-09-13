@@ -1,0 +1,669 @@
+{
+  "synthetic": true,
+  "environment": "local browser5186/API8016",
+  "emptySketchDidNotSubmit": true,
+  "directExtrudeOpenedEmptySketch": true,
+  "drawnAndDimensionedRectangleMm": [
+    30,
+    15
+  ],
+  "revisions": [
+    {
+      "status": 200,
+      "body": {
+        "id": "feature_8d6b3d50475a4ad39b8d5b6db61b6a19",
+        "revision": 1,
+        "name": "新零件 4",
+        "plan": {
+          "version": "cad-plan-v1",
+          "units": "mm",
+          "name": "新零件 4",
+          "parameters": {},
+          "features": [
+            {
+              "id": "profile_extrude1",
+              "op": "profile_extrude",
+              "label": "轮廓拉伸 1",
+              "plane": "XY",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "start": [
+                5.131,
+                5.444
+              ],
+              "segments": [
+                {
+                  "type": "line",
+                  "to": [
+                    35.131,
+                    5.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    35.131,
+                    20.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    5.131,
+                    20.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    5.131,
+                    5.444
+                  ]
+                }
+              ],
+              "distance": 6,
+              "sketchConstraints": [
+                {
+                  "id": "sketch_rect_0",
+                  "type": "horizontal",
+                  "edge": 0
+                },
+                {
+                  "id": "sketch_rect_1",
+                  "type": "vertical",
+                  "edge": 1
+                },
+                {
+                  "id": "sketch_rect_2",
+                  "type": "horizontal",
+                  "edge": 2
+                },
+                {
+                  "id": "sketch_rect_3",
+                  "type": "vertical",
+                  "edge": 3
+                },
+                {
+                  "id": "sketch_rect_origin",
+                  "type": "fixed",
+                  "points": [
+                    "start"
+                  ],
+                  "position": [
+                    5.131,
+                    5.444
+                  ]
+                },
+                {
+                  "id": "sketch_dim_0",
+                  "type": "length",
+                  "edge": 0,
+                  "value": 30
+                },
+                {
+                  "id": "sketch_dim_1",
+                  "type": "length",
+                  "edge": 1,
+                  "value": 15
+                }
+              ]
+            }
+          ],
+          "result": "profile_extrude1"
+        },
+        "suppressed": [],
+        "sourceRun": null,
+        "fileId": "file_4a039bea-d52f-4fed-9894-6f1a0fd5e80d",
+        "changeNote": "新建轮廓拉伸 1",
+        "status": "built",
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "updatedAt": "2026-09-13T04:02:31.481376+00:00",
+        "artifacts": {
+          "step": {
+            "format": "step",
+            "mimeType": "application/step",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/1/artifacts/step"
+          },
+          "glb": {
+            "format": "glb",
+            "mimeType": "model/gltf-binary",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/1/artifacts/glb"
+          },
+          "plan": {
+            "format": "plan",
+            "mimeType": "application/json",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/1/artifacts/plan"
+          }
+        },
+        "inspection": {
+          "engine": "cadquery-occt",
+          "kernelBacked": true,
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 6,
+          "edgeCount": 12,
+          "volumeMm3": 2700,
+          "surfaceAreaMm2": 1440,
+          "bbox": {
+            "min": [
+              5.131,
+              5.443999999999999,
+              0
+            ],
+            "max": [
+              35.131,
+              20.444,
+              6
+            ],
+            "size": [
+              30,
+              15,
+              6
+            ]
+          },
+          "bboxLength": 30,
+          "bboxWidth": 15,
+          "bboxHeight": 6,
+          "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+          "cylinders": [],
+          "raySections": {},
+          "drawingAgreement": "not_checked",
+          "productionReady": false,
+          "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+          "stepReadback": {
+            "valid": true,
+            "solidCount": 1,
+            "volumeMm3": 2700,
+            "bbox": {
+              "min": [
+                5.131,
+                5.443999999999999,
+                0
+              ],
+              "max": [
+                35.131,
+                20.444,
+                6
+              ],
+              "size": [
+                30,
+                15,
+                6
+              ]
+            }
+          }
+        },
+        "resolvedParameters": {},
+        "execution": {
+          "isolatedProcess": true,
+          "durationMs": 2249,
+          "timeoutSeconds": 120,
+          "memoryLimitMb": 4096,
+          "arbitraryCodeAllowed": false
+        },
+        "sharedDesign": null
+      }
+    },
+    {
+      "status": 200,
+      "body": {
+        "id": "feature_8d6b3d50475a4ad39b8d5b6db61b6a19",
+        "revision": 2,
+        "name": "新零件 4",
+        "plan": {
+          "version": "cad-plan-v1",
+          "units": "mm",
+          "name": "新零件 4",
+          "parameters": {},
+          "features": [
+            {
+              "id": "profile_extrude1",
+              "op": "profile_extrude",
+              "label": "轮廓拉伸 1",
+              "plane": "XY",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "start": [
+                5.131,
+                5.444
+              ],
+              "segments": [
+                {
+                  "type": "line",
+                  "to": [
+                    35.131,
+                    5.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    35.131,
+                    20.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    5.131,
+                    20.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    5.131,
+                    5.444
+                  ]
+                }
+              ],
+              "distance": 6,
+              "sketchConstraints": [
+                {
+                  "id": "sketch_rect_0",
+                  "type": "horizontal",
+                  "edge": 0
+                },
+                {
+                  "id": "sketch_rect_1",
+                  "type": "vertical",
+                  "edge": 1
+                },
+                {
+                  "id": "sketch_rect_2",
+                  "type": "horizontal",
+                  "edge": 2
+                },
+                {
+                  "id": "sketch_rect_3",
+                  "type": "vertical",
+                  "edge": 3
+                },
+                {
+                  "id": "sketch_rect_origin",
+                  "type": "fixed",
+                  "points": [
+                    "start"
+                  ],
+                  "position": [
+                    5.131,
+                    5.444
+                  ]
+                },
+                {
+                  "id": "sketch_dim_0",
+                  "type": "length",
+                  "edge": 0,
+                  "value": 30
+                },
+                {
+                  "id": "sketch_dim_1",
+                  "type": "length",
+                  "edge": 1,
+                  "value": 15
+                }
+              ]
+            },
+            {
+              "id": "box1",
+              "op": "box",
+              "label": "长方体 1",
+              "size": [
+                20,
+                20,
+                10
+              ],
+              "origin": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "id": "compound1",
+              "op": "compound",
+              "label": "多实体组合 1",
+              "inputs": [
+                "profile_extrude1",
+                "box1"
+              ]
+            }
+          ],
+          "result": "compound1"
+        },
+        "suppressed": [],
+        "sourceRun": null,
+        "fileId": "file_4a039bea-d52f-4fed-9894-6f1a0fd5e80d",
+        "changeNote": "新建长方体 1",
+        "status": "built",
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "updatedAt": "2026-09-13T04:03:19.465947+00:00",
+        "artifacts": {
+          "step": {
+            "format": "step",
+            "mimeType": "application/step",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/2/artifacts/step"
+          },
+          "glb": {
+            "format": "glb",
+            "mimeType": "model/gltf-binary",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/2/artifacts/glb"
+          },
+          "plan": {
+            "format": "plan",
+            "mimeType": "application/json",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/2/artifacts/plan"
+          }
+        },
+        "inspection": {
+          "engine": "cadquery-occt",
+          "kernelBacked": true,
+          "valid": true,
+          "solidCount": 2,
+          "faceCount": 12,
+          "edgeCount": 24,
+          "volumeMm3": 6700,
+          "surfaceAreaMm2": 3040,
+          "bbox": {
+            "min": [
+              0,
+              0,
+              0
+            ],
+            "max": [
+              35.131,
+              20.444,
+              10
+            ],
+            "size": [
+              35.131,
+              20.444,
+              10
+            ]
+          },
+          "bboxLength": 35.131,
+          "bboxWidth": 20.444,
+          "bboxHeight": 10,
+          "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+          "cylinders": [],
+          "raySections": {},
+          "drawingAgreement": "not_checked",
+          "productionReady": false,
+          "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+          "stepReadback": {
+            "valid": true,
+            "solidCount": 2,
+            "volumeMm3": 6700,
+            "bbox": {
+              "min": [
+                0,
+                0,
+                0
+              ],
+              "max": [
+                35.131,
+                20.444,
+                10
+              ],
+              "size": [
+                35.131,
+                20.444,
+                10
+              ]
+            }
+          }
+        },
+        "resolvedParameters": {},
+        "execution": {
+          "isolatedProcess": true,
+          "durationMs": 3348,
+          "timeoutSeconds": 120,
+          "memoryLimitMb": 4096,
+          "arbitraryCodeAllowed": false
+        },
+        "sharedDesign": null
+      }
+    },
+    {
+      "status": 200,
+      "body": {
+        "id": "feature_8d6b3d50475a4ad39b8d5b6db61b6a19",
+        "revision": 3,
+        "name": "新零件 4",
+        "plan": {
+          "version": "cad-plan-v1",
+          "units": "mm",
+          "name": "新零件 4",
+          "parameters": {},
+          "features": [
+            {
+              "id": "profile_extrude1",
+              "op": "profile_extrude",
+              "label": "轮廓拉伸 1",
+              "plane": "XY",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "start": [
+                5.131,
+                5.444
+              ],
+              "segments": [
+                {
+                  "type": "line",
+                  "to": [
+                    35.131,
+                    5.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    35.131,
+                    20.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    5.131,
+                    20.444
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    5.131,
+                    5.444
+                  ]
+                }
+              ],
+              "distance": 8,
+              "sketchConstraints": [
+                {
+                  "id": "sketch_rect_0",
+                  "type": "horizontal",
+                  "edge": 0
+                },
+                {
+                  "id": "sketch_rect_1",
+                  "type": "vertical",
+                  "edge": 1
+                },
+                {
+                  "id": "sketch_rect_2",
+                  "type": "horizontal",
+                  "edge": 2
+                },
+                {
+                  "id": "sketch_rect_3",
+                  "type": "vertical",
+                  "edge": 3
+                },
+                {
+                  "id": "sketch_rect_origin",
+                  "type": "fixed",
+                  "points": [
+                    "start"
+                  ],
+                  "position": [
+                    5.131,
+                    5.444
+                  ]
+                },
+                {
+                  "id": "sketch_dim_0",
+                  "type": "length",
+                  "edge": 0,
+                  "value": 30
+                },
+                {
+                  "id": "sketch_dim_1",
+                  "type": "length",
+                  "edge": 1,
+                  "value": 15
+                }
+              ]
+            },
+            {
+              "id": "box1",
+              "op": "box",
+              "label": "长方体 1",
+              "size": [
+                20,
+                20,
+                10
+              ],
+              "origin": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "id": "compound1",
+              "op": "compound",
+              "label": "多实体组合 1",
+              "inputs": [
+                "profile_extrude1",
+                "box1"
+              ]
+            }
+          ],
+          "result": "compound1"
+        },
+        "suppressed": [],
+        "sourceRun": null,
+        "fileId": "file_4a039bea-d52f-4fed-9894-6f1a0fd5e80d",
+        "changeNote": "编辑轮廓拉伸 1",
+        "status": "built",
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "updatedAt": "2026-09-13T04:03:23.198521+00:00",
+        "artifacts": {
+          "step": {
+            "format": "step",
+            "mimeType": "application/step",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/3/artifacts/step"
+          },
+          "glb": {
+            "format": "glb",
+            "mimeType": "model/gltf-binary",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/3/artifacts/glb"
+          },
+          "plan": {
+            "format": "plan",
+            "mimeType": "application/json",
+            "url": "/api/cad/features/feature_8d6b3d50475a4ad39b8d5b6db61b6a19/versions/3/artifacts/plan"
+          }
+        },
+        "inspection": {
+          "engine": "cadquery-occt",
+          "kernelBacked": true,
+          "valid": true,
+          "solidCount": 2,
+          "faceCount": 12,
+          "edgeCount": 24,
+          "volumeMm3": 7600,
+          "surfaceAreaMm2": 3220,
+          "bbox": {
+            "min": [
+              0,
+              0,
+              0
+            ],
+            "max": [
+              35.131,
+              20.444,
+              10
+            ],
+            "size": [
+              35.131,
+              20.444,
+              10
+            ]
+          },
+          "bboxLength": 35.131,
+          "bboxWidth": 20.444,
+          "bboxHeight": 10,
+          "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+          "cylinders": [],
+          "raySections": {},
+          "drawingAgreement": "not_checked",
+          "productionReady": false,
+          "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+          "stepReadback": {
+            "valid": true,
+            "solidCount": 2,
+            "volumeMm3": 7600,
+            "bbox": {
+              "min": [
+                0,
+                0,
+                0
+              ],
+              "max": [
+                35.131,
+                20.444,
+                10
+              ],
+              "size": [
+                35.131,
+                20.444,
+                10
+              ]
+            }
+          }
+        },
+        "resolvedParameters": {},
+        "execution": {
+          "isolatedProcess": true,
+          "durationMs": 3213,
+          "timeoutSeconds": 120,
+          "memoryLimitMb": 4096,
+          "arbitraryCodeAllowed": false
+        },
+        "sharedDesign": null
+      }
+    }
+  ],
+  "independentStepReadback": {
+    "valid": true,
+    "solidCount": 2,
+    "volumeMm3": 7600.0,
+    "bodyVolumesMm3": [
+      3599.9999999999995,
+      3999.999999999999
+    ]
+  }
+}

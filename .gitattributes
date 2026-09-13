@@ -1,0 +1,11 @@
+# Preserve native CAD and document artifacts without text conversion or merging.
+*.step binary
+*.stp binary
+*.dxf binary
+*.dwg binary
+*.glb binary
+*.pdf binary
+
+# Captured validation output must retain its original bytes.
+docs/evidence/**/*.log -text whitespace=-blank-at-eol
+docs/evidence/**/*.csv -text whitespace=cr-at-eol

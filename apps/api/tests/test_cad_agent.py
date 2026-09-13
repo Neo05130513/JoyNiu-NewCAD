@@ -599,10 +599,17 @@ def test_distinct_crops_remain_visible_together_and_duplicate_bytes_do_not_grow_
     assert len(result["state"]["retainedSourceDetails"]) == 2
 
 
-def test_retained_source_details_evict_oldest_when_six_unique_images_are_kept(tmp_path):
-    provider = Provider([*[inspect_strip(index) for index in range(7)],
-                         {"action": "ask_user", "message": "还需要确认一处标注。", "questions": ["这处标注的单位是什么？"]}])
-    result = run(provider, Executor(), tmp_path, files=[striped_source()])
+def test_retained_source_details_evict_oldest_when_six_unique_images_are_kept(tmp_path, monkeypatch):
+    # Retention spans legitimate construction steps; crop-only loops are bounded.
+    monkeypatch.setattr("app.cad_agent._default_draft_inspector", lambda *a, **k: {"status": "succeeded", "valid": True})
+    actions = []
+    for index in range(7):
+        actions.append(inspect_strip(index))
+        if index % 2 == 1:
+            actions.append(edit(30 + index))
+    actions.append({"action": "ask_user", "message": "还需要确认一处标注。", "questions": ["这处标注的单位是什么？"]})
+    provider = Provider(actions)
+    result = run(provider, Executor(), tmp_path, files=[striped_source()], max_turns=12)
     details = context(provider.requests[-1][0])["retainedSourceDetails"]
     assert len(details) == 6
     assert [item["sourceInspections"][0]["view"] for item in details] == [f"region-{index}" for index in range(1, 7)]
@@ -693,7 +700,13 @@ def test_draft_is_recoverable_when_next_provider_operation_fails(tmp_path):
     assert not any(item.get("text") == "Actual OCCT projections of the latest executed plan" for item in content)
     assert current["currentExecutionSummary"]["hasFreshValidGeometry"] is False
     assert executor.calls == []
-    assert 0 < checkpoint["requestMetrics"]["instructionChars"] < 15000
+    # The expanded CAD feature guide is intentional; keep it once and bounded
+    # without dropping source-evidence or recoverable-draft instructions.
+    from app.cad_agent import PLAN_GUIDE
+    instructions = provider.requests[-1][0]["instructions"]
+    assert instructions.count(PLAN_GUIDE) == 1
+    assert checkpoint["requestMetrics"]["instructionChars"] == len(instructions)
+    assert 0 < len(instructions) < 20000
     assert result["trace"][-1]["providerCall"]["elapsedSeconds"] >= 0
     assert result["inspection"] is None and result["artifacts"] == {}
     continuation = Provider([{"action": "execute_plan", "message": "继续执行已保存草稿。"}, finish()])

@@ -1,0 +1,50 @@
+{
+  "version": "cad-plan-v1",
+  "units": "mm",
+  "name": "编辑器候选验收",
+  "parameters": {
+    "width": {
+      "value": 22,
+      "source": {
+        "type": "user",
+        "text": "合成验收"
+      }
+    }
+  },
+  "features": [
+    {
+      "id": "body",
+      "op": "box",
+      "size": [
+        "width",
+        16,
+        10
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "round",
+      "op": "fillet",
+      "input": "body",
+      "radius": 1,
+      "edges": [
+        {
+          "kind": "edge",
+          "sourceFeatureId": "body",
+          "geometryVersion": "78b9cde6d1cad227ce42b17b24cd0a7684a605844d1c5f4465304f79801ee4dc",
+          "index": 0,
+          "signature": "619fe52c891eeb13df262c5b317d794bd546a237548ee9595b169323e48b6d8d",
+          "binding": {
+            "version": 1,
+            "key": "1cdb3bd8847f3ef471067f591bc5c1b762fcb7926f6319b0840b315a5f8e56e2"
+          }
+        }
+      ]
+    }
+  ],
+  "result": "round"
+}

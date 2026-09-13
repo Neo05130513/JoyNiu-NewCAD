@@ -8,6 +8,25 @@ const bracket = { name: '支架', kind: 'bracket', baseLength: 100, baseWidth: 5
 const clamp = { name: '夹紧座', kind: 'split_clamp_support', baseLength: 125, baseWidth: 95, baseThickness: 15, baseMainDepth: 80, frontTongueWidth: 80, rearBridgeWidth: 86, totalHeight: 75, pedestalOuterRadius: 33, pedestalCenterFromRear: 35, pedestalHeight: 40, rearClampRise: 20, boreDiameter: 36, boreFloorZ: 40, splitWidth: 12, mountHoleCount: 2, mountHoleDiameter: 12, mountHoleCenterDistance: 96, mountHoleCenterFromRear: 40, crossHoleDiameter: 12, crossHoleCenterZ: 55, ribHeight: 20, ribThickness: 10, outerCornerRadius: 8, neckConcaveRadius: 5, neckConvexRadius: 8 }
 const nozzle = { name: '锥管嘴', kind: 'stepped_tapered_nozzle', mainLength: 98, headLength: 50, neckLength: 20, headLeftDiameter: 54.2544935, headRightDiameter: 56, neckDiameter: 30, tipDiameter: 25, counterboreDiameter: 40, counterboreDepth: 40, axialBoreDiameter: 13, outletDiameter: 17, outletTaperHalfAngle: 15, insertOuterDiameter: 39.4, insertLength: 40, insertThreadDesignation: 'M12', insertAxialOffset: 0 }
 
+test('DXF export cannot silently produce an empty file or export unconfirmed drawing data', () => {
+  const scene = buildDrawingScene(shaft)
+  const hidden = Object.fromEntries(scene.layers.map((layer) => [layer.id, false]))
+  assert.throws(() => dxfForModel(shaft, { scene, layers: hidden }), /图层均已隐藏/)
+  for (const options of [{ generation: { pendingDrawing: true } }, { drawingJob: { evidence: { status: 'pending' } } }, { drawingJob: { status: 'generating' } }]) {
+    assert.throws(() => dxfForModel(shaft, options), /尚未确认/)
+  }
+  assert.match(dxfForModel(shaft, { drawingJob: { evidence: { status: 'confirmed' } } }), /ENDSEC/)
+})
+
+test('feature model drawings return an actionable unsupported state instead of calling a missing recipe', () => {
+  const model = { kind: 'feature_model', cadPlan: { features: [{}], result: 'body', parameters: { width: { value: 20 } } } }
+  const scene = buildDrawingScene(model)
+  assert.equal(scene.valid, false)
+  assert.equal(scene.unsupported, true)
+  assert.match(scene.errors[0].message, /实体投影/)
+  assert.throws(() => dxfForModel(model), /实体投影/)
+})
+
 test('every recipe produces its own three views, section and finite exportable geometry', () => {
   for (const model of [shaft, bracket, clamp, nozzle, archedClevisSupportDefaults]) {
     const scene = buildDrawingScene(model)

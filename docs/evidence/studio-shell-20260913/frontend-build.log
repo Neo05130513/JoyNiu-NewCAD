@@ -1,0 +1,25 @@
+
+> joyniu-newcad@0.1.0 build
+> vite build --outDir /tmp/joyniu-studio-release-20260913/dist
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 158 modules transformed.
+
+(!) outDir /tmp/joyniu-studio-release-20260913/dist is not inside project root and will not be emptied.
+Use --emptyOutDir to override.
+
+rendering chunks...
+computing gzip size...
+../../../../../tmp/joyniu-studio-release-20260913/dist/index.html                          0.47 kB │ gzip:   0.34 kB
+../../../../../tmp/joyniu-studio-release-20260913/dist/assets/AdminShell-IMmj5css.css     41.43 kB │ gzip:   8.60 kB
+../../../../../tmp/joyniu-studio-release-20260913/dist/assets/index-B5UWJeBE.css         308.96 kB │ gzip:  62.19 kB
+../../../../../tmp/joyniu-studio-release-20260913/dist/assets/AdminShell-Ux4rXUMx.js      87.75 kB │ gzip:  26.42 kB
+../../../../../tmp/joyniu-studio-release-20260913/dist/assets/index-CJ647Fby.js        1,663.61 kB │ gzip: 494.00 kB
+
+✓ built in 279ms
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

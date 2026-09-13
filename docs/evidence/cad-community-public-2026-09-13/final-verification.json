@@ -1,0 +1,98 @@
+{
+  "verifiedAt": "2026-09-13T10:50:25.447555+00:00",
+  "environment": "Public http://122.51.168.205, r8 activation reported verified by parent; isolated Chromium, two helper-created synthetic accounts only",
+  "result": "passed_with_explicit_http_reauthentication",
+  "resourceId": "resource_93bc2cbce79470fbd88e7faad1659bfd",
+  "withdrawn": true,
+  "checks": {
+    "explicitPublication": true,
+    "crossAccountSearchPreviewAndCopy": true,
+    "realBrowserStepDownload": true,
+    "copyR2ParameterEdit": true,
+    "independentOcctReadbacks": true,
+    "withdrawRejectsNewDownload": true,
+    "explicitReloginRestoresSameCopyR2": true,
+    "parametersExactlyPreserved": true,
+    "stepBytesPreservedAfterRelogin": true,
+    "pageErrors": 0,
+    "mobilePageWidth": {
+      "width": 390,
+      "scrollWidth": 390
+    }
+  },
+  "sessionBoundary": {
+    "persistentSessionAvailable": false,
+    "refreshStatus": 403,
+    "refreshDetail": "自动保持登录需要 HTTPS。",
+    "explicitReloginPerformed": true,
+    "automaticSessionPersistenceClaimed": false,
+    "initialScriptExpectedPersistentSessionAndTimedOut": true,
+    "initialRawEvidence": "initial-browser-run.json",
+    "successfulFollowUpEvidence": "reopen-after-relogin.json"
+  },
+  "copy": {
+    "id": "feature_1c0839a3494887840f83a45772afa917",
+    "revision": 2,
+    "parameterX": 10
+  },
+  "stepReadbacks": {
+    "published.step": {
+      "valid": true,
+      "occtAnalyzerValid": true,
+      "solidCount": 1,
+      "volumeMm3": 3199.999999999999,
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          20.0,
+          16.0,
+          10.0
+        ],
+        "size": [
+          20.0,
+          16.0,
+          10.0
+        ]
+      },
+      "bytes": 15406,
+      "sha256": "9b32f0219cde0f5c953c3c1c9ece0c85c937bf9c2264a2565f026805c1212b24"
+    },
+    "modified-copy.step": {
+      "valid": true,
+      "occtAnalyzerValid": true,
+      "solidCount": 1,
+      "volumeMm3": 3199.999999999999,
+      "bbox": {
+        "min": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          30.0,
+          16.0,
+          10.0
+        ],
+        "size": [
+          20.0,
+          16.0,
+          10.0
+        ]
+      },
+      "bytes": 15423,
+      "sha256": "7cd4d55e3ea2db08927cbc8ccb44f52eda825717ea4bb40d81f3ae31eba9f713"
+    }
+  },
+  "cleanup": {
+    "syntheticResourceWithdrawn": true,
+    "publicResourceGetStatus": 404,
+    "allBrowserContextsClosed": true,
+    "accountRequestsStopped": true,
+    "accountDeactivation": "Parent handles; this agent did not disable accounts"
+  },
+  "productionCodeOrConfigurationChanged": false
+}

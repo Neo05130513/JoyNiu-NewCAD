@@ -1,0 +1,690 @@
+{
+  "format": "joyniu-cad-editor-frontend-final-v1",
+  "generatedAt": "2026-09-13T04:02:14.153800+00:00",
+  "scope": {
+    "workspace": "/Users/neo/Desktop/AI Project/JoyNiu-CAD",
+    "frontendOnly": true,
+    "businessSourceModified": true,
+    "testHarnessModified": false,
+    "distBuilt": false,
+    "productionChanged": false,
+    "providerCalls": 0,
+    "qualification": "本地最终源码回归、前端事务真实OCCT/STEP检验及已有浏览器证据复核。发布、最终公网浏览器验收由主线程执行，本报告不宣称CurrentCAD全功能一致。",
+    "businessFilesModifiedByThisAgent": [
+      "src/CadEditorSurface.jsx",
+      "src/cadEditorTransactions.js",
+      "src/directFeatureModel.js",
+      "src/modelEditing.js"
+    ],
+    "testsAddedOrUpdated": true
+  },
+  "tests": {
+    "command": "npm test",
+    "expandedCommand": "node --test src/*.test.js",
+    "exitCode": 0,
+    "tests": 696,
+    "pass": 696,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "durationMs": 5426.9865,
+    "node": "v22.23.1",
+    "log": {
+      "path": "/tmp/joyniu-cad-entry-final-20260913/frontend-full-tests.log",
+      "sha256": "3796179b99c63d21a896369b7ab59ccb774193c96be3858b449c86131f48ea2c",
+      "bytes": 171790
+    },
+    "includesRealKernelTests": "本地项目 Python venv 可用；真实 OCCT/STEP 测试已执行，skipped=0。"
+  },
+  "sourceSnapshot": {
+    "gitHead": "5cc68383923f43624fd86a44a338b2f5bcf04d14",
+    "gitHeadIsNotUncommittedBuildIdentity": true,
+    "sourceFileCount": 211,
+    "extensions": [
+      ".js",
+      ".jsx",
+      ".css",
+      ".json"
+    ],
+    "before": {
+      "path": "/tmp/joyniu-cad-entry-final-20260913/source-before.json",
+      "sha256": "a11bf794d964972eed5f57ece408f3a5c1017c5ba9fe5a6788c97d20e07728f5",
+      "bytes": 21121
+    },
+    "after": {
+      "path": "/tmp/joyniu-cad-entry-final-20260913/source-after.json",
+      "sha256": "a11bf794d964972eed5f57ece408f3a5c1017c5ba9fe5a6788c97d20e07728f5",
+      "bytes": 21121
+    },
+    "changedSourceFiles": [],
+    "packageJson": {
+      "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/package.json",
+      "sha256": "2a95b18d57af51b53e0e5938ce5663660544b043f7c660b22ae5d53fe2753005",
+      "bytes": 441
+    },
+    "note": "此次696项完整回归前后211个src文件SHA256完全一致。",
+    "finalAfterSmallFix": {
+      "path": "/tmp/joyniu-cad-entry-final-20260913/source-final.json",
+      "sha256": "cd72a9afd8fecad215f7123615a9294be41490defe2f088ca5d11e3039540bce",
+      "bytes": 21121
+    }
+  },
+  "primaryPaths": [
+    {
+      "name": "生成模型进入同来源特征编辑",
+      "verification": "前端桥接/控制器测试",
+      "result": "保留完整 cadPlan、表达式、sourceRun、account/file 隔离；缺失特征历史时拒绝猜测；生成失败但有完整计划可手工修正。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/modelEditing.js",
+          "line": 154
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/directFeatureWorkspace.test.js",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "name": "双击草图修改驱动尺寸→完成特征",
+      "verification": "本地浏览器提交响应及真实 STEP 回读",
+      "result": "底板 r7 宽80→85、体积47002.8319736492；r8顶面10×8×5添加后体积47402.831973649205。",
+      "evidence": "/tmp/cad-parity-browser-commits.json"
+    },
+    {
+      "name": "实体面建空草图→真实边多选圆角→取消或失败恢复",
+      "verification": "本地浏览器响应、父线程实际操作记录、组件测试",
+      "result": "r9 两条边圆角，体积47399.06501092595；过大圆角返回422，不替换已保存版本；移除单引用/取消/失败后继续编辑有回归。",
+      "evidence": "/tmp/cad-parity-browser-commits.json"
+    },
+    {
+      "name": "新文件→鼠标矩形→拉伸→同轮廓旋转→线性阵列",
+      "verification": "本地浏览器真实已保存版本；提交数据已独立读取",
+      "featureId": "feature_775f00dc222c435ea816f261b6cdf15a",
+      "versions": [
+        {
+          "revision": 1,
+          "operation": "profile_extrude",
+          "solidCount": 1,
+          "volumeMm3": 1472.98275
+        },
+        {
+          "revision": 2,
+          "operation": "profile_revolve",
+          "solidCount": 1,
+          "volumeMm3": 28063.082476622374
+        },
+        {
+          "revision": 3,
+          "operation": "linear_pattern count2 stepX65",
+          "solidCount": 2,
+          "volumeMm3": 56126.16495324475
+        }
+      ]
+    },
+    {
+      "name": "STP 点击导出与独立读回",
+      "verification": "本次独立 OCCT 读回浏览器下载文件",
+      "result": {
+        "path": "/tmp/cad-new-document-ui.step",
+        "sha256": "1bb90677a1aa65f7fb409fc6b2893317fc3af16b55b84a4508141d91666f7e20",
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 1472.9827499999997
+      }
+    },
+    {
+      "name": "同草图用途转换与四边矩形补丁",
+      "verification": "本次全量前端测试包含真实组件鼠标事件/约束求解/OCCT",
+      "result": "切换拉伸/旋转保留 id、轮廓、参数、来源绑定；系统默认名跟随操作；新矩形4边均可选与标尺寸，第四边约束/闭合点联动/撤销通过，旧3段及圆弧兼容。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/cadEditorTransactions.js",
+          "line": 63
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/featureSketchModel.js",
+          "line": 71
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/featureSketchEditor.test.js",
+          "line": 212
+        }
+      ]
+    },
+    {
+      "name": "草图局部撤销/重做",
+      "verification": "本次组件与历史测试；父线程本轮真实浏览器观察",
+      "result": "矩形改圆后 Cmd+Z/Cmd+Shift+Z 恢复完整轮廓；几何、参数、约束整体撤销；父线程未另存独立该操作日志。"
+    },
+    {
+      "name": "图档切换、重新登录、最新保存版本及失败原子性",
+      "verification": "已有浏览器r9重开记录；本次控制器/Surface回归",
+      "result": "账号与文件隔离、token续期、迟到响应丢弃、commit失败保留原稿、幂等重试、clean cache读取最新head、dirty重读确认均通过。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/DirectFeatureWorkspace.jsx",
+          "line": 34
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/DirectFeatureWorkspace.jsx",
+          "line": 83
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/CadEditorSurface.jsx",
+          "line": 100
+        }
+      ]
+    },
+    {
+      "name": "进出草图镜头保持",
+      "verification": "父线程实际截图 + 本次独立像素区域差异复核 + 相机状态测试",
+      "result": {
+        "region": [
+          500,
+          180,
+          1400,
+          820
+        ],
+        "beforeSize": [
+          1440,
+          950
+        ],
+        "afterSize": [
+          1440,
+          950
+        ],
+        "differenceBoundingBox": null
+      },
+      "note": "同文档镜头区域无差异；新文档重置由相机/控制器测试覆盖。"
+    },
+    {
+      "name": "390px 窄屏操作浮窗",
+      "verification": "本次查看已保存真实截图；父线程 DOM/点击复核",
+      "result": "操作浮窗与完成/取消可见；父线程确认根/body无横向溢出，工具栏内部可横向滚动。",
+      "note": "这是指定390px视口的实测，不等同全设备/所有工具验收。"
+    },
+    {
+      "name": "真实空草图入口与多实体新建",
+      "verification": "本次Surface交互回归、逐op事务测试及真实OCCT/STEP；最终浏览器由主线程复测",
+      "result": "空文档/现有文档不带示例草图；明确旧草图原位转换；选面frame保留；新建多实体不吞旧body；所有默认修改op不复制旧body。",
+      "evidence": "/tmp/joyniu-cad-entry-final-20260913/step-verification.json"
+    }
+  ],
+  "limits": [
+    {
+      "id": "single-contour",
+      "state": "未实现多轮廓草图",
+      "detail": "profile仅一组start/segments；新画矩形或圆替换当前轮廓并清空旧约束。不能同一草图追加内孔、多个闭环或选定区域；可用多个独立特征加布尔切除完成部分形状。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/featureSketchModel.js",
+          "line": 71
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/modelEditing.js",
+          "line": 139
+        }
+      ]
+    },
+    {
+      "id": "sketch-subset",
+      "state": "草图工具与约束为子集",
+      "detail": "当前可用直线、矩形、两圆弧圆、三点圆弧、选择/移动；约束为水平/垂直/重合/固定/长度及圆弧半径驱动。没有通用样条/椭圆、修剪/偏移、相切/等长/角度约束的用户入口与求解。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/FeatureSketchEditor.jsx",
+          "line": 207
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/modelEditing.js",
+          "line": 48
+        }
+      ]
+    },
+    {
+      "id": "sweep-loft",
+      "state": "有限输入，不是通用草图路径流程",
+      "detail": "同一自由草图直接支持拉伸与旋转。扫掠仍是半径+路径点的圆截面；放样是圆/矩形截面位置列表。未完成从多个已有草图选择路径/截面来生成通用扫掠/放样；切用途到缺输入操作会明确拒绝。 新入口现已使用空定义并展示实际支持的范围，不能未填输入生成样例。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/cadEditorTransactions.js",
+          "line": 64
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/directFeatureModel.js",
+          "line": 13
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/modelEditing.js",
+          "line": 141
+        }
+      ]
+    },
+    {
+      "id": "complete-toolset",
+      "state": "不能宣称完整 CurrentCAD 工具",
+      "detail": "20种计划操作与当前工具栏子集不代表曲面、钣金、拔模、可变半径圆角、专用孔/螺纹向导或PMI工具已实现。平移/旋转定位已有计划与字段支持，但本编辑器主工具栏没有新增入口；标准件库是外部工作区导航。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/directFeatureModel.js",
+          "line": 1
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/CadEditorSurface.jsx",
+          "line": 150
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/CadEditorSurface.jsx",
+          "line": 165
+        }
+      ]
+    },
+    {
+      "id": "mesh-history",
+      "state": "只有可证明的原始计划可编辑",
+      "detail": "GLB回退只显示外观，不能精确选拓扑或还原特征；普通无计划的STEP/网格不自动变成原生参数特征树。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/modelEditing.js",
+          "line": 157
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/CadModelViewport.jsx",
+          "line": 54
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/CadModelViewport.jsx",
+          "line": 219
+        }
+      ]
+    },
+    {
+      "id": "engineering-handoff",
+      "state": "特征文件关联/STEP交付已做；工程库/PDM链路未等同完成",
+      "detail": "当前这些浏览器commit均sharedDesign=null；编辑器可保存项目来源指针并导出真实STEP/GLB，但没有在该操作中自动生成工程库记录。完整PDM、版本审批、装配/工程图联动不能据此声称完成。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/DirectFeatureWorkspace.jsx",
+          "line": 83
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/ManualFeatureResult.jsx",
+          "line": 50
+        }
+      ],
+      "evidence": "/tmp/cad-parity-browser-commits.json"
+    },
+    {
+      "id": "history-final-binding",
+      "state": "最终候选发布验收由主线程汇总",
+      "detail": "旧r9→r10宽90仍仅为过程证据。主线程报告本轮后端112项发布回归通过且源码冻结；本报告仅确认前端696项及前端事务10项STEP读回，不替代最终服务端持久历史、隔离/篡改与公网浏览器验收。"
+    },
+    {
+      "id": "manual-review-boundary",
+      "state": "明确保持",
+      "detail": "手工重建/STEP有效不继承原AI或原图确认，不代表制造放行。",
+      "sources": [
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/ManualFeatureResult.jsx",
+          "line": 53
+        },
+        {
+          "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/ManualFeatureResult.jsx",
+          "line": 62
+        }
+      ]
+    },
+    {
+      "id": "body-selection",
+      "state": "真实多实体结果已支持；实体树逐体选择未实现",
+      "detail": "compound保留独立实体，包括接触/重叠；树中按OCCT solidCount列出只读条目。当前仍在画布选择真实面/边，不能点击实体树假装只选单个body。"
+    }
+  ],
+  "releaseGate": {
+    "frontendTestsPassed": true,
+    "sourceUnchangedThroughoutAudit": true,
+    "frontendBuildPerformed": false,
+    "candidateBackendValidation": "主线程报告112项发布回归通过、后端冻结，最终候选smoke/公网验收由主线程记录",
+    "productionPublication": "本子任务未执行或独立核验生产发布"
+  },
+  "evidence": [
+    {
+      "path": "/tmp/cad-parity-browser-commits.json",
+      "sha256": "73da7e217e9910fe9f076e72705452a14b7e2686009dbba8e3c923a86178a033",
+      "bytes": 48734
+    },
+    {
+      "path": "/tmp/joyniu-cad-editor-frontend-final-artifact-checks.json",
+      "sha256": "ed3bfa77bf8a73a7002ac780194b609e24455ad9f7acf84cc874bddc8806692a",
+      "bytes": 6061
+    },
+    {
+      "path": "/tmp/cad-editor-camera-stable-before.png",
+      "sha256": "43855ca5c90744b083fc467da0fe6c7d04c608e1442182d6e72973b5e26bc6c2",
+      "bytes": 82059
+    },
+    {
+      "path": "/tmp/cad-editor-camera-stable-after.png",
+      "sha256": "78a8778dca036093fe64614edb5267e0b4b7c31f53b6b143f1a5538069ddf697",
+      "bytes": 82426
+    },
+    {
+      "path": "/tmp/cad-editor-camera-after-sketch.png",
+      "sha256": "a33ff90432e400f2e649e7dd26f0890f084ad733c70d8872c75f2da5e51e93a6",
+      "bytes": 79862
+    },
+    {
+      "path": "/tmp/cad-editor-narrow390-operation.png",
+      "sha256": "9380f2b6102ae9ceb074318702350d05d5c4023c1efcaed46c45913c46cd49a2",
+      "bytes": 63057
+    },
+    {
+      "path": "/tmp/cad-new-document-ui.step",
+      "sha256": "1bb90677a1aa65f7fb409fc6b2893317fc3af16b55b84a4508141d91666f7e20",
+      "bytes": 15658
+    },
+    {
+      "path": "/tmp/joyniu-cad-entry-final-20260913/frontend-full-tests.log",
+      "sha256": "3796179b99c63d21a896369b7ab59ccb774193c96be3858b449c86131f48ea2c",
+      "bytes": 171790
+    },
+    {
+      "path": "/tmp/joyniu-cad-entry-final-20260913/step-verification.json",
+      "sha256": "ef509569147d7030976e1cf66e30601887a5644bc050a31be7283b4067fe2363",
+      "bytes": 3211
+    }
+  ],
+  "supersedesRegression": {
+    "tests": 683,
+    "reason": "真实空草图主入口、明确已有草图复用、限制扫掠/放样空定义、新建多实体compound及修改操作不重复旧body、禁用菜单一致性。"
+  },
+  "rectangleIntentRegression": {
+    "originalBrowserFailure": "/tmp/cad-final-history-failed-payload.json",
+    "cause": "只有length约束，80x50矩形改宽85时底边两点分别移动，顶边仍80，形成梯形；此前测试未检查形状意图。",
+    "fix": "仅新box转换和新矩形添加4条H/V与固定首角。明确这组约束的数值矩形保持未驱动尺寸与起点，公式关联写入成对角点；已有表达式几何继续参数求解且不被重写。旧无约束自由轮廓不被自动强制为矩形。",
+    "verification": {
+      "method": "Actual FeatureSketchEditor event output -> validate_plan -> OCCT -> STEP readback -> bidirectional solid difference",
+      "results": [
+        {
+          "name": "numeric-box",
+          "valid": true,
+          "solidCount": 1,
+          "sizeMm": [
+            85.0,
+            50.0,
+            12.0
+          ],
+          "volumeMm3": 51000.0,
+          "bidirectionalDifferenceMm3": [
+            0.0,
+            0.0
+          ],
+          "stepSha256": "e5849549c42676e39a402bc2514162e46847fcd689860149d286075329d2d0be"
+        },
+        {
+          "name": "parameter-box",
+          "valid": true,
+          "solidCount": 1,
+          "sizeMm": [
+            85.0,
+            50.0,
+            12.0
+          ],
+          "volumeMm3": 51000.0,
+          "bidirectionalDifferenceMm3": [
+            0.0,
+            0.0
+          ],
+          "stepSha256": "54ce9ac008c8bdc4ff7c57e0d10d69e1172584501d460a879454e1417f0885d3"
+        },
+        {
+          "name": "mouse-rectangle",
+          "valid": true,
+          "solidCount": 1,
+          "sizeMm": [
+            85.0,
+            50.0,
+            12.0
+          ],
+          "volumeMm3": 51000.0,
+          "bidirectionalDifferenceMm3": [
+            0.0,
+            0.0
+          ],
+          "stepSha256": "9833c23e087e918356c0f1b4ef5a399992f1eab4d8801c2982e7c9d060c4863f"
+        }
+      ]
+    },
+    "evidence": [
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913/verification.json",
+        "sha256": "dc6579a6d74b8417493caf24f65946d1d2cce978a9fd89e00a7048addd19cab4",
+        "bytes": 1181
+      },
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913/mouse-rectangle.plan.json",
+        "sha256": "fa16bf28397e1fb5b49f8bb30ac76faa0dae2998a5eb68625954fb7c839941e5",
+        "bytes": 1570
+      },
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913/numeric-box.plan.json",
+        "sha256": "c60fa93992855ce24bd59aebabefa9fa38f78fb8f3b570c0323ed41121647e3d",
+        "bytes": 1587
+      },
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913/parameter-box.plan.json",
+        "sha256": "443d90ab24ac56c707140c7341a3351bf52af6f591a72703bd2b6b1e29df494a",
+        "bytes": 1784
+      },
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913/mouse-rectangle.step",
+        "sha256": "9833c23e087e918356c0f1b4ef5a399992f1eab4d8801c2982e7c9d060c4863f",
+        "bytes": 15477
+      },
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913/numeric-box.step",
+        "sha256": "e5849549c42676e39a402bc2514162e46847fcd689860149d286075329d2d0be",
+        "bytes": 15465
+      },
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913/parameter-box.step",
+        "sha256": "54ce9ac008c8bdc4ff7c57e0d10d69e1172584501d460a879454e1417f0885d3",
+        "bytes": 15465
+      },
+      {
+        "path": "/tmp/joyniu-rectangle-intent-20260913-tests.log",
+        "sha256": "dbdd123f73ac8bd9b7788472d625682446f8d6798e3dd86e4e41c1af5b3d7b79",
+        "bytes": 19262
+      }
+    ],
+    "browserFinalCheck": "由主线程在最终候选冻结后重新执行；本项证据为真实组件事件输出与OCCT/STEP检验，未冒充浏览器复验。"
+  },
+  "entryAndBodyRegression": {
+    "inputs": "实际前端 helper 与真实Surface交互测试；重放前端事务计划进入OCCT并独立STEP读回，不模拟内核。",
+    "mainEntry": "直接点拉伸/旋转进入空草图；自动选中的特征不代表明确草图选择；用户显式点树中草图才原位复用；选面保留精确frame/planeSource；空草图不能完成或提交。",
+    "sweepLoft": "新增圆截面扫掠半径/路径、圆或矩形截面放样均空定义；用户填写前不预览、不提交；旧版真实定义不被清空。",
+    "compound": "仅7类具特征作用的实体创建操作，新建+base以compound保留独立实体；添加仍union；修改类op不额外加入旧体；改子特征保持compound result。实体数量来自真实kernel inspection，条目为只读。",
+    "disabledRibbon": "禁用时主按钮与更多子项一致，summary aria-disabled/tabIndex=-1阻止展开，已有details关闭。",
+    "stepResults": [
+      {
+        "name": "independent-0",
+        "valid": true,
+        "solidCount": 2,
+        "volumeMm3": 7999.999999999996,
+        "sizeMm": [
+          20.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/independent-0.step",
+        "sha256": "517c94e17cc07d3691e31661ad3c9f72ec5ee22011279f2c6c73bde3cead1779"
+      },
+      {
+        "name": "independent-20",
+        "valid": true,
+        "solidCount": 2,
+        "volumeMm3": 7999.999999999996,
+        "sizeMm": [
+          40.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/independent-20.step",
+        "sha256": "a933fd220c1fee2f41a75dea354ad99bb8c399f8c413d4115f849c6da85deaa7"
+      },
+      {
+        "name": "fused",
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 7999.999999999998,
+        "sizeMm": [
+          40.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/fused.step",
+        "sha256": "fd2d7801be6f72d063d2cfba78b410d60abf0fe29dbd256cc120b89f8c8ec996"
+      },
+      {
+        "name": "independent-30",
+        "valid": true,
+        "solidCount": 2,
+        "volumeMm3": 7999.999999999996,
+        "sizeMm": [
+          50.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/independent-30.step",
+        "sha256": "8c882808e57cffc2ab68ac415cac3a9735ecf6ec135c1896bbc725ffecec3a42"
+      },
+      {
+        "name": "shell",
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 1083.999999999999,
+        "sizeMm": [
+          20.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/shell.step",
+        "sha256": "09497423359251f23c008d05c6c78215dfff342592ae01202eba6877764fc0ac"
+      },
+      {
+        "name": "shell-mirror",
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 2167.999999999998,
+        "sizeMm": [
+          40.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/shell-mirror.step",
+        "sha256": "92830a44d1c090e71aa694ad59cd96bb8b822ee005a244678e0a9a37daf34d1f"
+      },
+      {
+        "name": "linear-pattern",
+        "valid": true,
+        "solidCount": 3,
+        "volumeMm3": 11999.999999999995,
+        "sizeMm": [
+          70.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/linear-pattern.step",
+        "sha256": "f6b66258c0df1a90045d5d14a9f1bd7dbf69cbf99239f2a97a87248ba41d7483"
+      },
+      {
+        "name": "fillet",
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 3958.418866962755,
+        "sizeMm": [
+          20.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/fillet.step",
+        "sha256": "5b122a52908ca2ccea07bf6ec9c08a6b2c1c185af0e8674d588416eed8877c6d"
+      },
+      {
+        "name": "chamfer",
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 3905.3333333333335,
+        "sizeMm": [
+          20.0,
+          20.0,
+          10.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/chamfer.step",
+        "sha256": "ded87b7e5c3755360dca815e8fe2b1910e521c17f39ac519068641c2b3d22bdc"
+      },
+      {
+        "name": "direct-empty-entry-rectangle",
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 51000.0,
+        "sizeMm": [
+          85.0,
+          50.0,
+          12.0
+        ],
+        "step": "/tmp/joyniu-cad-entry-final-20260913/direct-empty-entry-rectangle.step",
+        "sha256": "97d441efc74046402db8091427953e0d5f0d3b6eb633e1b36fc55537c9f70a65"
+      }
+    ],
+    "evidence": [
+      {
+        "path": "/tmp/joyniu-cad-entry-final-20260913/transaction-cases.json",
+        "sha256": "e82d3e7c5b4bbeb300bcd80e60b59cdf49d4222670d949a992a312606f6f2f7d",
+        "bytes": 9791
+      },
+      {
+        "path": "/tmp/joyniu-cad-entry-final-20260913/step-verification.json",
+        "sha256": "ef509569147d7030976e1cf66e30601887a5644bc050a31be7283b4067fe2363",
+        "bytes": 3211
+      },
+      {
+        "path": "/tmp/joyniu-cad-entry-compound-tests.log",
+        "sha256": "5ae751e28c2e866928a1f970f2bd508ea6421ff4198d5314d84d1bed3a0c1ffe",
+        "bytes": 19330
+      },
+      {
+        "path": "/tmp/joyniu-cad-body-transaction-tests.log",
+        "sha256": "8918144e0bad940350a8d6e913ad7d6418e72abd119e9efd8711f1eb2568932b",
+        "bytes": 3622
+      }
+    ]
+  },
+  "finalSmallFix": {
+    "change": "用户修改特征或画出轮廓后清除上一操作localError；当前missingInputs和preview继续校验。",
+    "validation": {
+      "tests": 19,
+      "pass": 19,
+      "fail": 0,
+      "skipped": 0
+    },
+    "log": {
+      "path": "/tmp/joyniu-cad-entry-final-20260913/surface-error-recovery-tests.log",
+      "sha256": "0337e7ae12fa13c80dc16f48d38a574814abd6335fa743aad591378c0cecf378",
+      "bytes": 5324
+    },
+    "source": {
+      "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/CadEditorSurface.jsx",
+      "sha256": "11f2cf61b5b03bf54b75729cae04693765a2cad1c70c3c4a9df4428b252cbd21",
+      "bytes": 31565
+    },
+    "test": {
+      "path": "/Users/neo/Desktop/AI Project/JoyNiu-CAD/src/cadEditorSurface.test.js",
+      "sha256": "f80a299a08e8e526f5dcb3293999f8c6a305df2c9abfa5d3c8013c931a16714c",
+      "bytes": 31840
+    },
+    "fullSuiteNote": "696项完整回归覆盖清旧提示单行修补之前的源码；最后单行修补后按主线程授权只补跑Surface专项，不将此前全量冒充该行后的全量。"
+  }
+}

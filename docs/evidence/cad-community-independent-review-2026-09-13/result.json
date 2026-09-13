@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "realPublishedResourcesScanned": 3,
+  "backupFileCount": 78,
+  "immutableFilesRestored": true,
+  "importAssetsIncluded": true,
+  "twoConcurrentOpensOneVersion": true,
+  "withdrawInFlightOpenWaitedThen404": true,
+  "existingCopyPreserved": true,
+  "allFiveCommunityRoutesGated": true
+}

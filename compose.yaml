@@ -1,0 +1,67 @@
+name: joyniu-cad
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org}
+        GNU_MIRROR: ${GNU_MIRROR:-https://ftp.gnu.org/gnu}
+    restart: unless-stopped
+    init: true
+    mem_limit: 6g
+    cpus: 3.5
+    env_file:
+      - ./deploy/.env.production
+    environment:
+      JOYNIU_ENV: production
+      JOYNIU_AI_ALLOW_ANONYMOUS: "0"
+      JOYNIU_DB: /data/joyniu.sqlite3
+      JOYNIU_CAD_AGENT_DIR: /data/cad-agent
+      JOYNIU_CORS_ORIGIN_REGEX: ""
+      JOYNIU_OCR_ENGINE: tesseract
+      JOYNIU_ENABLE_TESSERACT: "1"
+      JOYNIU_TESSERACT_LANG: eng+chi_sim
+      JOYNIU_ALLOW_UNVERIFIED_FIXTURE: "0"
+      JOYNIU_MAX_DRAWING_BYTES: "20971520"
+    volumes:
+      - ./data:/data
+    expose:
+      - "8010"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, urllib.request; data = json.load(urllib.request.urlopen('http://127.0.0.1:8010/api/v1/health', timeout=10)); assert data.get('geometry', {}).get('available') is True; cad = json.load(urllib.request.urlopen('http://127.0.0.1:8010/api/v1/cad-agent/capabilities', timeout=3)); assert cad.get('version') == 'cad-agent-v1'"
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+      args:
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:alpine}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${JOYNIU_HTTP_PORT:-80}:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

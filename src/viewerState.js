@@ -2,6 +2,26 @@ import * as THREE from 'three'
 import { canonicalModelKind, validationParameterKeys } from './modelValidation.js'
 import { cadGenerationIsCurrent, isFeatureModel } from './cadAgentState.js'
 
+export const VIEWER_MIN_ZOOM = 0.1
+export const VIEWER_MAX_ZOOM = 10
+
+// GLTFLoader puts HTTP status in its message; other loaders expose a Response.
+// Signed CAD previews may expire before the model is confirmed for delivery.
+export function glbFileRecoveryStatus(error, { featureModel = false, productionReady = false } = {}) {
+  const explicit = Number(error?.target?.status || error?.response?.status || error?.status)
+  const detail = error?.message || ''
+  const status = explicit || Number(detail.match(/responded with (?:a status of )?(403|404)\b|\b(403|404)\s*(?::|Forbidden|Not Found)/i)?.slice(1).find(Boolean))
+  return featureModel && [403, 404].includes(status) || productionReady && status === 404 ? status : null
+}
+
+export function configureViewerZoom(runtime) {
+  if (!(runtime.baseDistance > 0)) return
+  runtime.controls.minDistance = runtime.baseDistance / VIEWER_MAX_ZOOM
+  runtime.controls.maxDistance = runtime.baseDistance / VIEWER_MIN_ZOOM
+  runtime.camera.far = Math.max(runtime.controls.maxDistance + (runtime.modelRadius || 1) * 2, 1000)
+  runtime.camera.updateProjectionMatrix()
+}
+
 // Both generation APIs return camelCase parameters (Pydantic by_alias=True).
 // Accept snake_case persisted responses as well, but do not present an old
 // artifact as current when its dimensions no longer describe the model.

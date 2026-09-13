@@ -1,0 +1,84 @@
+{
+  "format": "joyniu-operations-v1",
+  "generatedAt": "2026-09-12T15:56:06.785030+00:00",
+  "checks": {
+    "services": [
+      {
+        "service": "api",
+        "state": "running",
+        "health": "healthy"
+      },
+      {
+        "service": "cad-egress",
+        "state": "running",
+        "health": ""
+      },
+      {
+        "service": "web",
+        "state": "running",
+        "health": ""
+      }
+    ],
+    "dataDisk": {
+      "totalBytes": 63290032128,
+      "freeBytes": 9184886784,
+      "usedPercent": 81.22
+    },
+    "backupDisk": {
+      "totalBytes": 63290032128,
+      "freeBytes": 9184886784,
+      "usedPercent": 81.22
+    },
+    "jobs": {
+      "byStatus": {
+        "review_required": 1
+      },
+      "queued": 0,
+      "running": 0,
+      "cancelRequested": 0,
+      "runningOperations": 0,
+      "unfinishedProviderCalls": 0,
+      "activeLegacyRevisions": 0,
+      "activeTotal": 0,
+      "oldestQueuedSeconds": 0,
+      "oldestRunningSeconds": 0,
+      "oldestProviderSeconds": 0,
+      "providerFailuresLastHour": 0
+    },
+    "admissionGate": {
+      "gateVersion": "v1",
+      "maintenance": false
+    },
+    "backup": {
+      "automaticEnabled": true,
+      "managedSets": 3,
+      "lastBackupAt": "2026-09-12T14:50:37.750717+00:00",
+      "lastVerifiedAt": "2026-09-12T15:56:06.784776+00:00"
+    },
+    "lastBackupAttempt": {
+      "generatedAt": "2026-09-12T15:45:33.981374+00:00",
+      "status": "skipped",
+      "reason": "backup_not_due",
+      "recovery": null
+    }
+  },
+  "alerts": [
+    {
+      "code": "dataDisk_warning",
+      "severity": "warning"
+    },
+    {
+      "code": "backupDisk_warning",
+      "severity": "warning"
+    }
+  ],
+  "status": "warning",
+  "notifications": {
+    "configured": false,
+    "delivery": "local_report_only"
+  },
+  "offsiteBackup": {
+    "configured": false,
+    "verified": false
+  }
+}

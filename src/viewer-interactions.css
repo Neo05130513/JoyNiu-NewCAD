@@ -1,0 +1,15 @@
+.three-viewer-message .three-viewer-retry {
+  display: block;
+  margin-top: 8px;
+  padding: 7px 11px;
+  color: #215fae;
+  background: #f1f7ff;
+  border: 1px solid #a7c8ef;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.three-viewer-message .three-viewer-retry:hover { background: #dfedff; }
+.three-viewer-message .three-viewer-retry:focus-visible { outline: 3px solid #77a9ec; outline-offset: 2px; }

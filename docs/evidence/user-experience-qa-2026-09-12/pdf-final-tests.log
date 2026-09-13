@@ -1,0 +1,16 @@
+............                                                             [100%]
+=============================== warnings summary ===============================
+tests/test_cad_design_workspace.py::test_kernel_sections_dimension_dxf_pdf_and_layout_validation
+tests/test_cad_design_workspace.py::test_kernel_sections_dimension_dxf_pdf_and_layout_validation
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+tests/test_cad_design_workspace.py::test_kernel_sections_dimension_dxf_pdf_and_layout_validation
+tests/test_cad_design_workspace.py::test_kernel_sections_dimension_dxf_pdf_and_layout_validation
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+tests/test_cad_design_workspace.py::test_kernel_sections_dimension_dxf_pdf_and_layout_validation
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+12 passed, 5 warnings in 42.99s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

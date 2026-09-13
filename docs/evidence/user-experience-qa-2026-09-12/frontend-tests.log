@@ -1,0 +1,2956 @@
+
+> joyniu-newcad@0.1.0 test
+> node --test src/*.test.js
+
+TAP version 13
+# Subtest: storage is isolated by account and API deployment, including guest identity
+ok 1 - storage is isolated by account and API deployment, including guest identity
+  ---
+  duration_ms: 2.828833
+  type: 'test'
+  ...
+# Subtest: login, account switch, API switch and logout clear visible workspace before loading
+ok 2 - login, account switch, API switch and logout clear visible workspace before loading
+  ---
+  duration_ms: 0.51775
+  type: 'test'
+  ...
+# Subtest: refreshing an access token for the same verified account does not reset workspace
+ok 3 - refreshing an access token for the same verified account does not reset workspace
+  ---
+  duration_ms: 0.211375
+  type: 'test'
+  ...
+# Subtest: pending cloud reads cannot be bypassed by local or legacy data
+ok 4 - pending cloud reads cannot be bypassed by local or legacy data
+  ---
+  duration_ms: 0.281
+  type: 'test'
+  ...
+# Subtest: empty cloud for a new account never silently imports public browser history
+ok 5 - empty cloud for a new account never silently imports public browser history
+  ---
+  duration_ms: 1.962875
+  type: 'test'
+  ...
+# Subtest: existing cloud always wins over legacy even when import is requested
+ok 6 - existing cloud always wins over legacy even when import is requested
+  ---
+  duration_ms: 1.185875
+  type: 'test'
+  ...
+# Subtest: only dirty local data scoped to the same account and cloud revision can recover
+ok 7 - only dirty local data scoped to the same account and cloud revision can recover
+  ---
+  duration_ms: 0.495417
+  type: 'test'
+  ...
+# Subtest: cloud deserialization keeps model, message, version and trash data independent
+ok 8 - cloud deserialization keeps model, message, version and trash data independent
+  ---
+  duration_ms: 0.504125
+  type: 'test'
+  ...
+# Subtest: sanitizer removes login credentials without deleting scoped source download tokens
+ok 9 - sanitizer removes login credentials without deleting scoped source download tokens
+  ---
+  duration_ms: 1.156917
+  type: 'test'
+  ...
+# Subtest: API client sends authentication and credentials separately from the snapshot
+ok 10 - API client sends authentication and credentials separately from the snapshot
+  ---
+  duration_ms: 1.652833
+  type: 'test'
+  ...
+# Subtest: client rejects unauthenticated work and exposes safe revision on 409
+ok 11 - client rejects unauthenticated work and exposes safe revision on 409
+  ---
+  duration_ms: 0.402791
+  type: 'test'
+  ...
+# Subtest: client preserves AbortError and rejects malformed successful responses
+ok 12 - client preserves AbortError and rejects malformed successful responses
+  ---
+  duration_ms: 0.117459
+  type: 'test'
+  ...
+# Subtest: finance filters survive routes without retaining private or unrelated fields
+ok 13 - finance filters survive routes without retaining private or unrelated fields
+  ---
+  duration_ms: 3.362584
+  type: 'test'
+  ...
+# Subtest: admin financial queries are encoded and customer routes cannot apply cross-account filters
+ok 14 - admin financial queries are encoded and customer routes cannot apply cross-account filters
+  ---
+  duration_ms: 1.249083
+  type: 'test'
+  ...
+# Subtest: financial CSV has a fixed safe schema, neutralizes formulas, and preserves unknown amounts
+ok 15 - financial CSV has a fixed safe schema, neutralizes formulas, and preserves unknown amounts
+  ---
+  duration_ms: 0.511125
+  type: 'test'
+  ...
+# Subtest: next page and every operational filter survive navigation and history restoration
+ok 16 - next page and every operational filter survive navigation and history restoration
+  ---
+  duration_ms: 2.796416
+  type: 'test'
+  ...
+# Subtest: application navigation is same-origin, preserves queries, and publishes updates once
+ok 17 - application navigation is same-origin, preserves queries, and publishes updates once
+  ---
+  duration_ms: 0.29325
+  type: 'test'
+  ...
+# Subtest: actual admin shell admits only role links, denies unauthorized deep links, and has separate login
+ok 18 - actual admin shell admits only role links, denies unauthorized deep links, and has separate login
+  ---
+  duration_ms: 152.958583
+  type: 'test'
+  ...
+# Subtest: admin navigation preserves deep links and admits only known query fields
+ok 19 - admin navigation preserves deep links and admits only known query fields
+  ---
+  duration_ms: 1.53175
+  type: 'test'
+  ...
+# Subtest: unknown admin sections cannot silently display an authorized page
+ok 20 - unknown admin sections cannot silently display an authorized page
+  ---
+  duration_ms: 0.200333
+  type: 'test'
+  ...
+# Subtest: unknown financial and usage values stay unknown, while real zero remains visible
+ok 21 - unknown financial and usage values stay unknown, while real zero remains visible
+  ---
+  duration_ms: 27.433708
+  type: 'test'
+  ...
+# Subtest: list filters are whitelisted and server-side pagination is bounded
+ok 22 - list filters are whitelisted and server-side pagination is bounded
+  ---
+  duration_ms: 1.559042
+  type: 'test'
+  ...
+# Subtest: detail paths encode identifiers and never accept a remote path or wrong section
+ok 23 - detail paths encode identifiers and never accept a remote path or wrong section
+  ---
+  duration_ms: 0.689625
+  type: 'test'
+  ...
+# Subtest: bad pages cannot masquerade as an empty successful query
+ok 24 - bad pages cannot masquerade as an empty successful query
+  ---
+  duration_ms: 0.325792
+  type: 'test'
+  ...
+# Subtest: empty or shortened lists move an out-of-range URL to the last existing page
+ok 25 - empty or shortened lists move an out-of-range URL to the last existing page
+  ---
+  duration_ms: 0.794125
+  type: 'test'
+  ...
+# Subtest: actual billing and support states retain their operational meaning
+ok 26 - actual billing and support states retain their operational meaning
+  ---
+  duration_ms: 0.602667
+  type: 'test'
+  ...
+# Subtest: late responses from another account, query or detail lose their write permission
+ok 27 - late responses from another account, query or detail lose their write permission
+  ---
+  duration_ms: 0.6595
+  type: 'test'
+  ...
+# Subtest: stop requests require an explicit reason and a stable valid operation identifier
+ok 28 - stop requests require an explicit reason and a stable valid operation identifier
+  ---
+  duration_ms: 0.598458
+  type: 'test'
+  ...
+# Subtest: a queued stop is never announced as completed, and foreign results are rejected
+ok 29 - a queued stop is never announced as completed, and foreign results are rejected
+  ---
+  duration_ms: 0.560625
+  type: 'test'
+  ...
+# Subtest: admin requests authenticate, bypass caches and cannot follow a redirected response
+ok 30 - admin requests authenticate, bypass caches and cannot follow a redirected response
+  ---
+  duration_ms: 32.771625
+  type: 'test'
+  ...
+# Subtest: server errors do not expose raw paths, tracebacks, tokens or customer documents
+ok 31 - server errors do not expose raw paths, tracebacks, tokens or customer documents
+  ---
+  duration_ms: 5.860875
+  type: 'test'
+  ...
+# Subtest: aborted admin requests never start network work and discard late JSON
+ok 32 - aborted admin requests never start network work and discard late JSON
+  ---
+  duration_ms: 2.386958
+  type: 'test'
+  ...
+# Subtest: irrelevant detail parameters cannot skip list response validation
+ok 33 - irrelevant detail parameters cannot skip list response validation
+  ---
+  duration_ms: 9.667125
+  type: 'test'
+  ...
+# Subtest: trend ranges and manual filters are explicit server-side queries
+ok 34 - trend ranges and manual filters are explicit server-side queries
+  ---
+  duration_ms: 1.167417
+  type: 'test'
+  ...
+# Subtest: trend charts preserve real zero, missing values and missing dates without inventing points
+ok 35 - trend charts preserve real zero, missing values and missing dates without inventing points
+  ---
+  duration_ms: 13.983083
+  type: 'test'
+  ...
+# Subtest: CRM and handling mutations match versioned contracts and never submit task execution state
+ok 36 - CRM and handling mutations match versioned contracts and never submit task execution state
+  ---
+  duration_ms: 1.020708
+  type: 'test'
+  ...
+# Subtest: an uncertain mutation retry preserves its key independently of token refresh
+ok 37 - an uncertain mutation retry preserves its key independently of token refresh
+  ---
+  duration_ms: 0.194916
+  type: 'test'
+  ...
+# Subtest: CSV protects formulas and exports only the current whitelisted visible page
+ok 38 - CSV protects formulas and exports only the current whitelisted visible page
+  ---
+  duration_ms: 1.094166
+  type: 'test'
+  ...
+# Subtest: diagnostic JSON excludes originals, credentials, notes and unauthorized financial fields
+ok 39 - diagnostic JSON excludes originals, credentials, notes and unauthorized financial fields
+  ---
+  duration_ms: 0.598542
+  type: 'test'
+  ...
+# Subtest: failure advice is Chinese, constrained and never calls a service
+ok 40 - failure advice is Chinese, constrained and never calls a service
+  ---
+  duration_ms: 0.445042
+  type: 'test'
+  ...
+# Subtest: CRM and note helpers use actual endpoints and the fresh token getter
+ok 41 - CRM and note helpers use actual endpoints and the fresh token getter
+  ---
+  duration_ms: 72.764292
+  type: 'test'
+  ...
+# Subtest: synchronous repeated saves are blocked and late actions cannot overwrite another record
+ok 42 - synchronous repeated saves are blocked and late actions cannot overwrite another record
+  ---
+  duration_ms: 0.525917
+  type: 'test'
+  ...
+# Subtest: diagnostic exports cannot recursively include credentials through malformed known fields
+ok 43 - diagnostic exports cannot recursively include credentials through malformed known fields
+  ---
+  duration_ms: 0.317375
+  type: 'test'
+  ...
+# Subtest: the same task projection distinguishes missing historical usage from known zero calls
+ok 44 - the same task projection distinguishes missing historical usage from known zero calls
+  ---
+  duration_ms: 328.493167
+  type: 'test'
+  ...
+# Subtest: legacy provider attempt counts never become measured calls or inferred retries
+ok 45 - legacy provider attempt counts never become measured calls or inferred retries
+  ---
+  duration_ms: 25.671875
+  type: 'test'
+  ...
+# Subtest: safe customer response rendering hides financial records without billing permission
+ok 46 - safe customer response rendering hides financial records without billing permission
+  ---
+  duration_ms: 6.600125
+  type: 'test'
+  ...
+# Subtest: stop action is available only to operators with task-management permission and an active cancellable task
+ok 47 - stop action is available only to operators with task-management permission and an active cancellable task
+  ---
+  duration_ms: 33.414791
+  type: 'test'
+  ...
+# Subtest: system displays actual runtime metadata and marks unconfigured probes honestly
+ok 48 - system displays actual runtime metadata and marks unconfigured probes honestly
+  ---
+  duration_ms: 5.434417
+  type: 'test'
+  ...
+# Subtest: all empty list contracts render a real empty state with correct pagination
+ok 49 - all empty list contracts render a real empty state with correct pagination
+  ---
+  duration_ms: 3.309375
+  type: 'test'
+  ...
+# Subtest: overview exposes actual trend semantics and never promotes review-required to success
+ok 50 - overview exposes actual trend semantics and never promotes review-required to success
+  ---
+  duration_ms: 5.089417
+  type: 'test'
+  ...
+# Subtest: detail tabs expose real CRM and followup records while hiding write forms without capability
+ok 51 - detail tabs expose real CRM and followup records while hiding write forms without capability
+  ---
+  duration_ms: 5.034791
+  type: 'test'
+  ...
+# Subtest: manual task state stays separate from failed execution state and warnings remain visible
+ok 52 - manual task state stays separate from failed execution state and warnings remain visible
+  ---
+  duration_ms: 6.13025
+  type: 'test'
+  ...
+# Subtest: write controls require the new explicit capabilities and known versions
+ok 53 - write controls require the new explicit capabilities and known versions
+  ---
+  duration_ms: 5.16475
+  type: 'test'
+  ...
+# Subtest: customer shortcuts link to account and owner-filtered financial work only when authorized
+ok 54 - customer shortcuts link to account and owner-filtered financial work only when authorized
+  ---
+  duration_ms: 16.514417
+  type: 'test'
+  ...
+# WebSocket server error: Port 24678 is already in use
+# Subtest: system distinguishes host monitoring local backup and unavailable external delivery
+ok 55 - system distinguishes host monitoring local backup and unavailable external delivery
+  ---
+  duration_ms: 341.589
+  type: 'test'
+  ...
+# Subtest: expired host report keeps its age warning next to historical values
+ok 56 - expired host report keeps its age warning next to historical values
+  ---
+  duration_ms: 1.668792
+  type: 'test'
+  ...
+# Subtest: staff permissions separate finance writes, audit reads and customer support
+ok 57 - staff permissions separate finance writes, audit reads and customer support
+  ---
+  duration_ms: 6.185
+  type: 'test'
+  ...
+# Subtest: current server permissions and inactive state override stale role labels
+ok 58 - current server permissions and inactive state override stale role labels
+  ---
+  duration_ms: 0.218375
+  type: 'test'
+  ...
+# Subtest: real management pages and refund controls match the business role matrix
+ok 59 - real management pages and refund controls match the business role matrix
+  ---
+  duration_ms: 146.704792
+  type: 'test'
+  ...
+# Subtest: role and password validation reject invalid role sets and mistyped passwords
+ok 60 - role and password validation reject invalid role sets and mistyped passwords
+  ---
+  duration_ms: 2.252708
+  type: 'test'
+  ...
+# Subtest: account administration protects current login and the last active administrator
+ok 61 - account administration protects current login and the last active administrator
+  ---
+  duration_ms: 0.392875
+  type: 'test'
+  ...
+# Subtest: user filtering searches actual metadata and clamps pages after status changes
+ok 62 - user filtering searches actual metadata and clamps pages after status changes
+  ---
+  duration_ms: 0.218209
+  type: 'test'
+  ...
+# Subtest: admin client uses existing protected routes and never supplies a default password
+ok 63 - admin client uses existing protected routes and never supplies a default password
+  ---
+  duration_ms: 0.489584
+  type: 'test'
+  ...
+# Subtest: CAD entry points select current CAD configuration, while recipe text edits keep the relay
+ok 64 - CAD entry points select current CAD configuration, while recipe text edits keep the relay
+  ---
+  duration_ms: 1.44
+  type: 'test'
+  ...
+# Subtest: configuration loading and CLI configuration never claim remote streaming or authenticated online status
+ok 65 - configuration loading and CLI configuration never claim remote streaming or authenticated online status
+  ---
+  duration_ms: 0.433333
+  type: 'test'
+  ...
+# Subtest: server Codex presentation identifies the server without implying a client installation or login
+ok 66 - server Codex presentation identifies the server without implying a client installation or login
+  ---
+  duration_ms: 0.201709
+  type: 'test'
+  ...
+# Subtest: local and older Codex provider records preserve the local deployment labels
+ok 67 - local and older Codex provider records preserve the local deployment labels
+  ---
+  duration_ms: 0.070458
+  type: 'test'
+  ...
+# Subtest: runtime failure overrides configured availability and successful retries do not remain failed
+ok 68 - runtime failure overrides configured availability and successful retries do not remain failed
+  ---
+  duration_ms: 0.126209
+  type: 'test'
+  ...
+# Subtest: normalized CAD provider errors are shown in Chinese without claiming the engine is ready
+ok 69 - normalized CAD provider errors are shown in Chinese without claiming the engine is ready
+  ---
+  duration_ms: 0.056709
+  type: 'test'
+  ...
+# Subtest: CAD model calls are not presented as failed attempts or inferred retries
+ok 70 - CAD model calls are not presented as failed attempts or inferred retries
+  ---
+  duration_ms: 0.194292
+  type: 'test'
+  ...
+# Subtest: DWG preprocessing codes have source-specific Chinese labels and no invented AI calls
+ok 71 - DWG preprocessing codes have source-specific Chinese labels and no invented AI calls
+  ---
+  duration_ms: 0.090666
+  type: 'test'
+  ...
+# Subtest: relative API configuration resolves against the public HTTP origin for requests and artifacts
+ok 72 - relative API configuration resolves against the public HTTP origin for requests and artifacts
+  ---
+  duration_ms: 1.421
+  type: 'test'
+  ...
+# Subtest: API base preserves explicit servers and the existing Node localhost default
+ok 73 - API base preserves explicit servers and the existing Node localhost default
+  ---
+  duration_ms: 0.184375
+  type: 'test'
+  ...
+# Subtest: relative API configuration uses window.location.origin by default
+ok 74 - relative API configuration uses window.location.origin by default
+  ---
+  duration_ms: 0.535833
+  type: 'test'
+  ...
+# Subtest: API authentication errors are actionable Chinese while preserving status and payload
+ok 75 - API authentication errors are actionable Chinese while preserving status and payload
+  ---
+  duration_ms: 30.195916
+  type: 'test'
+  ...
+# Subtest: logout sends the current bearer even when the browser has no refresh cookie
+ok 76 - logout sends the current bearer even when the browser has no refresh cookie
+  ---
+  duration_ms: 0.485916
+  type: 'test'
+  ...
+# Subtest: FastAPI detail arrays expose field messages rather than [object Object]
+ok 77 - FastAPI detail arrays expose field messages rather than [object Object]
+  ---
+  duration_ms: 0.735
+  type: 'test'
+  ...
+# Subtest: SSE turn.error localizes both emitted event and thrown error, retaining original payload
+ok 78 - SSE turn.error localizes both emitted event and thrown error, retaining original payload
+  ---
+  duration_ms: 7.488042
+  type: 'test'
+  ...
+# Subtest: network failure becomes readable without changing cancellation identity
+ok 79 - network failure becomes readable without changing cancellation identity
+  ---
+  duration_ms: 1.191958
+  type: 'test'
+  ...
+# Subtest: request deadline remains active until a stalled response body finishes
+ok 80 - request deadline remains active until a stalled response body finishes
+  ---
+  duration_ms: 3.068625
+  type: 'test'
+  ...
+# Subtest: successful SSE events and results pass through unchanged
+ok 81 - successful SSE events and results pass through unchanged
+  ---
+  duration_ms: 2.517958
+  type: 'test'
+  ...
+# Subtest: the actual AI upload handoff never fills a missing installation pitch from the preview template
+ok 82 - the actual AI upload handoff never fills a missing installation pitch from the preview template
+  ---
+  duration_ms: 110.140625
+  type: 'test'
+  ...
+# Subtest: all twelve required dimensions remain absent through recognition and text-only AI seeding
+ok 83 - all twelve required dimensions remain absent through recognition and text-only AI seeding
+  ---
+  duration_ms: 2.539042
+  type: 'test'
+  ...
+# Subtest: pending snapshots and cleared values cannot regain stale recipe or saved-model dimensions
+ok 84 - pending snapshots and cleared values cannot regain stale recipe or saved-model dimensions
+  ---
+  duration_ms: 1.118417
+  type: 'test'
+  ...
+# Subtest: cleared operands are unknown and a legitimate zero insert offset stays present
+ok 85 - cleared operands are unknown and a legitimate zero insert offset stays present
+  ---
+  duration_ms: 0.27625
+  type: 'test'
+  ...
+# Subtest: actual generation success messages use derived bounds and format both kernel metric contracts
+ok 86 - actual generation success messages use derived bounds and format both kernel metric contracts
+  ---
+  duration_ms: 1.100375
+  type: 'test'
+  ...
+# Subtest: drawing dimensions derive a 110 × 50 × 55 support and the tangent bridge height
+ok 87 - drawing dimensions derive a 110 × 50 × 55 support and the tangent bridge height
+  ---
+  duration_ms: 94.139125
+  type: 'test'
+  ...
+# Subtest: missing dimensions and impossible geometry produce field-specific validation errors
+ok 88 - missing dimensions and impossible geometry produce field-specific validation errors
+  ---
+  duration_ms: 0.8645
+  type: 'test'
+  ...
+# Subtest: the underside arch and the two aligned ear holes are open, with no material in the upper centre gap
+ok 89 - the underside arch and the two aligned ear holes are open, with no material in the upper centre gap
+  ---
+  duration_ms: 40.187417
+  type: 'test'
+  ...
+# Subtest: mounting ears have rounded R15 ends and separate vertical Ø13 holes through only the base thickness
+ok 90 - mounting ears have rounded R15 ends and separate vertical Ø13 holes through only the base thickness
+  ---
+  duration_ms: 20.113666
+  type: 'test'
+  ...
+# Subtest: valid thick feet do not fill the inner arch where their connector reaches inside its radius
+ok 91 - valid thick feet do not fill the inner arch where their connector reaches inside its radius
+  ---
+  duration_ms: 16.782834
+  type: 'test'
+  ...
+# Subtest: ear and installation hole diameters independently change their real removed regions
+ok 92 - ear and installation hole diameters independently change their real removed regions
+  ---
+  duration_ms: 31.133916
+  type: 'test'
+  ...
+# Subtest: changing the gap, both arch radii and base thickness moves material instead of a label or overlay
+ok 93 - changing the gap, both arch radii and base thickness moves material instead of a label or overlay
+  ---
+  duration_ms: 100.213583
+  type: 'test'
+  ...
+# Subtest: a valid custom support retains its supplied dimensions without silently clamping to the reference drawing
+ok 94 - a valid custom support retains its supplied dimensions without silently clamping to the reference drawing
+  ---
+  duration_ms: 7.604416
+  type: 'test'
+  ...
+# Subtest: standard part searches accept common specification separators and multiple terms
+ok 95 - standard part searches accept common specification separators and multiple terms
+  ---
+  duration_ms: 1.358333
+  type: 'test'
+  ...
+# Subtest: feature model envelopes use the current measured bounds including their actual origin
+ok 96 - feature model envelopes use the current measured bounds including their actual origin
+  ---
+  duration_ms: 4.370417
+  type: 'test'
+  ...
+# Subtest: insertion respects bolt heads and duplication respects rotated long components
+ok 97 - insertion respects bolt heads and duplication respects rotated long components
+  ---
+  duration_ms: 0.738125
+  type: 'test'
+  ...
+# Subtest: catalog inserts have independent IDs, dimension snapshots, and persisted provenance
+ok 98 - catalog inserts have independent IDs, dimension snapshots, and persisted provenance
+  ---
+  duration_ms: 0.358042
+  type: 'test'
+  ...
+# Subtest: custom shapes reject impossible holes and non-finite, missing or blank dimensions
+ok 99 - custom shapes reject impossible holes and non-finite, missing or blank dimensions
+  ---
+  duration_ms: 0.684041
+  type: 'test'
+  ...
+# Subtest: editing a transform accepts zero and negative coordinates without changing the original
+ok 100 - editing a transform accepts zero and negative coordinates without changing the original
+  ---
+  duration_ms: 0.347875
+  type: 'test'
+  ...
+# Subtest: rotated world bounds account for dimensions, translation, and Euler rotation
+ok 101 - rotated world bounds account for dimensions, translation, and Euler rotation
+  ---
+  duration_ms: 0.563292
+  type: 'test'
+  ...
+# Subtest: bolt bounds include the head outside the shaft length
+ok 102 - bolt bounds include the head outside the shaft length
+  ---
+  duration_ms: 0.188792
+  type: 'test'
+  ...
+# Subtest: all four main model families use their own envelopes and unsupported kinds are explicit
+ok 103 - all four main model families use their own envelopes and unsupported kinds are explicit
+  ---
+  duration_ms: 0.710209
+  type: 'test'
+  ...
+# Subtest: initial placement clears both the current model and already inserted parts
+ok 104 - initial placement clears both the current model and already inserted parts
+  ---
+  duration_ms: 1.542625
+  type: 'test'
+  ...
+# Subtest: coaxial shaft/ring checks identify too-small bores and actual nominal radial gaps
+ok 105 - coaxial shaft/ring checks identify too-small bores and actual nominal radial gaps
+  ---
+  duration_ms: 0.284333
+  type: 'test'
+  ...
+# Subtest: off-axis, rotated, or axially separated rings never report a solved coaxial fit
+ok 106 - off-axis, rotated, or axially separated rings never report a solved coaxial fit
+  ---
+  duration_ms: 0.24375
+  type: 'test'
+  ...
+# Subtest: pairwise instance overlap is measured and reports become stale when any saved transform changes
+ok 107 - pairwise instance overlap is measured and reports become stale when any saved transform changes
+  ---
+  duration_ms: 0.153708
+  type: 'test'
+  ...
+# Subtest: corrupt instance dimensions and duplicate IDs are rejected without a false clean report
+ok 108 - corrupt instance dimensions and duplicate IDs are rejected without a false clean report
+  ---
+  duration_ms: 0.078791
+  type: 'test'
+  ...
+# Subtest: a new empty design has no phantom main instance and supports independent library inserts
+ok 109 - a new empty design has no phantom main instance and supports independent library inserts
+  ---
+  duration_ms: 0.428708
+  type: 'test'
+  ...
+# Subtest: offline amount maps exactly to points and independent payment switch suppresses a stale checkout
+ok 110 - offline amount maps exactly to points and independent payment switch suppresses a stale checkout
+  ---
+  duration_ms: 0.7985
+  type: 'test'
+  ...
+# Subtest: offline writes carry actual receipt confirmation and reuse the caller idempotency key
+ok 111 - offline writes carry actual receipt confirmation and reuse the caller idempotency key
+  ---
+  duration_ms: 1.011458
+  type: 'test'
+  ...
+# Subtest: public official rates preserve exact decimal values and reject malformed rates
+ok 112 - public official rates preserve exact decimal values and reject malformed rates
+  ---
+  duration_ms: 12.018208
+  type: 'test'
+  ...
+# Subtest: currency parsing stores exact integer fen and rejects rounding and exponent input
+ok 113 - currency parsing stores exact integer fen and rejects rounding and exponent input
+  ---
+  duration_ms: 0.524209
+  type: 'test'
+  ...
+# Subtest: credit input is integral, bounded, nonzero, and negative only for an adjustment
+ok 114 - credit input is integral, bounded, nonzero, and negative only for an adjustment
+  ---
+  duration_ms: 0.371625
+  type: 'test'
+  ...
+# Subtest: session refresh preserves purchase intent identity while account switching clears it
+ok 115 - session refresh preserves purchase intent identity while account switching clears it
+  ---
+  duration_ms: 0.148208
+  type: 'test'
+  ...
+# Subtest: only actual pending checkouts show payment links and expired links stop being payable
+ok 116 - only actual pending checkouts show payment links and expired links stop being payable
+  ---
+  duration_ms: 0.351541
+  type: 'test'
+  ...
+# Subtest: synchronous duplicate clicks share exactly one pending mutation and release after completion
+ok 117 - synchronous duplicate clicks share exactly one pending mutation and release after completion
+  ---
+  duration_ms: 0.252291
+  type: 'test'
+  ...
+# Subtest: failed mutations release the click gate so the same idempotency key can retry
+ok 118 - failed mutations release the click gate so the same idempotency key can retry
+  ---
+  duration_ms: 1.078209
+  type: 'test'
+  ...
+# Subtest: billing writes carry real identifiers and session authorization only in headers
+ok 119 - billing writes carry real identifiers and session authorization only in headers
+  ---
+  duration_ms: 0.879208
+  type: 'test'
+  ...
+# Subtest: wallet requires a session and disabled payment errors remain visible
+ok 120 - wallet requires a session and disabled payment errors remain visible
+  ---
+  duration_ms: 0.255
+  type: 'test'
+  ...
+# Subtest: refund approval never appears as successful execution before channel confirmation
+ok 121 - refund approval never appears as successful execution before channel confirmation
+  ---
+  duration_ms: 0.071083
+  type: 'test'
+  ...
+# Subtest: real gateway reconciliation and refund execution send only the server-owned record id
+ok 122 - real gateway reconciliation and refund execution send only the server-owned record id
+  ---
+  duration_ms: 0.326875
+  type: 'test'
+  ...
+# Subtest: wallet explains actual outstanding dues without treating missing amounts as debt
+ok 123 - wallet explains actual outstanding dues without treating missing amounts as debt
+  ---
+  duration_ms: 0.200375
+  type: 'test'
+  ...
+# Subtest: own settlement history uses the user route and request timeout is visible
+ok 124 - own settlement history uses the user route and request timeout is visible
+  ---
+  duration_ms: 7.284208
+  type: 'test'
+  ...
+# Subtest: public pricing displays only explicitly enabled complete real rates
+ok 125 - public pricing displays only explicitly enabled complete real rates
+  ---
+  duration_ms: 0.554125
+  type: 'test'
+  ...
+# Subtest: new policy contains no prices, insufficient-balance policy, or billable outcome defaults
+ok 126 - new policy contains no prices, insufficient-balance policy, or billable outcome defaults
+  ---
+  duration_ms: 2.643917
+  type: 'test'
+  ...
+# Subtest: rate parsing accepts explicit zero but never infers it from blank or rounds a fraction
+ok 127 - rate parsing accepts explicit zero but never infers it from blank or rounds a fraction
+  ---
+  duration_ms: 0.491875
+  type: 'test'
+  ...
+# Subtest: draft validates exact unique models and complete rate rows without defaulting omissions
+ok 128 - draft validates exact unique models and complete rate rows without defaulting omissions
+  ---
+  duration_ms: 0.656041
+  type: 'test'
+  ...
+# Subtest: enabling requires explicit complete saved policy, supported server capability and confirmation
+ok 129 - enabling requires explicit complete saved policy, supported server capability and confirmation
+  ---
+  duration_ms: 0.553542
+  type: 'test'
+  ...
+# Subtest: unknown server status fails closed
+ok 130 - unknown server status fails closed
+  ---
+  duration_ms: 0.1615
+  type: 'test'
+  ...
+# Subtest: policy client matches version/CAS contracts and isolates bearer credentials from payload
+ok 131 - policy client matches version/CAS contracts and isolates bearer credentials from payload
+  ---
+  duration_ms: 4.530542
+  type: 'test'
+  ...
+# Subtest: revision conflict is reported and timeout remains a visible error
+ok 132 - revision conflict is reported and timeout remains a visible error
+  ---
+  duration_ms: 5.082542
+  type: 'test'
+  ...
+# Subtest: a repeated rule submit shares one in-flight operation and permits retry after failure
+ok 133 - a repeated rule submit shares one in-flight operation and permits retry after failure
+  ---
+  duration_ms: 0.598167
+  type: 'test'
+  ...
+# Subtest: new drawings and blank designs use generic CAD while existing recipe edits remain compatible
+ok 134 - new drawings and blank designs use generic CAD while existing recipe edits remain compatible
+  ---
+  duration_ms: 2.592208
+  type: 'test'
+  ...
+# Subtest: a complete parameter draft builds STEP and GLB instead of falling through to STEP export
+ok 135 - a complete parameter draft builds STEP and GLB instead of falling through to STEP export
+  ---
+  duration_ms: 5.380625
+  type: 'test'
+  ...
+# Subtest: a newly selected drawing takes precedence over restored source-reselection and old candidate gates
+ok 136 - a newly selected drawing takes precedence over restored source-reselection and old candidate gates
+  ---
+  duration_ms: 1.378125
+  type: 'test'
+  ...
+# Subtest: legacy drawing migration uses original bytes, requests reselection for metadata, and normalizes retired workspaces
+ok 137 - legacy drawing migration uses original bytes, requests reselection for metadata, and normalizes retired workspaces
+  ---
+  duration_ms: 2.39525
+  type: 'test'
+  ...
+# Subtest: source-reader waits and draft saves never advance the workflow to generated or confirmed geometry
+ok 138 - source-reader waits and draft saves never advance the workflow to generated or confirmed geometry
+  ---
+  duration_ms: 3.577792
+  type: 'test'
+  ...
+# Subtest: source and plan trace entries distinguish candidates and rejected operations from actual geometry
+ok 139 - source and plan trace entries distinguish candidates and rejected operations from actual geometry
+  ---
+  duration_ms: 0.580167
+  type: 'test'
+  ...
+# Subtest: spatial candidates and cross-view repair describe current work without certifying a whole drawing
+ok 140 - spatial candidates and cross-view repair describe current work without certifying a whole drawing
+  ---
+  duration_ms: 1.185666
+  type: 'test'
+  ...
+# Subtest: late auxiliary spatial results preserve the main geometry phase without claiming successful analysis
+ok 141 - late auxiliary spatial results preserve the main geometry phase without claiming successful analysis
+  ---
+  duration_ms: 0.237583
+  type: 'test'
+  ...
+# Subtest: projection summaries distinguish reliable differences from limited scope without certifying the entire drawing
+ok 142 - projection summaries distinguish reliable differences from limited scope without certifying the entire drawing
+  ---
+  duration_ms: 2.156125
+  type: 'test'
+  ...
+# Subtest: a previous ready result is labelled as saved history while a new operation is still running
+ok 143 - a previous ready result is labelled as saved history while a new operation is still running
+  ---
+  duration_ms: 0.660333
+  type: 'test'
+  ...
+# Subtest: a server-blocked ready result keeps its real preview but cannot appear deliverable
+ok 144 - a server-blocked ready result keeps its real preview but cannot appear deliverable
+  ---
+  duration_ms: 0.326958
+  type: 'test'
+  ...
+# Subtest: 2D views label saved projections and hide delivery during active, paused background and confirmation work
+ok 145 - 2D views label saved projections and hide delivery during active, paused background and confirmation work
+  ---
+  duration_ms: 2.351834
+  type: 'test'
+  ...
+# Subtest: independent drawing review remains in progress and mismatches preserve differences without completed geometry
+ok 146 - independent drawing review remains in progress and mismatches preserve differences without completed geometry
+  ---
+  duration_ms: 0.15125
+  type: 'test'
+  ...
+# Subtest: a failed streamed CAD result is saved as failure, clears prior artifacts, and retains source candidates for continuation
+ok 147 - a failed streamed CAD result is saved as failure, clears prior artifacts, and retains source candidates for continuation
+  ---
+  duration_ms: 2.144709
+  type: 'test'
+  ...
+# Subtest: generic CAD does not inherit an empty-project material default or revive an unproven saved default
+ok 148 - generic CAD does not inherit an empty-project material default or revive an unproven saved default
+  ---
+  duration_ms: 0.085667
+  type: 'test'
+  ...
+# Subtest: unknown dimensions remain blank, expressions stay derived and kernel checks do not unlock delivery
+ok 149 - unknown dimensions remain blank, expressions stay derived and kernel checks do not unlock delivery
+  ---
+  duration_ms: 0.346875
+  type: 'test'
+  ...
+# Subtest: a structural question can show its current real CAD draft while STEP remains locked
+ok 150 - a structural question can show its current real CAD draft while STEP remains locked
+  ---
+  duration_ms: 0.340417
+  type: 'test'
+  ...
+# Subtest: manual confirmation omits derived expressions and preserves explicit unknowns until user completion
+ok 151 - manual confirmation omits derived expressions and preserves explicit unknowns until user completion
+  ---
+  duration_ms: 0.140166
+  type: 'test'
+  ...
+# Subtest: continuing a project sends editable geometry and its server revision without replaying large tool traces
+ok 152 - continuing a project sends editable geometry and its server revision without replaying large tool traces
+  ---
+  duration_ms: 0.058042
+  type: 'test'
+  ...
+# Subtest: the actual confirmation action sends edited dimensions through the agent before any STEP confirmation
+ok 153 - the actual confirmation action sends edited dimensions through the agent before any STEP confirmation
+  ---
+  duration_ms: 1.09875
+  type: 'test'
+  ...
+# Subtest: editing one parameter invalidates actual artifacts and comparison without discarding the original evidence
+ok 154 - editing one parameter invalidates actual artifacts and comparison without discarding the original evidence
+  ---
+  duration_ms: 0.14975
+  type: 'test'
+  ...
+# Subtest: only matching run, revision and complete plan can be rendered as the current artifact
+ok 155 - only matching run, revision and complete plan can be rendered as the current artifact
+  ---
+  duration_ms: 0.101334
+  type: 'test'
+  ...
+# Subtest: saving and reopening keeps model, parameter sources, run revision and scoped artifact URLs
+ok 156 - saving and reopening keeps model, parameter sources, run revision and scoped artifact URLs
+  ---
+  duration_ms: 0.350917
+  type: 'test'
+  ...
+# Subtest: source transcription remains unverified candidate evidence after failure, persistence and reopening
+ok 157 - source transcription remains unverified candidate evidence after failure, persistence and reopening
+  ---
+  duration_ms: 0.126
+  type: 'test'
+  ...
+# Subtest: CAD stream tolerates split frames and keepalives but requires a real final result
+ok 158 - CAD stream tolerates split frames and keepalives but requires a real final result
+  ---
+  duration_ms: 45.565709
+  type: 'test'
+  ...
+# Subtest: a complete terminal result survives a subsequent socket failure
+ok 159 - a complete terminal result survives a subsequent socket failure
+  ---
+  duration_ms: 0.247
+  type: 'test'
+  ...
+# Subtest: confirmation errors display nested geometry failures and never produce a success state
+ok 160 - confirmation errors display nested geometry failures and never produce a success state
+  ---
+  duration_ms: 1.604625
+  type: 'test'
+  ...
+# Subtest: run transmits actual files, state and history; confirmation is bound to its revision
+ok 161 - run transmits actual files, state and history; confirmation is bound to its revision
+  ---
+  duration_ms: 4.682209
+  type: 'test'
+  ...
+# Subtest: a planning timeout presents the same accurate saved-content summary in chat, error banner and run details
+ok 162 - a planning timeout presents the same accurate saved-content summary in chat, error banner and run details
+  ---
+  duration_ms: 11.222583
+  type: 'test'
+  ...
+# Subtest: CAD send synchronizes configured, progress and terminal providers without changing the legacy service configuration
+ok 163 - CAD send synchronizes configured, progress and terminal providers without changing the legacy service configuration
+  ---
+  duration_ms: 2.556334
+  type: 'test'
+  ...
+# Subtest: resuming a CAD run adopts its actual provider instead of the saved model historical engine
+ok 164 - resuming a CAD run adopts its actual provider instead of the saved model historical engine
+  ---
+  duration_ms: 1.528792
+  type: 'test'
+  ...
+# Subtest: the actual upload and send handlers use the CAD agent for blank, legacy and manually corrected projects
+ok 165 - the actual upload and send handlers use the CAD agent for blank, legacy and manually corrected projects
+  ---
+  duration_ms: 7.309541
+  type: 'test'
+  ...
+# Subtest: the primary confirmation handler rechecks a blocked server version instead of repeating a rejected confirmation
+ok 166 - the primary confirmation handler rechecks a blocked server version instead of repeating a rejected confirmation
+  ---
+  duration_ms: 1.442583
+  type: 'test'
+  ...
+# Subtest: explicit legacy remodeling archives the previous draft and sends isolated original files to the CAD agent
+ok 167 - explicit legacy remodeling archives the previous draft and sends isolated original files to the CAD agent
+  ---
+  duration_ms: 5.194833
+  type: 'test'
+  ...
+# Subtest: retrying a failed uploaded drawing resumes its durable draft; explicit replacement saves the old model once
+ok 168 - retrying a failed uploaded drawing resumes its durable draft; explicit replacement saves the old model once
+  ---
+  duration_ms: 12.496584
+  type: 'test'
+  ...
+# Subtest: confirmation blocks sending, attachments, new conversations and project switches synchronously
+ok 169 - confirmation blocks sending, attachments, new conversations and project switches synchronously
+  ---
+  duration_ms: 1.674459
+  type: 'test'
+  ...
+# Subtest: late or mismatched confirmation responses never overwrite another run or unlock delivery
+ok 170 - late or mismatched confirmation responses never overwrite another run or unlock delivery
+  ---
+  duration_ms: 12.871667
+  type: 'test'
+  ...
+# Subtest: a disconnected started run recovers its terminal result through GET without uploading or starting again
+ok 171 - a disconnected started run recovers its terminal result through GET without uploading or starting again
+  ---
+  duration_ms: 1.492583
+  type: 'test'
+  ...
+# Subtest: saved background geometry repair retains its workflow phase across refresh and resumed planning
+ok 172 - saved background geometry repair retains its workflow phase across refresh and resumed planning
+  ---
+  duration_ms: 16.106
+  type: 'test'
+  ...
+# Subtest: stopping the wait retains a recoverable background task and interrupted drafts can continue
+ok 173 - stopping the wait retains a recoverable background task and interrupted drafts can continue
+  ---
+  duration_ms: 2.471292
+  type: 'test'
+  ...
+# Subtest: GET polling reports live progress, waits for a terminal result and honors abort
+ok 174 - GET polling reports live progress, waits for a terminal result and honors abort
+  ---
+  duration_ms: 5.891791
+  type: 'test'
+  ...
+# Subtest: queued and cancellation acknowledgements keep polling until the server confirms stopped
+ok 175 - queued and cancellation acknowledgements keep polling until the server confirms stopped
+  ---
+  duration_ms: 5.127417
+  type: 'test'
+  ...
+# Subtest: duplicate-submit JSON queued result resumes that exact run without creating another one
+ok 176 - duplicate-submit JSON queued result resumes that exact run without creating another one
+  ---
+  duration_ms: 2.858333
+  type: 'test'
+  ...
+# Subtest: cancel button calls server and leaves active work pending until a terminal cancellation arrives
+ok 177 - cancel button calls server and leaves active work pending until a terminal cancellation arrives
+  ---
+  duration_ms: 3.204625
+  type: 'test'
+  ...
+# Subtest: refresh before the first progress frame recovers by request ID without uploading again
+ok 178 - refresh before the first progress frame recovers by request ID without uploading again
+  ---
+  duration_ms: 2.725125
+  type: 'test'
+  ...
+# Subtest: request-id recovery preserves a paused submission after HTTP 404
+ok 179 - request-id recovery preserves a paused submission after HTTP 404
+  ---
+  duration_ms: 2.342125
+  type: 'test'
+  ...
+# Subtest: request-id recovery preserves a paused submission after HTTP 401
+ok 180 - request-id recovery preserves a paused submission after HTTP 401
+  ---
+  duration_ms: 1.389083
+  type: 'test'
+  ...
+# Subtest: request-id recovery preserves a paused submission after HTTP 429
+ok 181 - request-id recovery preserves a paused submission after HTTP 429
+  ---
+  duration_ms: 1.235958
+  type: 'test'
+  ...
+# Subtest: unknown-request cancellation clears only after a server tombstone and abort catch cannot restore it
+ok 182 - unknown-request cancellation clears only after a server tombstone and abort catch cannot restore it
+  ---
+  duration_ms: 1.325
+  type: 'test'
+  ...
+# Subtest: cancelling a paused known run reads its real cancelled result before clearing
+ok 183 - cancelling a paused known run reads its real cancelled result before clearing
+  ---
+  duration_ms: 6.229584
+  type: 'test'
+  ...
+# Subtest: cancelling a paused known run reads its real ready result before clearing
+ok 184 - cancelling a paused known run reads its real ready result before clearing
+  ---
+  duration_ms: 1.393667
+  type: 'test'
+  ...
+# Subtest: artifact download refreshes the specified revision and uses the current token only at the same API artifact route
+ok 185 - artifact download refreshes the specified revision and uses the current token only at the same API artifact route
+  ---
+  duration_ms: 0.956042
+  type: 'test'
+  ...
+# Subtest: artifact download rejects an untrusted target without forwarding a bearer: https://outside.example.test/model.step
+ok 186 - artifact download rejects an untrusted target without forwarding a bearer: https://outside.example.test/model.step
+  ---
+  duration_ms: 0.26275
+  type: 'test'
+  ...
+# Subtest: artifact download rejects an untrusted target without forwarding a bearer: http://localhost:8010/api/v1/cad-agent/runs/other-run/3/artifacts/step
+ok 187 - artifact download rejects an untrusted target without forwarding a bearer: http://localhost:8010/api/v1/cad-agent/runs/other-run/3/artifacts/step
+  ---
+  duration_ms: 0.361292
+  type: 'test'
+  ...
+# Subtest: artifact download rejects an untrusted target without forwarding a bearer: http://localhost:8010/api/v1/cad-agent/runs/cad_test/2/artifacts/step
+ok 188 - artifact download rejects an untrusted target without forwarding a bearer: http://localhost:8010/api/v1/cad-agent/runs/cad_test/2/artifacts/step
+  ---
+  duration_ms: 0.250833
+  type: 'test'
+  ...
+# Subtest: artifact download rejects an untrusted target without forwarding a bearer: http://localhost:8010/api/v1/unrelated-private-route
+ok 189 - artifact download rejects an untrusted target without forwarding a bearer: http://localhost:8010/api/v1/unrelated-private-route
+  ---
+  duration_ms: 0.143333
+  type: 'test'
+  ...
+# Subtest: artifact download refuses a mismatched revision before fetching any file
+ok 190 - artifact download refuses a mismatched revision before fetching any file
+  ---
+  duration_ms: 0.177875
+  type: 'test'
+  ...
+# Subtest: polling resolves the current account token rather than a token captured at task start
+ok 191 - polling resolves the current account token rather than a token captured at task start
+  ---
+  duration_ms: 0.199375
+  type: 'test'
+  ...
+# Subtest: automatic workspace recovery starts once after StrictMode cleanup and skips user-paused tasks
+ok 192 - automatic workspace recovery starts once after StrictMode cleanup and skips user-paused tasks
+  ---
+  duration_ms: 0.94925
+  type: 'test'
+  ...
+# Subtest: failed source reading retries the saved run directly without a plan, reupload or confirmation
+ok 193 - failed source reading retries the saved run directly without a plan, reupload or confirmation
+  ---
+  duration_ms: 4.193916
+  type: 'test'
+  ...
+# Subtest: failed partial geometry and empty-question needs_input retry the saved draft instead of asking imaginary questions
+ok 194 - failed partial geometry and empty-question needs_input retry the saved draft instead of asking imaginary questions
+  ---
+  duration_ms: 5.312166
+  type: 'test'
+  ...
+# Subtest: a genuine question keeps the answer action and never starts an automatic retry
+ok 195 - a genuine question keeps the answer action and never starts an automatic retry
+  ---
+  duration_ms: 4.692166
+  type: 'test'
+  ...
+# Subtest: the top model action routes failed source reading to the shared retry handler
+ok 196 - the top model action routes failed source reading to the shared retry handler
+  ---
+  duration_ms: 0.862417
+  type: 'test'
+  ...
+# Subtest: summary, empty parameter panel and checks panel expose a real retry action and respect busy state
+ok 197 - summary, empty parameter panel and checks panel expose a real retry action and respect busy state
+  ---
+  duration_ms: 10.497916
+  type: 'test'
+  ...
+# Subtest: the summary keeps concrete needs_input questions and focuses the answer instead of retrying
+ok 198 - the summary keeps concrete needs_input questions and focuses the answer instead of retrying
+  ---
+  duration_ms: 0.510667
+  type: 'test'
+  ...
+# Subtest: question rereading displays source candidates and unresolved questions without converting them into user answers
+ok 199 - question rereading displays source candidates and unresolved questions without converting them into user answers
+  ---
+  duration_ms: 3.562584
+  type: 'test'
+  ...
+# Subtest: failed rereading is visible, old snapshots remain compatible, and unverified progress preserves geometry state
+ok 200 - failed rereading is visible, old snapshots remain compatible, and unverified progress preserves geometry state
+  ---
+  duration_ms: 10.990458
+  type: 'test'
+  ...
+# Subtest: default report requires the current confirmed model and actual delivery generation
+ok 201 - default report requires the current confirmed model and actual delivery generation
+  ---
+  duration_ms: 2.401833
+  type: 'test'
+  ...
+# Subtest: parameter rows distinguish nominal values, server-resolved derived dimensions and units
+ok 202 - parameter rows distinguish nominal values, server-resolved derived dimensions and units
+  ---
+  duration_ms: 0.97225
+  type: 'test'
+  ...
+# Subtest: missing and stale derived values are never calculated in the browser or replaced with zero
+ok 203 - missing and stale derived values are never calculated in the browser or replaced with zero
+  ---
+  duration_ms: 17.141291
+  type: 'test'
+  ...
+# Subtest: a check is measured only when an actual numeric geometry measurement was recorded
+ok 204 - a check is measured only when an actual numeric geometry measurement was recorded
+  ---
+  duration_ms: 1.095709
+  type: 'test'
+  ...
+# Subtest: missing historical identity is not replaced by the exporter or current time
+ok 205 - missing historical identity is not replaced by the exporter or current time
+  ---
+  duration_ms: 1.885291
+  type: 'test'
+  ...
+# Subtest: the self-contained HTML escapes untrusted content and omits session and download secrets
+ok 206 - the self-contained HTML escapes untrusted content and omits session and download secrets
+  ---
+  duration_ms: 0.450334
+  type: 'test'
+  ...
+# Subtest: planning timeout with no plan identifies the stage, total time and exactly what was saved
+ok 207 - planning timeout with no plan identifies the stage, total time and exactly what was saved
+  ---
+  duration_ms: 1.572875
+  type: 'test'
+  ...
+# Subtest: failure time is shown only with actual duration or a valid start/end pair
+ok 208 - failure time is shown only with actual duration or a valid start/end pair
+  ---
+  duration_ms: 0.335667
+  type: 'test'
+  ...
+# Subtest: source failure, saved construction draft and total time limits keep distinct explanations
+ok 209 - source failure, saved construction draft and total time limits keep distinct explanations
+  ---
+  duration_ms: 0.297834
+  type: 'test'
+  ...
+# Subtest: independent review errors retain the entity draft and do not reuse an earlier planner error
+ok 210 - independent review errors retain the entity draft and do not reuse an earlier planner error
+  ---
+  duration_ms: 0.332708
+  type: 'test'
+  ...
+# Subtest: saved DWG parse failures explain the source boundary and preserve source/retry state
+ok 211 - saved DWG parse failures explain the source boundary and preserve source/retry state
+  ---
+  duration_ms: 0.841125
+  type: 'test'
+  ...
+# Subtest: refresh changes download capabilities while preserving manual edits and confirmation facts
+ok 212 - refresh changes download capabilities while preserving manual edits and confirmation facts
+  ---
+  duration_ms: 0.649667
+  type: 'test'
+  ...
+# Subtest: expired and short-lived capabilities retry at bounded intervals without a hot loop
+ok 213 - expired and short-lived capabilities retry at bounded intervals without a hot loop
+  ---
+  duration_ms: 0.073959
+  type: 'test'
+  ...
+# Subtest: Chinese labels make existing camel case and snake case parameters readable
+ok 214 - Chinese labels make existing camel case and snake case parameters readable
+  ---
+  duration_ms: 1.166292
+  type: 'test'
+  ...
+# Subtest: existing human Chinese labels and names are preserved exactly
+ok 215 - existing human Chinese labels and names are preserved exactly
+  ---
+  duration_ms: 0.154791
+  type: 'test'
+  ...
+# Subtest: generic compositions support new identifiers without guessing unknown terms
+ok 216 - generic compositions support new identifiers without guessing unknown terms
+  ---
+  duration_ms: 0.12375
+  type: 'test'
+  ...
+# Subtest: units respect explicit units and distinguish angles, radians and derived values
+ok 217 - units respect explicit units and distinguish angles, radians and derived values
+  ---
+  duration_ms: 0.214291
+  type: 'test'
+  ...
+# Subtest: incidental degree text cannot turn a derived length into an angle
+ok 218 - incidental degree text cannot turn a derived length into an angle
+  ---
+  duration_ms: 0.119167
+  type: 'test'
+  ...
+# Subtest: presentation leaves parameter values, sources and formulas untouched
+ok 219 - presentation leaves parameter values, sources and formulas untouched
+  ---
+  duration_ms: 0.601791
+  type: 'test'
+  ...
+# Subtest: Chinese presentation preserves original parameter keys, values, expressions and plan signature
+ok 220 - Chinese presentation preserves original parameter keys, values, expressions and plan signature
+  ---
+  duration_ms: 1.846625
+  type: 'test'
+  ...
+# Subtest: drawing review uses Chinese formulas and angle units while source links keep the same IDs
+ok 221 - drawing review uses Chinese formulas and angle units while source links keep the same IDs
+  ---
+  duration_ms: 0.666459
+  type: 'test'
+  ...
+# Subtest: editing a Chinese-named field still updates the original key and retains its source evidence
+ok 222 - editing a Chinese-named field still updates the original key and retains its source evidence
+  ---
+  duration_ms: 0.724458
+  type: 'test'
+  ...
+# Subtest: expired GLB renews owner links, retaining edited dimensions without rebuilding
+ok 223 - expired GLB renews owner links, retaining edited dimensions without rebuilding
+  ---
+  duration_ms: 1.414208
+  type: 'test'
+  ...
+# Subtest: late preview recovery cannot change a newly opened file
+ok 224 - late preview recovery cannot change a newly opened file
+  ---
+  duration_ms: 0.375125
+  type: 'test'
+  ...
+# Subtest: missing files show a bounded recovery error, and obsolete revisions never request
+ok 225 - missing files show a bounded recovery error, and obsolete revisions never request
+  ---
+  duration_ms: 0.372583
+  type: 'test'
+  ...
+# Subtest: timeout and invalid JSON from independent review retain the current real draft without approving delivery
+ok 226 - timeout and invalid JSON from independent review retain the current real draft without approving delivery
+  ---
+  duration_ms: 2.497334
+  type: 'test'
+  ...
+# Subtest: failed drafts require valid current geometry, an explicit review call error and no drawing mismatch
+ok 227 - failed drafts require valid current geometry, an explicit review call error and no drawing mismatch
+  ---
+  duration_ms: 0.574959
+  type: 'test'
+  ...
+# Subtest: app applies a failed review result as an inspectable draft while preserving the failure and delivery lock
+ok 228 - app applies a failed review result as an inspectable draft while preserving the failure and delivery lock
+  ---
+  duration_ms: 2.267917
+  type: 'test'
+  ...
+# Subtest: old null-generation snapshots recover a review-only draft when opened and after a storage reload
+ok 229 - old null-generation snapshots recover a review-only draft when opened and after a storage reload
+  ---
+  duration_ms: 7.488791
+  type: 'test'
+  ...
+# Subtest: recovery never reconstructs edited, stale, interrupted, running or mismatched snapshots
+ok 230 - recovery never reconstructs edited, stale, interrupted, running or mismatched snapshots
+  ---
+  duration_ms: 1.866542
+  type: 'test'
+  ...
+# Subtest: draft projections carry the incomplete-review label and cannot export STEP
+ok 231 - draft projections carry the incomplete-review label and cannot export STEP
+  ---
+  duration_ms: 1.155375
+  type: 'test'
+  ...
+# Subtest: a rejected drawing recipe cannot be revived by its identity or old parameter fields
+ok 232 - a rejected drawing recipe cannot be revived by its identity or old parameter fields
+  ---
+  duration_ms: 0.713667
+  type: 'test'
+  ...
+# Subtest: blank conversations do not infer a sample part from greetings or material-only responses
+ok 233 - blank conversations do not infer a sample part from greetings or material-only responses
+  ---
+  duration_ms: 0.242125
+  type: 'test'
+  ...
+# Subtest: a blank project can create a real parameterized part and then accept property-only edits
+ok 234 - a blank project can create a real parameterized part and then accept property-only edits
+  ---
+  duration_ms: 0.159917
+  type: 'test'
+  ...
+# Subtest: material and unit edits preserve all four existing model types and their custom dimensions
+ok 235 - material and unit edits preserve all four existing model types and their custom dimensions
+  ---
+  duration_ms: 0.938209
+  type: 'test'
+  ...
+# Subtest: supported explicit types and recipe ids override conflicting parameter field hints
+ok 236 - supported explicit types and recipe ids override conflicting parameter field hints
+  ---
+  duration_ms: 0.141375
+  type: 'test'
+  ...
+# Subtest: recipe-specific fields still classify legacy results that omit a supported identity
+ok 237 - recipe-specific fields still classify legacy results that omit a supported identity
+  ---
+  duration_ms: 0.112125
+  type: 'test'
+  ...
+# Subtest: ambiguous recipe fields cannot create a sample part or switch an existing topology
+ok 238 - ambiguous recipe fields cannot create a sample part or switch an existing topology
+  ---
+  duration_ms: 0.118958
+  type: 'test'
+  ...
+# Subtest: switching recipes uses the resolved recipe without inheriting unrelated old dimensions
+ok 239 - switching recipes uses the resolved recipe without inheriting unrelated old dimensions
+  ---
+  duration_ms: 0.041916
+  type: 'test'
+  ...
+# Subtest: new drawing seeds and recognized candidates do not inherit prior model edits
+ok 240 - new drawing seeds and recognized candidates do not inherit prior model edits
+  ---
+  duration_ms: 0.298375
+  type: 'test'
+  ...
+# Subtest: normalizes DWG recipe values and preserves a valid zero offset
+ok 241 - normalizes DWG recipe values and preserves a valid zero offset
+  ---
+  duration_ms: 0.26675
+  type: 'test'
+  ...
+# Subtest: canonical parameterPatch wins over compatibility containers
+ok 242 - canonical parameterPatch wins over compatibility containers
+  ---
+  duration_ms: 0.079084
+  type: 'test'
+  ...
+# Subtest: normalizes list-shaped parameter evidence for the inspector
+ok 243 - normalizes list-shaped parameter evidence for the inspector
+  ---
+  duration_ms: 0.069625
+  type: 'test'
+  ...
+# Subtest: concurrent edit protection applies only to text-only model edits
+ok 244 - concurrent edit protection applies only to text-only model edits
+  ---
+  duration_ms: 0.035542
+  type: 'test'
+  ...
+# Subtest: chat dimension changes accept snake case and numeric strings, rejecting unsupported and invalid fields
+ok 245 - chat dimension changes accept snake case and numeric strings, rejecting unsupported and invalid fields
+  ---
+  duration_ms: 0.111667
+  type: 'test'
+  ...
+# Subtest: empty, ignored and numerically unchanged replies cannot report an applied geometry change
+ok 246 - empty, ignored and numerically unchanged replies cannot report an applied geometry change
+  ---
+  duration_ms: 0.163292
+  type: 'test'
+  ...
+# Subtest: bracket chat edits keep through-depth helper parameters aligned
+ok 247 - bracket chat edits keep through-depth helper parameters aligned
+  ---
+  duration_ms: 0.036375
+  type: 'test'
+  ...
+# Subtest: follow-up chat updates every drawing candidate consumer before confirm and generate
+ok 248 - follow-up chat updates every drawing candidate consumer before confirm and generate
+  ---
+  duration_ms: 0.177625
+  type: 'test'
+  ...
+# Subtest: no-op chat preserves generated drawing status and topology changes detach old evidence
+ok 249 - no-op chat preserves generated drawing status and topology changes detach old evidence
+  ---
+  duration_ms: 0.0455
+  type: 'test'
+  ...
+# Subtest: recipe-only legacy evidence survives follow-up edits and unchanged manual fields keep provenance
+ok 250 - recipe-only legacy evidence survives follow-up edits and unchanged manual fields keep provenance
+  ---
+  duration_ms: 0.08325
+  type: 'test'
+  ...
+# Subtest: client IDs prefer native UUID and preserve the Crypto method receiver
+ok 251 - client IDs prefer native UUID and preserve the Crypto method receiver
+  ---
+  duration_ms: 0.621584
+  type: 'test'
+  ...
+# Subtest: HTTP without randomUUID generates valid UUIDs from getRandomValues
+ok 252 - HTTP without randomUUID generates valid UUIDs from getRandomValues
+  ---
+  duration_ms: 0.43125
+  type: 'test'
+  ...
+# Subtest: legacy clients without Web Crypto retain distinct non-secret local IDs in the same millisecond
+ok 253 - legacy clients without Web Crypto retain distinct non-secret local IDs in the same millisecond
+  ---
+  duration_ms: 0.188917
+  type: 'test'
+  ...
+# Subtest: project, file, version and assembly creation work over HTTP without randomUUID
+ok 254 - project, file, version and assembly creation work over HTTP without randomUUID
+  ---
+  duration_ms: 3.520875
+  type: 'test'
+  ...
+# Subtest: source dimension locating starts and completes over HTTP with a generated operation ID
+ok 255 - source dimension locating starts and completes over HTTP with a generated operation ID
+  ---
+  duration_ms: 31.227292
+  type: 'test'
+  ...
+# Subtest: customer help and deletion receipts distinguish requests, local validation and actual manual handling
+ok 256 - customer help and deletion receipts distinguish requests, local validation and actual manual handling
+  ---
+  duration_ms: 43.229709
+  type: 'test'
+  ...
+# Subtest: case plans initialize as independent drafts without mutating their source
+ok 257 - case plans initialize as independent drafts without mutating their source
+  ---
+  duration_ms: 0.730167
+  type: 'test'
+  ...
+# Subtest: direct feature deletion and reorder reject dangling or future references
+ok 258 - direct feature deletion and reorder reject dangling or future references
+  ---
+  duration_ms: 0.40125
+  type: 'test'
+  ...
+# Subtest: independent feature movement and generated identifiers preserve valid references
+ok 259 - independent feature movement and generated identifiers preserve valid references
+  ---
+  duration_ms: 0.53175
+  type: 'test'
+  ...
+# Subtest: manual workspace client binds downloads to authenticated exact versions
+ok 260 - manual workspace client binds downloads to authenticated exact versions
+  ---
+  duration_ms: 0.494625
+  type: 'test'
+  ...
+# Subtest: a stalled build response recovers durable geometry without a second POST
+ok 261 - a stalled build response recovers durable geometry without a second POST
+  ---
+  duration_ms: 4.375834
+  type: 'test'
+  ...
+# Subtest: build recovery will not accept another concurrent saved draft as success
+ok 262 - build recovery will not accept another concurrent saved draft as success
+  ---
+  duration_ms: 3.200875
+  type: 'test'
+  ...
+# Subtest: decimal entry remains editable and direct parameter values normalize only when saving
+ok 263 - decimal entry remains editable and direct parameter values normalize only when saving
+  ---
+  duration_ms: 0.419458
+  type: 'test'
+  ...
+# Subtest: unfinished feature drafts survive reopening but remain isolated by account and case
+ok 264 - unfinished feature drafts survive reopening but remain isolated by account and case
+  ---
+  duration_ms: 0.254459
+  type: 'test'
+  ...
+# Subtest: geometry errors preserve the failing feature for locating its editable form
+ok 265 - geometry errors preserve the failing feature for locating its editable form
+  ---
+  duration_ms: 0.629209
+  type: 'test'
+  ...
+# Subtest: negative box sizes have clear Chinese guidance while preserving exact kernel detail and feature location
+ok 266 - negative box sizes have clear Chinese guidance while preserving exact kernel detail and feature location
+  ---
+  duration_ms: 1.595834
+  type: 'test'
+  ...
+# Subtest: common parameter and dependency errors translate without guessing unknown kernel failures
+ok 267 - common parameter and dependency errors translate without guessing unknown kernel failures
+  ---
+  duration_ms: 0.945333
+  type: 'test'
+  ...
+# Subtest: token renewal keeps the same account draft while a different account remains isolated
+ok 268 - token renewal keeps the same account draft while a different account remains isolated
+  ---
+  duration_ms: 0.154791
+  type: 'test'
+  ...
+# Subtest: build recovery uses refreshed credentials without repeating the build mutation
+ok 269 - build recovery uses refreshed credentials without repeating the build mutation
+  ---
+  duration_ms: 1.04175
+  type: 'test'
+  ...
+# Subtest: HTTP confirmation failures retain candidates and never claim local or server success
+ok 270 - HTTP confirmation failures retain candidates and never claim local or server success
+  ---
+  duration_ms: 15.457083
+  type: 'test'
+  ...
+# Subtest: only confirmed server responses advance the confirmation state
+ok 271 - only confirmed server responses advance the confirmation state
+  ---
+  duration_ms: 1.368958
+  type: 'test'
+  ...
+# Subtest: local preview confirmation is restricted to explicit offline transport or offline candidates
+ok 272 - local preview confirmation is restricted to explicit offline transport or offline candidates
+  ---
+  duration_ms: 4.917375
+  type: 'test'
+  ...
+# Subtest: a failed old confirmation cannot overwrite a newer candidate
+ok 273 - a failed old confirmation cannot overwrite a newer candidate
+  ---
+  duration_ms: 0.728292
+  type: 'test'
+  ...
+# Subtest: DXF export cannot silently produce an empty file or export unconfirmed drawing data
+ok 274 - DXF export cannot silently produce an empty file or export unconfirmed drawing data
+  ---
+  duration_ms: 6.681917
+  type: 'test'
+  ...
+# Subtest: feature model drawings return an actionable unsupported state instead of calling a missing recipe
+ok 275 - feature model drawings return an actionable unsupported state instead of calling a missing recipe
+  ---
+  duration_ms: 0.590208
+  type: 'test'
+  ...
+# Subtest: every recipe produces its own three views, section and finite exportable geometry
+ok 276 - every recipe produces its own three views, section and finite exportable geometry
+  ---
+  duration_ms: 21.836125
+  type: 'test'
+  ...
+# Subtest: arched clevis drawing separates the arch, transverse ear bores and vertical mounting holes
+ok 277 - arched clevis drawing separates the arch, transverse ear bores and vertical mounting holes
+  ---
+  duration_ms: 0.817792
+  type: 'test'
+  ...
+# Subtest: shaft geometry expresses the through bore and keyway in views and section
+ok 278 - shaft geometry expresses the through bore and keyway in views and section
+  ---
+  duration_ms: 1.135583
+  type: 'test'
+  ...
+# Subtest: edited dimensions change actual line/circle geometry instead of text only
+ok 279 - edited dimensions change actual line/circle geometry instead of text only
+  ---
+  duration_ms: 0.622
+  type: 'test'
+  ...
+# Subtest: clamp uses its D profile, fillets, blind bore and cross hole; nozzle keeps its insert separate
+ok 280 - clamp uses its D profile, fillets, blind bore and cross hole; nozzle keeps its insert separate
+  ---
+  duration_ms: 0.616333
+  type: 'test'
+  ...
+# Subtest: DXF honors visible layers and retains actual millimeter geometry at every display scale
+ok 281 - DXF honors visible layers and retains actual millimeter geometry at every display scale
+  ---
+  duration_ms: 3.544375
+  type: 'test'
+  ...
+# Subtest: unknown or invalid models produce an honest empty scene and cannot be exported
+ok 282 - unknown or invalid models produce an honest empty scene and cannot be exported
+  ---
+  duration_ms: 0.303542
+  type: 'test'
+  ...
+# Subtest: production validation is not displayed for unavailable, stale or pending artifacts
+ok 283 - production validation is not displayed for unavailable, stale or pending artifacts
+  ---
+  duration_ms: 0.286583
+  type: 'test'
+  ...
+# Subtest: STEP import validates before upload and sends the real file with owner authorization
+ok 284 - STEP import validates before upload and sends the real file with owner authorization
+  ---
+  duration_ms: 37.363958
+  type: 'test'
+  ...
+# Subtest: a stalled response body times out and tells the user to check whether saving completed
+ok 285 - a stalled response body times out and tells the user to check whether saving completed
+  ---
+  duration_ms: 10.997792
+  type: 'test'
+  ...
+# Subtest: account cancellation remains AbortError and network errors are readable
+ok 286 - account cancellation remains AbortError and network errors are readable
+  ---
+  duration_ms: 0.724459
+  type: 'test'
+  ...
+# Subtest: kernel validation detail is preserved for the user
+ok 287 - kernel validation detail is preserved for the user
+  ---
+  duration_ms: 0.287833
+  type: 'test'
+  ...
+# Subtest: removing a middle view preserves other dimensions and rebases references
+ok 288 - removing a middle view preserves other dimensions and rebases references
+  ---
+  duration_ms: 0.305292
+  type: 'test'
+  ...
+# Subtest: blank required coordinates never become zero and valid negative positions survive
+ok 289 - blank required coordinates never become zero and valid negative positions survive
+  ---
+  duration_ms: 0.242375
+  type: 'test'
+  ...
+# Subtest: drawing controls serialize automatic layout and compare saved settings without key-order drift
+ok 290 - drawing controls serialize automatic layout and compare saved settings without key-order drift
+  ---
+  duration_ms: 9.528084
+  type: 'test'
+  ...
+# Subtest: topology selector does not accept trailing fields or unsafe indices
+ok 291 - topology selector does not accept trailing fields or unsafe indices
+  ---
+  duration_ms: 0.183583
+  type: 'test'
+  ...
+# Subtest: hidden workspaces and zero-size canvases cannot render or produce a zero aspect ratio
+ok 292 - hidden workspaces and zero-size canvases cannot render or produce a zero aspect ratio
+  ---
+  duration_ms: 0.142667
+  type: 'test'
+  ...
+# Subtest: logged-out engineering workspace does not expose upload, download or AI actions
+ok 293 - logged-out engineering workspace does not expose upload, download or AI actions
+  ---
+  duration_ms: 124.656667
+  type: 'test'
+  ...
+# Subtest: empty assembly explains the available workflow and disables unavailable actions
+ok 294 - empty assembly explains the available workflow and disables unavailable actions
+  ---
+  duration_ms: 5.906708
+  type: 'test'
+  ...
+# Subtest: assembly composer remains mounted when viewing measurements so its draft survives tab navigation
+ok 295 - assembly composer remains mounted when viewing measurements so its draft survives tab navigation
+  ---
+  duration_ms: 2.513208
+  type: 'test'
+  ...
+# Subtest: rotating a credential keeps the account workspace identity while another account is isolated
+ok 296 - rotating a credential keeps the account workspace identity while another account is isolated
+  ---
+  duration_ms: 0.295458
+  type: 'test'
+  ...
+# Subtest: drawing preview exposes display-only zoom and restores fit without editing output scale
+ok 297 - drawing preview exposes display-only zoom and restores fit without editing output scale
+  ---
+  duration_ms: 0.81675
+  type: 'test'
+  ...
+# Subtest: all supported baseline recipes pass and preserve valid zero insert offset
+ok 298 - all supported baseline recipes pass and preserve valid zero insert offset
+  ---
+  duration_ms: 2.73575
+  type: 'test'
+  ...
+# Subtest: empty, nonfinite and boolean dimensions cannot be reported valid
+ok 299 - empty, nonfinite and boolean dimensions cannot be reported valid
+  ---
+  duration_ms: 0.308875
+  type: 'test'
+  ...
+# Subtest: shaft validation rejects holes, slot lengths and cuts that destroy the wall
+ok 300 - shaft validation rejects holes, slot lengths and cuts that destroy the wall
+  ---
+  duration_ms: 0.069208
+  type: 'test'
+  ...
+# Subtest: bracket checks actual upper-body bounds, height stack and side holes
+ok 301 - bracket checks actual upper-body bounds, height stack and side holes
+  ---
+  duration_ms: 0.082125
+  type: 'test'
+  ...
+# Subtest: bracket matches API auxiliary defaults and through-hole semantics
+ok 302 - bracket matches API auxiliary defaults and through-hole semantics
+  ---
+  duration_ms: 0.116709
+  type: 'test'
+  ...
+# Subtest: clamp validation catches unsupported hole counts, colliding holes and impossible fillets
+ok 303 - clamp validation catches unsupported hole counts, colliding holes and impossible fillets
+  ---
+  duration_ms: 0.067125
+  type: 'test'
+  ...
+# Subtest: nozzle validation checks insert fit, bore wall and taper length
+ok 304 - nozzle validation checks insert fit, bore wall and taper length
+  ---
+  duration_ms: 0.07875
+  type: 'test'
+  ...
+# Subtest: valid recipe variants are not blocked by constraints absent from the backend
+ok 305 - valid recipe variants are not blocked by constraints absent from the backend
+  ---
+  duration_ms: 0.125959
+  type: 'test'
+  ...
+# Subtest: units and thread strings respect the API wire constraints
+ok 306 - units and thread strings respect the API wire constraints
+  ---
+  duration_ms: 0.223708
+  type: 'test'
+  ...
+# Subtest: aliases are supported but unknown models never silently become shafts
+ok 307 - aliases are supported but unknown models never silently become shafts
+  ---
+  duration_ms: 0.756625
+  type: 'test'
+  ...
+# Subtest: dropped response is retryable while validation conflicts remain explicit
+ok 308 - dropped response is retryable while validation conflicts remain explicit
+  ---
+  duration_ms: 26.330334
+  type: 'test'
+  ...
+# Subtest: stalled requests expire and preserve a recoverable outcome
+ok 309 - stalled requests expire and preserve a recoverable outcome
+  ---
+  duration_ms: 7.906084
+  type: 'test'
+  ...
+# Subtest: polyline editing preserves incomplete draft text until explicit validation
+ok 310 - polyline editing preserves incomplete draft text until explicit validation
+  ---
+  duration_ms: 1.443833
+  type: 'test'
+  ...
+# Subtest: aligned dimensions place slanted and vertical dimension lines on the clicked side
+ok 311 - aligned dimensions place slanted and vertical dimension lines on the clicked side
+  ---
+  duration_ms: 1.049666
+  type: 'test'
+  ...
+# Subtest: dimension drafts reject coincident definitions before submitting native geometry
+ok 312 - dimension drafts reject coincident definitions before submitting native geometry
+  ---
+  duration_ms: 0.68275
+  type: 'test'
+  ...
+# Subtest: associated dimensions bind only backend supported source types and prefer selected entities
+ok 313 - associated dimensions bind only backend supported source types and prefer selected entities
+  ---
+  duration_ms: 1.637458
+  type: 'test'
+  ...
+# Subtest: circle dimensions bind to the actual matching radius and angular dimensions retain each ray
+ok 314 - circle dimensions bind to the actual matching radius and angular dimensions retain each ray
+  ---
+  duration_ms: 0.19
+  type: 'test'
+  ...
+# Subtest: switching drawings keeps a valid layout or falls back to a layout in the new drawing
+ok 315 - switching drawings keeps a valid layout or falls back to a layout in the new drawing
+  ---
+  duration_ms: 0.290542
+  type: 'test'
+  ...
+# Subtest: hidden source entities cannot silently acquire a dimension association or snap
+ok 316 - hidden source entities cannot silently acquire a dimension association or snap
+  ---
+  duration_ms: 0.255041
+  type: 'test'
+  ...
+# Subtest: frozen layers never participate in snapping or source association
+ok 317 - frozen layers never participate in snapping or source association
+  ---
+  duration_ms: 0.242166
+  type: 'test'
+  ...
+# Subtest: hidden INSERT and DIMENSION parents hide their flattened display entities
+ok 318 - hidden INSERT and DIMENSION parents hide their flattened display entities
+  ---
+  duration_ms: 0.424625
+  type: 'test'
+  ...
+# Subtest: formula parameters resolve recursively while cycles and executable expressions fail
+ok 319 - formula parameters resolve recursively while cycles and executable expressions fail
+  ---
+  duration_ms: 2.202542
+  type: 'test'
+  ...
+# Subtest: horizontal and formula-driven length are solved together without modifying input
+ok 320 - horizontal and formula-driven length are solved together without modifying input
+  ---
+  duration_ms: 2.553584
+  type: 'test'
+  ...
+# Subtest: fixed geometry prevents an incompatible length from being silently accepted
+ok 321 - fixed geometry prevents an incompatible length from being silently accepted
+  ---
+  duration_ms: 0.294041
+  type: 'test'
+  ...
+# Subtest: mixed length/radius and degenerate directional relations are rejected
+ok 322 - mixed length/radius and degenerate directional relations are rejected
+  ---
+  duration_ms: 1.228375
+  type: 'test'
+  ...
+# Subtest: mirroring bulged polylines reverses arc handedness and keeps source intact
+ok 323 - mirroring bulged polylines reverses arc handedness and keeps source intact
+  ---
+  duration_ms: 0.225958
+  type: 'test'
+  ...
+# Subtest: each professional symbol produces editable geometry at the requested origin
+ok 324 - each professional symbol produces editable geometry at the requested origin
+  ---
+  duration_ms: 0.799042
+  type: 'test'
+  ...
+# Subtest: fit bounds accepts a large imported drawing without JS argument stack overflow
+ok 325 - fit bounds accepts a large imported drawing without JS argument stack overflow
+  ---
+  duration_ms: 32.834333
+  type: 'test'
+  ...
+# Subtest: safe formulas support dependencies and reject loops and code
+ok 326 - safe formulas support dependencies and reject loops and code
+  ---
+  duration_ms: 2.638708
+  type: 'test'
+  ...
+# Subtest: solver preserves fixed datum and meets dimensions across coincident edges
+ok 327 - solver preserves fixed datum and meets dimensions across coincident edges
+  ---
+  duration_ms: 3.354792
+  type: 'test'
+  ...
+# Subtest: contradictory dimensions reject without mutating original entities
+ok 328 - contradictory dimensions reject without mutating original entities
+  ---
+  duration_ms: 0.195791
+  type: 'test'
+  ...
+# Subtest: concentric circles retain positive radii and parameter dependencies
+ok 329 - concentric circles retain positive radii and parameter dependencies
+  ---
+  duration_ms: 0.354375
+  type: 'test'
+  ...
+# Subtest: arc mirror reverses endpoints and polyline bulge without modifying source
+ok 330 - arc mirror reverses endpoints and polyline bulge without modifying source
+  ---
+  duration_ms: 0.54225
+  type: 'test'
+  ...
+# Subtest: snapping prioritizes entity points and only falls back to grid
+ok 331 - snapping prioritizes entity points and only falls back to grid
+  ---
+  duration_ms: 0.223791
+  type: 'test'
+  ...
+# Subtest: all professional components generate finite editable geometry at custom sizes
+ok 332 - all professional components generate finite editable geometry at custom sizes
+  ---
+  duration_ms: 3.834959
+  type: 'test'
+  ...
+# Subtest: drawing draft survives a lost response and retries exactly the same operation id
+ok 333 - drawing draft survives a lost response and retries exactly the same operation id
+  ---
+  duration_ms: 173.964292
+  type: 'test'
+  ...
+# Subtest: unsaved property edits require a decision before changing selection
+ok 334 - unsaved property edits require a decision before changing selection
+  ---
+  duration_ms: 128.735417
+  type: 'test'
+  ...
+# Subtest: an old-account preview response cannot create a URL or download after logout
+ok 335 - an old-account preview response cannot create a URL or download after logout
+  ---
+  duration_ms: 21.465833
+  type: 'test'
+  ...
+# Subtest: viewer writes are disabled and hidden workspaces do not handle the save shortcut
+ok 336 - viewer writes are disabled and hidden workspaces do not handle the save shortcut
+  ---
+  duration_ms: 14.550375
+  type: 'test'
+  ...
+# Subtest: same-account token refresh retains property drafts and saves with the new credential
+ok 337 - same-account token refresh retains property drafts and saves with the new credential
+  ---
+  duration_ms: 24.316292
+  type: 'test'
+  ...
+# Subtest: parameter library keeps unsaved formulas when closing or switching editors
+ok 338 - parameter library keeps unsaved formulas when closing or switching editors
+  ---
+  duration_ms: 3.359417
+  type: 'test'
+  ...
+# Subtest: undoing removal of a parameter template does not leave a stale open editor
+ok 339 - undoing removal of a parameter template does not leave a stale open editor
+  ---
+  duration_ms: 0.669792
+  type: 'test'
+  ...
+# Subtest: Numeric follows undo and redo values without requiring an input blur
+ok 340 - Numeric follows undo and redo values without requiring an input blur
+  ---
+  duration_ms: 0.515333
+  type: 'test'
+  ...
+# Subtest: Numeric retains incomplete decimal or sign drafts when its source number is unchanged
+ok 341 - Numeric retains incomplete decimal or sign drafts when its source number is unchanged
+  ---
+  duration_ms: 0.9735
+  type: 'test'
+  ...
+# Subtest: parameter templates solve independent rectangle width and height and keep connected corners
+ok 342 - parameter templates solve independent rectangle width and height and keep connected corners
+  ---
+  duration_ms: 12.139917
+  type: 'test'
+  ...
+# Subtest: formula dependencies and fixed reference geometry survive translation and independent line-circle edits
+ok 343 - formula dependencies and fixed reference geometry survive translation and independent line-circle edits
+  ---
+  duration_ms: 1.039208
+  type: 'test'
+  ...
+# Subtest: parameter library rejects external constraints, static geometry, invalid formulas and conflicting values
+ok 344 - parameter library rejects external constraints, static geometry, invalid formulas and conflicting values
+  ---
+  duration_ms: 3.409083
+  type: 'test'
+  ...
+# Subtest: official mode defaults to requested successful candidates and deferred dues, with 1x adjustable multiplier
+ok 345 - official mode defaults to requested successful candidates and deferred dues, with 1x adjustable multiplier
+  ---
+  duration_ms: 2.421791
+  type: 'test'
+  ...
+# Subtest: pricing parser rejects empty, zero, negative, unsafe exponent or excessive precision
+ok 346 - pricing parser rejects empty, zero, negative, unsafe exponent or excessive precision
+  ---
+  duration_ms: 15.589
+  type: 'test'
+  ...
+# Subtest: saved official rules are editable by cloning settings and preserve old decimal prices
+ok 347 - saved official rules are editable by cloning settings and preserve old decimal prices
+  ---
+  duration_ms: 0.321667
+  type: 'test'
+  ...
+# Subtest: photo calibration preserves actual pixels and explicit dimensional authority
+ok 348 - photo calibration preserves actual pixels and explicit dimensional authority
+  ---
+  duration_ms: 1.149208
+  type: 'test'
+  ...
+# Subtest: photo calibration rejects degenerate scales and lacks no required description
+ok 349 - photo calibration rejects degenerate scales and lacks no required description
+  ---
+  duration_ms: 0.181375
+  type: 'test'
+  ...
+# Subtest: case library has stable independent editable plans and all operation families
+ok 350 - case library has stable independent editable plans and all operation families
+  ---
+  duration_ms: 0.131875
+  type: 'test'
+  ...
+# Subtest: photo calibration requires a loaded image and normalized point coordinates
+ok 351 - photo calibration requires a loaded image and normalized point coordinates
+  ---
+  duration_ms: 0.142375
+  type: 'test'
+  ...
+# Subtest: entering one pixel coordinate never invents the other three reference coordinates
+ok 352 - entering one pixel coordinate never invents the other three reference coordinates
+  ---
+  duration_ms: 0.733333
+  type: 'test'
+  ...
+# Subtest: adding supplemental photos preserves main photo and rejects invalid or excessive selections atomically
+ok 353 - adding supplemental photos preserves main photo and rejects invalid or excessive selections atomically
+  ---
+  duration_ms: 0.272625
+  type: 'test'
+  ...
+# Subtest: late platform results cannot restore an account after logout or account switching
+ok 354 - late platform results cannot restore an account after logout or account switching
+  ---
+  duration_ms: 0.653208
+  type: 'test'
+  ...
+# Subtest: same-project file changes and model revisions invalidate pending CAM results
+ok 355 - same-project file changes and model revisions invalidate pending CAM results
+  ---
+  duration_ms: 0.127958
+  type: 'test'
+  ...
+# Subtest: PDM browsing reaches every document and can find a version by its original filename
+ok 356 - PDM browsing reaches every document and can find a version by its original filename
+  ---
+  duration_ms: 0.241125
+  type: 'test'
+  ...
+# Subtest: real App blank-file rename exports a backup that can be imported again without inventing a model
+ok 357 - real App blank-file rename exports a backup that can be imported again without inventing a model
+  ---
+  duration_ms: 7.1035
+  type: 'test'
+  ...
+# Subtest: real App canSwitch refusal returns false and never restores trash or reports success
+ok 358 - real App canSwitch refusal returns false and never restores trash or reports success
+  ---
+  duration_ms: 5.965958
+  type: 'test'
+  ...
+# Subtest: imported backups survive real local cloud save/load and every parent/child trash recovery order
+ok 359 - imported backups survive real local cloud save/load and every parent/child trash recovery order
+  ---
+  duration_ms: 1732.580833
+  type: 'test'
+  ...
+# 6 种恢复顺序；真实本地 PUT/GET 往返 24 次；最终 revision=24；每组 3 文件、轴长 70、中文文档和版本说明保留；回收站 0；账号 B revision=0；过期写入 409。
+# Subtest: new visitor gets an independent blank project/file without a default model or demo list
+ok 360 - new visitor gets an independent blank project/file without a default model or demo list
+  ---
+  duration_ms: 6.967208
+  type: 'test'
+  ...
+# Subtest: blank snapshots remain null while explicitly supplied models and snapshots are preserved
+ok 361 - blank snapshots remain null while explicitly supplied models and snapshots are preserved
+  ---
+  duration_ms: 0.419125
+  type: 'test'
+  ...
+# Subtest: new blank projects and every blank file type stay empty when switching from a real model
+ok 362 - new blank projects and every blank file type stay empty when switching from a real model
+  ---
+  duration_ms: 1.272375
+  type: 'test'
+  ...
+# Subtest: blank files survive persistence and version restores without reviving a previous model
+ok 363 - blank files survive persistence and version restores without reviving a previous model
+  ---
+  duration_ms: 0.572875
+  type: 'test'
+  ...
+# Subtest: creating from an explicit current snapshot preserves its model and independent contents
+ok 364 - creating from an explicit current snapshot preserves its model and independent contents
+  ---
+  duration_ms: 0.394792
+  type: 'test'
+  ...
+# Subtest: metadata-only legacy projects never invent a model, even with a caller template
+ok 365 - metadata-only legacy projects never invent a model, even with a caller template
+  ---
+  duration_ms: 0.253792
+  type: 'test'
+  ...
+# Subtest: persisted snapshots with an omitted model recover as blank and keep real model versions
+ok 366 - persisted snapshots with an omitted model recover as blank and keep real model versions
+  ---
+  duration_ms: 0.1635
+  type: 'test'
+  ...
+# Subtest: projects and files retain independent snapshots when switched or edited
+ok 367 - projects and files retain independent snapshots when switched or edited
+  ---
+  duration_ms: 0.248416
+  type: 'test'
+  ...
+# Subtest: opening a target file returns its contents, and callers cannot mutate stored contents by reference
+ok 368 - opening a target file returns its contents, and callers cannot mutate stored contents by reference
+  ---
+  duration_ms: 0.393
+  type: 'test'
+  ...
+# Subtest: saved versions are immutable deep snapshots and restoring only updates the working draft
+ok 369 - saved versions are immutable deep snapshots and restoring only updates the working draft
+  ---
+  duration_ms: 0.500958
+  type: 'test'
+  ...
+# Subtest: persistence round trip keeps stable ids, selected file, documents, parameters and versions
+ok 370 - persistence round trip keeps stable ids, selected file, documents, parameters and versions
+  ---
+  duration_ms: 0.820958
+  type: 'test'
+  ...
+# Subtest: legacy migration binds the only real model to f1 in selected project; other records are unavailable
+ok 371 - legacy migration binds the only real model to f1 in selected project; other records are unavailable
+  ---
+  duration_ms: 0.342208
+  type: 'test'
+  ...
+# Subtest: File/Blob, preview URLs, attachment bytes and credentials never persist
+ok 372 - File/Blob, preview URLs, attachment bytes and credentials never persist
+  ---
+  duration_ms: 0.210708
+  type: 'test'
+  ...
+# Subtest: durable artifact capability tokens survive while account credentials are removed
+ok 373 - durable artifact capability tokens survive while account credentials are removed
+  ---
+  duration_ms: 0.0765
+  type: 'test'
+  ...
+# Subtest: interrupted persisted work becomes an actionable error requiring source reselection
+ok 374 - interrupted persisted work becomes an actionable error requiring source reselection
+  ---
+  duration_ms: 0.128375
+  type: 'test'
+  ...
+# Subtest: confirmed evidence and generated entities survive restore without being gated on original file
+ok 375 - confirmed evidence and generated entities survive restore without being gated on original file
+  ---
+  duration_ms: 0.125917
+  type: 'test'
+  ...
+# Subtest: editable pending evidence can be confirmed after restore, but failed analysis requires source
+ok 376 - editable pending evidence can be confirmed after restore, but failed analysis requires source
+  ---
+  duration_ms: 0.060708
+  type: 'test'
+  ...
+# Subtest: complete idle parameter edits remain buildable after reload with source provenance retained
+ok 377 - complete idle parameter edits remain buildable after reload with source provenance retained
+  ---
+  duration_ms: 0.385
+  type: 'test'
+  ...
+# Subtest: valid old dimensions do not bypass recovery of a pending or failed drawing analysis
+ok 378 - valid old dimensions do not bypass recovery of a pending or failed drawing analysis
+  ---
+  duration_ms: 0.099583
+  type: 'test'
+  ...
+# Subtest: renames affect the target and draft name, never an old saved version
+ok 379 - renames affect the target and draft name, never an old saved version
+  ---
+  duration_ms: 0.137917
+  type: 'test'
+  ...
+# Subtest: storage failure is surfaced to the caller and valid source store stays intact
+ok 380 - storage failure is surfaced to the caller and valid source store stays intact
+  ---
+  duration_ms: 0.209083
+  type: 'test'
+  ...
+# Subtest: duplicate creates an independent draft and new version history while retaining drawing references
+ok 381 - duplicate creates an independent draft and new version history while retaining drawing references
+  ---
+  duration_ms: 0.250833
+  type: 'test'
+  ...
+# Subtest: creating another project remembers the previous project last-opened file after reload
+ok 382 - creating another project remembers the previous project last-opened file after reload
+  ---
+  duration_ms: 0.417459
+  type: 'test'
+  ...
+# Subtest: file deletion is reversible with snapshots and versions preserved across local persistence
+ok 383 - file deletion is reversible with snapshots and versions preserved across local persistence
+  ---
+  duration_ms: 0.389291
+  type: 'test'
+  ...
+# Subtest: deleting the last file keeps a usable empty project and deleting the last project creates a blank workspace
+ok 384 - deleting the last file keeps a usable empty project and deleting the last project creates a blank workspace
+  ---
+  duration_ms: 0.137875
+  type: 'test'
+  ...
+# Subtest: workspace backup appends independent projects, documents and immutable version history
+ok 385 - workspace backup appends independent projects, documents and immutable version history
+  ---
+  duration_ms: 1.883875
+  type: 'test'
+  ...
+# Subtest: backup includes recoverable deleted files and reconnects them to the imported project
+ok 386 - backup includes recoverable deleted files and reconnects them to the imported project
+  ---
+  duration_ms: 0.386208
+  type: 'test'
+  ...
+# Subtest: backup reconnects a separately deleted file after its deleted parent project is restored
+ok 387 - backup reconnects a separately deleted file after its deleted parent project is restored
+  ---
+  duration_ms: 1.071792
+  type: 'test'
+  ...
+# Subtest: existing individual JSON downloads can be imported as independent files
+ok 388 - existing individual JSON downloads can be imported as independent files
+  ---
+  duration_ms: 0.190834
+  type: 'test'
+  ...
+# Subtest: older settings backups without a format marker remain importable
+ok 389 - older settings backups without a format marker remain importable
+  ---
+  duration_ms: 0.649917
+  type: 'test'
+  ...
+# Subtest: restoring a same-named file keeps the draft model name aligned without renaming historical versions
+ok 390 - restoring a same-named file keeps the draft model name aligned without renaming historical versions
+  ---
+  duration_ms: 0.355708
+  type: 'test'
+  ...
+# Subtest: malformed model collections are rejected before they can crash the workspace
+ok 391 - malformed model collections are rejected before they can crash the workspace
+  ---
+  duration_ms: 0.713834
+  type: 'test'
+  ...
+# Subtest: malformed or oversized backup leaves existing projects untouched
+ok 392 - malformed or oversized backup leaves existing projects untouched
+  ---
+  duration_ms: 44.573334
+  type: 'test'
+  ...
+# Subtest: deleted siblings and parent restore into one project in any order, including after reload or backup import
+ok 393 - deleted siblings and parent restore into one project in any order, including after reload or backup import
+  ---
+  duration_ms: 16.3585
+  type: 'test'
+  ...
+# Subtest: restoring a parent keeps edits and new files made after a child was recovered
+ok 394 - restoring a parent keeps edits and new files made after a child was recovered
+  ---
+  duration_ms: 0.450875
+  type: 'test'
+  ...
+# Subtest: empty cloud project lists retain trash and account migration metadata on normalization
+ok 395 - empty cloud project lists retain trash and account migration metadata on normalization
+  ---
+  duration_ms: 0.404125
+  type: 'test'
+  ...
+# Subtest: reload selects a usable remembered file instead of unavailable legacy metadata
+ok 396 - reload selects a usable remembered file instead of unavailable legacy metadata
+  ---
+  duration_ms: 0.430542
+  type: 'test'
+  ...
+# Subtest: backup refuses ambiguous duplicate live project identities without changing existing data
+ok 397 - backup refuses ambiguous duplicate live project identities without changing existing data
+  ---
+  duration_ms: 0.303083
+  type: 'test'
+  ...
+# Subtest: backup file finishing after account or page exit cannot invoke the importer
+ok 398 - backup file finishing after account or page exit cannot invoke the importer
+  ---
+  duration_ms: 0.501958
+  type: 'test'
+  ...
+# Subtest: backup file import propagates a rejected action and validates before reading
+ok 399 - backup file import propagates a rejected action and validates before reading
+  ---
+  duration_ms: 0.657291
+  type: 'test'
+  ...
+# Subtest: a hanging POST recovers the completed result through a read without starting another operation
+ok 400 - a hanging POST recovers the completed result through a read without starting another operation
+  ---
+  duration_ms: 6.754375
+  type: 'test'
+  ...
+# Subtest: partial progress displays completed boxes and a dropped POST recovers the final result
+ok 401 - partial progress displays completed boxes and a dropped POST recovers the final result
+  ---
+  duration_ms: 13.8365
+  type: 'test'
+  ...
+# Subtest: force polling ignores a previous result and only finishes for its own operation
+ok 402 - force polling ignores a previous result and only finishes for its own operation
+  ---
+  duration_ms: 20.150833
+  type: 'test'
+  ...
+# Subtest: a hanging POST and read end at the overall deadline even if they ignore AbortSignal
+ok 403 - a hanging POST and read end at the overall deadline even if they ignore AbortSignal
+  ---
+  duration_ms: 36.804833
+  type: 'test'
+  ...
+# Subtest: leaving the page cancels pending work and late responses cannot update another model
+ok 404 - leaving the page cancels pending work and late responses cannot update another model
+  ---
+  duration_ms: 17.399625
+  type: 'test'
+  ...
+# Subtest: a late POST error does not erase success obtained from the server cache
+ok 405 - a late POST error does not erase success obtained from the server cache
+  ---
+  duration_ms: 6.856
+  type: 'test'
+  ...
+# Subtest: an inaccessible run fails immediately without polling or accepting another run cache
+ok 406 - an inaccessible run fails immediately without polling or accepting another run cache
+  ---
+  duration_ms: 31.138042
+  type: 'test'
+  ...
+# Subtest: repeated manual edits retain legacy string evidence and object provenance for comparison
+ok 407 - repeated manual edits retain legacy string evidence and object provenance for comparison
+  ---
+  duration_ms: 7.543625
+  type: 'test'
+  ...
+# Subtest: explicit annotation IDs locate the original callout while showing the current parameter value
+ok 408 - explicit annotation IDs locate the original callout while showing the current parameter value
+  ---
+  duration_ms: 0.517458
+  type: 'test'
+  ...
+# Subtest: legacy prose IDs and structured IDs are deduplicated without matching partial identifiers
+ok 409 - legacy prose IDs and structured IDs are deduplicated without matching partial identifiers
+  ---
+  duration_ms: 0.468459
+  type: 'test'
+  ...
+# Subtest: equal numeric values and unknown IDs never invent a link to a drawing annotation
+ok 410 - equal numeric values and unknown IDs never invent a link to a drawing annotation
+  ---
+  duration_ms: 0.5975
+  type: 'test'
+  ...
+# Subtest: duplicate printed numbers resolve to the cited physical annotation, not the first matching value
+ok 411 - duplicate printed numbers resolve to the cited physical annotation, not the first matching value
+  ---
+  duration_ms: 0.278042
+  type: 'test'
+  ...
+# Subtest: conflicting prepared or original hashes prevent highlights even if the other hash matches
+ok 412 - conflicting prepared or original hashes prevent highlights even if the other hash matches
+  ---
+  duration_ms: 0.77675
+  type: 'test'
+  ...
+# Subtest: a matching filename and file index without any matching content identity are insufficient
+ok 413 - a matching filename and file index without any matching content identity are insufficient
+  ---
+  duration_ms: 0.416209
+  type: 'test'
+  ...
+# Subtest: a surviving original hash or prepared hash supports older saved evidence independently
+ok 414 - a surviving original hash or prepared hash supports older saved evidence independently
+  ---
+  duration_ms: 0.614584
+  type: 'test'
+  ...
+# Subtest: a matching hash cannot override a different prepared image index or an unsupported coordinate frame
+ok 415 - a matching hash cannot override a different prepared image index or an unsupported coordinate frame
+  ---
+  duration_ms: 0.5095
+  type: 'test'
+  ...
+# Subtest: invalid boxes are rejected and cannot be presented as precise coordinates
+ok 416 - invalid boxes are rejected and cannot be presented as precise coordinates
+  ---
+  duration_ms: 1.112584
+  type: 'test'
+  ...
+# Subtest: old evidence without a text box uses its containing region and explicitly reports region precision
+ok 417 - old evidence without a text box uses its containing region and explicitly reports region precision
+  ---
+  duration_ms: 0.370167
+  type: 'test'
+  ...
+# Subtest: preparedRegion null means the page was not supplied to the reader and must never receive a highlight
+ok 418 - preparedRegion null means the page was not supplied to the reader and must never receive a highlight
+  ---
+  duration_ms: 0.988125
+  type: 'test'
+  ...
+# Subtest: a box on a combined PDF image maps into only its actual page with page-local coordinates
+ok 419 - a box on a combined PDF image maps into only its actual page with page-local coordinates
+  ---
+  duration_ms: 0.171125
+  type: 'test'
+  ...
+# Subtest: a purported text box spanning a PDF page boundary is not a precise callout on either page
+ok 420 - a purported text box spanning a PDF page boundary is not a precise callout on either page
+  ---
+  duration_ms: 0.0975
+  type: 'test'
+  ...
+# Subtest: an old containing region can cover several PDF pages while retaining region precision
+ok 421 - an old containing region can cover several PDF pages while retaining region precision
+  ---
+  duration_ms: 0.131083
+  type: 'test'
+  ...
+# Subtest: derived expressions recursively collect several annotations across source files without duplicates
+ok 422 - derived expressions recursively collect several annotations across source files without duplicates
+  ---
+  duration_ms: 0.462541
+  type: 'test'
+  ...
+# Subtest: cyclic or missing expression dependencies cannot loop forever or fabricate annotations
+ok 423 - cyclic or missing expression dependencies cannot loop forever or fabricate annotations
+  ---
+  duration_ms: 0.211167
+  type: 'test'
+  ...
+# Subtest: manual edits retain original drawingSource references without replacing the current user value
+ok 424 - manual edits retain original drawingSource references without replacing the current user value
+  ---
+  duration_ms: 0.140666
+  type: 'test'
+  ...
+# Subtest: dirty derived dimensions hide stale resolved values but retain source locations for checking
+ok 425 - dirty derived dimensions hide stale resolved values but retain source locations for checking
+  ---
+  duration_ms: 0.155333
+  type: 'test'
+  ...
+# Subtest: a refreshed source run provides evidence without replacing the local model edits
+ok 426 - a refreshed source run provides evidence without replacing the local model edits
+  ---
+  duration_ms: 3.770834
+  type: 'test'
+  ...
+# Subtest: supplementary text positions precisely locate old drawings without modifying evidence or model values
+ok 427 - supplementary text positions precisely locate old drawings without modifying evidence or model values
+  ---
+  duration_ms: 1.984667
+  type: 'test'
+  ...
+# Subtest: stale run, revision, source bytes, text and coordinate frame never supply exact positions
+ok 428 - stale run, revision, source bytes, text and coordinate frame never supply exact positions
+  ---
+  duration_ms: 0.386291
+  type: 'test'
+  ...
+# Subtest: derived dimensions explicitly report partially located supporting callouts
+ok 429 - derived dimensions explicitly report partially located supporting callouts
+  ---
+  duration_ms: 0.175416
+  type: 'test'
+  ...
+# Subtest: supplementary positions use the prepared file identity when older annotations omit it
+ok 430 - supplementary positions use the prepared file identity when older annotations omit it
+  ---
+  duration_ms: 0.115666
+  type: 'test'
+  ...
+# Subtest: an entire region supplied as a bbox is not accepted as a precise dimension text position
+ok 431 - an entire region supplied as a bbox is not accepted as a precise dimension text position
+  ---
+  duration_ms: 0.068375
+  type: 'test'
+  ...
+# Subtest: a completed recheck can withdraw an earlier estimated box without changing its reading
+ok 432 - a completed recheck can withdraw an earlier estimated box without changing its reading
+  ---
+  duration_ms: 0.083666
+  type: 'test'
+  ...
+# Subtest: parent renewals replace cached drawing URLs but not a different run or revision
+ok 433 - parent renewals replace cached drawing URLs but not a different run or revision
+  ---
+  duration_ms: 2.3845
+  type: 'test'
+  ...
+# Subtest: source download renews authenticated run access and binds the exact original file
+ok 434 - source download renews authenticated run access and binds the exact original file
+  ---
+  duration_ms: 38.650375
+  type: 'test'
+  ...
+# Subtest: foreign, missing, revoked or mismatched resources are refused before credentials or bytes are fetched
+ok 435 - foreign, missing, revoked or mismatched resources are refused before credentials or bytes are fetched
+  ---
+  duration_ms: 0.540083
+  type: 'test'
+  ...
+# Subtest: expired or denied file access is a recoverable download error, not a saved file
+ok 436 - expired or denied file access is a recoverable download error, not a saved file
+  ---
+  duration_ms: 0.453959
+  type: 'test'
+  ...
+# Subtest: leaving a project cancels renewal and prevents late bytes from becoming a download
+ok 437 - leaving a project cancels renewal and prevents late bytes from becoming a download
+  ---
+  duration_ms: 0.451542
+  type: 'test'
+  ...
+# Subtest: projection renewal returns only the requested current-version SVG or PNG
+ok 438 - projection renewal returns only the requested current-version SVG or PNG
+  ---
+  duration_ms: 0.265625
+  type: 'test'
+  ...
+# Subtest: drawing consent is never defaulted on and a linked task must be explicit
+ok 439 - drawing consent is never defaulted on and a linked task must be explicit
+  ---
+  duration_ms: 1.666833
+  type: 'test'
+  ...
+# Subtest: closed tickets can revoke consent but customers cannot perform administrator transitions
+ok 440 - closed tickets can revoke consent but customers cannot perform administrator transitions
+  ---
+  duration_ms: 1.383167
+  type: 'test'
+  ...
+# Subtest: token refresh keeps message intent while switching accounts remounts state
+ok 441 - token refresh keeps message intent while switching accounts remounts state
+  ---
+  duration_ms: 0.245
+  type: 'test'
+  ...
+# Subtest: double click shares one mutation and failed submission retains its retry key
+ok 442 - double click shares one mutation and failed submission retains its retry key
+  ---
+  duration_ms: 0.392375
+  type: 'test'
+  ...
+# Subtest: ticket and message pages clamp correctly after server totals change
+ok 443 - ticket and message pages clamp correctly after server totals change
+  ---
+  duration_ms: 0.237166
+  type: 'test'
+  ...
+# Subtest: client uses own/admin paths, bearer header and exact server-owned IDs without download access
+ok 444 - client uses own/admin paths, bearer header and exact server-owned IDs without download access
+  ---
+  duration_ms: 1.902417
+  type: 'test'
+  ...
+# Subtest: revision errors and network timeouts remain visible rather than successful replies
+ok 445 - revision errors and network timeouts remain visible rather than successful replies
+  ---
+  duration_ms: 9.122625
+  type: 'test'
+  ...
+# Subtest: workdesk queue filters, assignments and notes carry explicit versions
+ok 446 - workdesk queue filters, assignments and notes carry explicit versions
+  ---
+  duration_ms: 1.4705
+  type: 'test'
+  ...
+# Subtest: support client uses private endpoints for notes, and never sends admin filters to customer routes
+ok 447 - support client uses private endpoints for notes, and never sends admin filters to customer routes
+  ---
+  duration_ms: 2.377833
+  type: 'test'
+  ...
+# Subtest: reply templates append to a draft without posting or silently discarding existing input
+ok 448 - reply templates append to a draft without posting or silently discarding existing input
+  ---
+  duration_ms: 0.609083
+  type: 'test'
+  ...
+# Subtest: support deep links normalize all admin filters deterministically
+ok 449 - support deep links normalize all admin filters deterministically
+  ---
+  duration_ms: 0.360209
+  type: 'test'
+  ...
+# Subtest: data deletion requires explicit scopes and acknowledgement without granting drawing access
+ok 450 - data deletion requires explicit scopes and acknowledgement without granting drawing access
+  ---
+  duration_ms: 3.024667
+  type: 'test'
+  ...
+# Subtest: manual outcome receipt requires evidence and records only to the authenticated admin endpoint
+ok 451 - manual outcome receipt requires evidence and records only to the authenticated admin endpoint
+  ---
+  duration_ms: 0.536333
+  type: 'test'
+  ...
+# Subtest: actual workdesk renders queues, assignment and private notes with unambiguous visibility
+ok 452 - actual workdesk renders queues, assignment and private notes with unambiguous visibility
+  ---
+  duration_ms: 31.502
+  type: 'test'
+  ...
+# Subtest: task pagination clamps vanished pages without inventing a page of records
+ok 453 - task pagination clamps vanished pages without inventing a page of records
+  ---
+  duration_ms: 4.046208
+  type: 'test'
+  ...
+# Subtest: a successful cancel HTTP response cannot fabricate cancelled status
+ok 454 - a successful cancel HTTP response cannot fabricate cancelled status
+  ---
+  duration_ms: 0.934666
+  type: 'test'
+  ...
+# Subtest: hidden task pages make no requests and resume when visible
+ok 455 - hidden task pages make no requests and resume when visible
+  ---
+  duration_ms: 0.319
+  type: 'test'
+  ...
+# Subtest: manual refresh during a read suppresses the old response and schedules one new read
+ok 456 - manual refresh during a read suppresses the old response and schedules one new read
+  ---
+  duration_ms: 0.2155
+  type: 'test'
+  ...
+# Subtest: failed task reads stay errors and retry without fake empty success
+ok 457 - failed task reads stay errors and retry without fake empty success
+  ---
+  duration_ms: 0.408167
+  type: 'test'
+  ...
+# Subtest: closing an account ignores a delayed task response and leaves no timers
+ok 458 - closing an account ignores a delayed task response and leaves no timers
+  ---
+  duration_ms: 0.130083
+  type: 'test'
+  ...
+# Subtest: shaft preview has an open through bore and a real keyway floor that moves with depth
+ok 459 - shaft preview has an open through bore and a real keyway floor that moves with depth
+  ---
+  duration_ms: 39.628625
+  type: 'test'
+  ...
+# Subtest: keyway width and length change the removed region instead of decorative surfaces
+ok 460 - keyway width and length change the removed region instead of decorative surfaces
+  ---
+  duration_ms: 7.79675
+  type: 'test'
+  ...
+# Subtest: changing a valid clamp base depth 47 to 50 changes its actual footprint
+ok 461 - changing a valid clamp base depth 47 to 50 changes its actual footprint
+  ---
+  duration_ms: 11.704916
+  type: 'test'
+  ...
+# Subtest: signed candidate and confirmed GLBs renew expired access without rebuilding geometry
+ok 462 - signed candidate and confirmed GLBs renew expired access without rebuilding geometry
+  ---
+  duration_ms: 5.17225
+  type: 'test'
+  ...
+# Subtest: wheel zoom bounds match toolbar limits and keep the full model inside the far clipping plane
+ok 463 - wheel zoom bounds match toolbar limits and keep the full model inside the far clipping plane
+  ---
+  duration_ms: 0.694416
+  type: 'test'
+  ...
+# Subtest: an artifact with old dimensions is rejected even when stale was not set
+ok 464 - an artifact with old dimensions is rejected even when stale was not set
+  ---
+  duration_ms: 0.536583
+  type: 'test'
+  ...
+# Subtest: canonical recipe ids and persisted snake case numeric dimensions remain compatible
+ok 465 - canonical recipe ids and persisted snake case numeric dimensions remain compatible
+  ---
+  duration_ms: 0.196375
+  type: 'test'
+  ...
+# Subtest: same-part dimension edits preserve orbit, distance and pan until explicitly fitted
+ok 466 - same-part dimension edits preserve orbit, distance and pan until explicitly fitted
+  ---
+  duration_ms: 1.482834
+  type: 'test'
+  ...
+# Subtest: authentication and network errors offer actionable messages
+ok 467 - authentication and network errors offer actionable messages
+  ---
+  duration_ms: 2.415417
+  type: 'test'
+  ...
+# Subtest: invalid login credentials ask for correction rather than merely asking to log in
+ok 468 - invalid login credentials ask for correction rather than merely asking to log in
+  ---
+  duration_ms: 0.154875
+  type: 'test'
+  ...
+# Subtest: unfinished or malformed AI responses explain why the preview did not change
+ok 469 - unfinished or malformed AI responses explain why the preview did not change
+  ---
+  duration_ms: 0.17425
+  type: 'test'
+  ...
+# Subtest: opening project drawings and assemblies restores snapshot editors instead of the independent engineering library
+ok 470 - opening project drawings and assemblies restores snapshot editors instead of the independent engineering library
+  ---
+  duration_ms: 1.319333
+  type: 'test'
+  ...
+# Subtest: independent engineering routes share primary navigation and never claim a project snapshot is saved
+ok 471 - independent engineering routes share primary navigation and never claim a project snapshot is saved
+  ---
+  duration_ms: 0.189292
+  type: 'test'
+  ...
+# Subtest: only unversioned matching project aliases migrate while their design data stays intact
+ok 472 - only unversioned matching project aliases migrate while their design data stays intact
+  ---
+  duration_ms: 0.224834
+  type: 'test'
+  ...
+# Subtest: v2 independent navigation and unrelated legacy modes are never remapped by project file type
+ok 473 - v2 independent navigation and unrelated legacy modes are never remapped by project file type
+  ---
+  duration_ms: 0.13675
+  type: 'test'
+  ...
+# Subtest: real App initialization migrates old aliases and newly saved snapshots record v2 navigation
+ok 474 - real App initialization migrates old aliases and newly saved snapshots record v2 navigation
+  ---
+  duration_ms: 2.423292
+  type: 'test'
+  ...
+# Subtest: navigation version and independent alias survive the actual project snapshot storage round trip
+ok 475 - navigation version and independent alias survive the actual project snapshot storage round trip
+  ---
+  duration_ms: 3.573875
+  type: 'test'
+  ...
+# Subtest: a late cloud save preserves newer edits and advances CAS revision
+ok 476 - a late cloud save preserves newer edits and advances CAS revision
+  ---
+  duration_ms: 0.995959
+  type: 'test'
+  ...
+# Subtest: a conflict blocks automatic writes without replacing local data
+ok 477 - a conflict blocks automatic writes without replacing local data
+  ---
+  duration_ms: 0.238708
+  type: 'test'
+  ...
+# Subtest: closed account ignores late save response
+ok 478 - closed account ignores late save response
+  ---
+  duration_ms: 0.210875
+  type: 'test'
+  ...
+# Subtest: opening the same saved cloud snapshot, including StrictMode remount, does not create revisions
+ok 479 - opening the same saved cloud snapshot, including StrictMode remount, does not create revisions
+  ---
+  duration_ms: 0.201333
+  type: 'test'
+  ...
+# Subtest: reverting to the baseline while another snapshot is in flight stays dirty on reload
+ok 480 - reverting to the baseline while another snapshot is in flight stays dirty on reload
+  ---
+  duration_ms: 1.042834
+  type: 'test'
+  ...
+# Subtest: reload retains a dirty stale local draft and blocks writes until the user chooses cloud
+ok 481 - reload retains a dirty stale local draft and blocks writes until the user chooses cloud
+  ---
+  duration_ms: 0.529292
+  type: 'test'
+  ...
+# Subtest: an unfinished legacy import remains marked across reload and keeps its pending data
+ok 482 - an unfinished legacy import remains marked across reload and keeps its pending data
+  ---
+  duration_ms: 0.149583
+  type: 'test'
+  ...
+# Subtest: unclaimed legacy eligibility survives the first automatically saved blank cloud project
+ok 483 - unclaimed legacy eligibility survives the first automatically saved blank cloud project
+  ---
+  duration_ms: 0.14525
+  type: 'test'
+  ...
+# Subtest: a stale eligible tab cannot reopen a claimed import and cloud completion follows the account
+ok 484 - a stale eligible tab cannot reopen a claimed import and cloud completion follows the account
+  ---
+  duration_ms: 0.438458
+  type: 'test'
+  ...
+# Subtest: a cache from a different account cannot activate conflict recovery or supply projects
+ok 485 - a cache from a different account cannot activate conflict recovery or supply projects
+  ---
+  duration_ms: 0.502791
+  type: 'test'
+  ...
+# Subtest: a full local cache still permits cloud saving, then retries only the cache update
+ok 486 - a full local cache still permits cloud saving, then retries only the cache update
+  ---
+  duration_ms: 0.407333
+  type: 'test'
+  ...
+# Subtest: cookie-changing operations are serial even when refresh and login overlap
+ok 487 - cookie-changing operations are serial even when refresh and login overlap
+  ---
+  duration_ms: 0.275292
+  type: 'test'
+  ...
+# Subtest: coordinators in separate tabs request the same named browser lock
+ok 488 - coordinators in separate tabs request the same named browser lock
+  ---
+  duration_ms: 4.192416
+  type: 'test'
+  ...
+# Subtest: another tab saving the shared account cache cannot erase this tabs unsynced draft
+ok 489 - another tab saving the shared account cache cannot erase this tabs unsynced draft
+  ---
+  duration_ms: 0.057
+  type: 'test'
+  ...
+# Subtest: a nonpersistent session expires at its timestamp and cleanup cancels stale expiry
+ok 490 - a nonpersistent session expires at its timestamp and cleanup cancels stale expiry
+  ---
+  duration_ms: 0.166375
+  type: 'test'
+  ...
+1..490
+# tests 490
+# suites 0
+# pass 490
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2768.29975

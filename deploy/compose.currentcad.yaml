@@ -1,0 +1,12 @@
+# Append after the existing base / Codex / commercial / operations overlays.
+# Explicit candidate names prevent overwriting a currently released image tag.
+services:
+  api:
+    image: ${JOYNIU_CURRENTCAD_API_IMAGE:?Set a new verified candidate API tag}
+    build:
+      dockerfile: deploy/Dockerfile.currentcad
+      args:
+        CURRENT_CAD_IMAGE: ${JOYNIU_CURRENTCAD_BASE_IMAGE:?Set the pinned released API image}
+        DWG_TOOLS_IMAGE: ${JOYNIU_CURRENTCAD_TOOLS_IMAGE:?Set same-platform verified tools image}
+  web:
+    image: ${JOYNIU_CURRENTCAD_WEB_IMAGE:?Set a new verified candidate Web tag}

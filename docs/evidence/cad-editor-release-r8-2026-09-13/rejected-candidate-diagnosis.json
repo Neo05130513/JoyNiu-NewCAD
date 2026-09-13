@@ -1,0 +1,62 @@
+{
+  "candidate": "r7",
+  "activated": false,
+  "failure": {
+    "stage": "restored-data-preservation",
+    "type": "SmokeCheckFailed",
+    "check": "An original restored database row changed or disappeared"
+  },
+  "all21GeometryChecksPassed": true,
+  "diagnosis": [
+    {
+      "stage": "auth-create",
+      "changes": []
+    },
+    {
+      "stage": "real-kernel-preview",
+      "changes": [
+        {
+          "database": "cad-feature-workspace/features.sqlite3",
+          "table": "manual_feature_previews",
+          "missingRows": 8,
+          "addedRowCount": 1
+        }
+      ]
+    },
+    {
+      "stage": "api-startup",
+      "changes": [
+        {
+          "database": "cad-feature-workspace/features.sqlite3",
+          "table": "manual_feature_previews",
+          "missingRows": 8,
+          "addedRowCount": 1
+        }
+      ]
+    },
+    {
+      "stage": "real-http-login",
+      "changes": [
+        {
+          "database": "joyniu.sqlite3",
+          "table": "auth_rate_limits",
+          "missingRows": 1,
+          "addedRowCount": 2,
+          "expiredExactMissing": 1,
+          "sameKeyReinserted": 0
+        },
+        {
+          "database": "cad-feature-workspace/features.sqlite3",
+          "table": "manual_feature_previews",
+          "missingRows": 8,
+          "addedRowCount": 1
+        }
+      ]
+    },
+    {
+      "sourceUnchanged": true,
+      "syntheticOnly": true,
+      "providerCalls": 0
+    }
+  ]
+}

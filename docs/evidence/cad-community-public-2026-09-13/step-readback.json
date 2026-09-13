@@ -1,0 +1,55 @@
+{
+  "method": "Independent local CadQuery STEP import and OCCT BRepCheck_Analyzer after real public browser downloads",
+  "results": {
+    "published.step": {
+      "valid": true,
+      "occtAnalyzerValid": true,
+      "solidCount": 1,
+      "volumeMm3": 3199.999999999999,
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          20.0,
+          16.0,
+          10.0
+        ],
+        "size": [
+          20.0,
+          16.0,
+          10.0
+        ]
+      },
+      "bytes": 15406,
+      "sha256": "9b32f0219cde0f5c953c3c1c9ece0c85c937bf9c2264a2565f026805c1212b24"
+    },
+    "modified-copy.step": {
+      "valid": true,
+      "occtAnalyzerValid": true,
+      "solidCount": 1,
+      "volumeMm3": 3199.999999999999,
+      "bbox": {
+        "min": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          30.0,
+          16.0,
+          10.0
+        ],
+        "size": [
+          20.0,
+          16.0,
+          10.0
+        ]
+      },
+      "bytes": 15423,
+      "sha256": "7cd4d55e3ea2db08927cbc8ccb44f52eda825717ea4bb40d81f3ae31eba9f713"
+    }
+  }
+}

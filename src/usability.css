@@ -19,6 +19,8 @@
 .command-list { display: grid; gap: 7px; margin-top: 14px; }
 .command-list > button { display: flex; justify-content: space-between; align-items: center; gap: 14px; width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #e0e7f0; border-radius: 7px; text-align: left; font-size: 13px; }
 .command-list > button:hover { background: #edf5ff; border-color: #a8c9f1; }
+.command-list > button[aria-selected="true"] { background: #edf5ff; border-color: #8bb8ef; }
+.settings-backup-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .command-list small { color: #70829b; font: 11px monospace; white-space: nowrap; }
 .utilities-workspace { max-width: 980px; margin: auto; }
 .settings-form, .help-content { padding: 24px; min-width: 0; }

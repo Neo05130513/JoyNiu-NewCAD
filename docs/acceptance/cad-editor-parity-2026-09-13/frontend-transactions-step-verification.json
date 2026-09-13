@@ -1,0 +1,132 @@
+[
+  {
+    "name": "independent-0",
+    "valid": true,
+    "solidCount": 2,
+    "volumeMm3": 7999.999999999996,
+    "sizeMm": [
+      20.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/independent-0.step",
+    "sha256": "517c94e17cc07d3691e31661ad3c9f72ec5ee22011279f2c6c73bde3cead1779"
+  },
+  {
+    "name": "independent-20",
+    "valid": true,
+    "solidCount": 2,
+    "volumeMm3": 7999.999999999996,
+    "sizeMm": [
+      40.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/independent-20.step",
+    "sha256": "a933fd220c1fee2f41a75dea354ad99bb8c399f8c413d4115f849c6da85deaa7"
+  },
+  {
+    "name": "fused",
+    "valid": true,
+    "solidCount": 1,
+    "volumeMm3": 7999.999999999998,
+    "sizeMm": [
+      40.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/fused.step",
+    "sha256": "fd2d7801be6f72d063d2cfba78b410d60abf0fe29dbd256cc120b89f8c8ec996"
+  },
+  {
+    "name": "independent-30",
+    "valid": true,
+    "solidCount": 2,
+    "volumeMm3": 7999.999999999996,
+    "sizeMm": [
+      50.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/independent-30.step",
+    "sha256": "8c882808e57cffc2ab68ac415cac3a9735ecf6ec135c1896bbc725ffecec3a42"
+  },
+  {
+    "name": "shell",
+    "valid": true,
+    "solidCount": 1,
+    "volumeMm3": 1083.999999999999,
+    "sizeMm": [
+      20.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/shell.step",
+    "sha256": "09497423359251f23c008d05c6c78215dfff342592ae01202eba6877764fc0ac"
+  },
+  {
+    "name": "shell-mirror",
+    "valid": true,
+    "solidCount": 1,
+    "volumeMm3": 2167.999999999998,
+    "sizeMm": [
+      40.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/shell-mirror.step",
+    "sha256": "92830a44d1c090e71aa694ad59cd96bb8b822ee005a244678e0a9a37daf34d1f"
+  },
+  {
+    "name": "linear-pattern",
+    "valid": true,
+    "solidCount": 3,
+    "volumeMm3": 11999.999999999995,
+    "sizeMm": [
+      70.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/linear-pattern.step",
+    "sha256": "f6b66258c0df1a90045d5d14a9f1bd7dbf69cbf99239f2a97a87248ba41d7483"
+  },
+  {
+    "name": "fillet",
+    "valid": true,
+    "solidCount": 1,
+    "volumeMm3": 3958.418866962755,
+    "sizeMm": [
+      20.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/fillet.step",
+    "sha256": "5b122a52908ca2ccea07bf6ec9c08a6b2c1c185af0e8674d588416eed8877c6d"
+  },
+  {
+    "name": "chamfer",
+    "valid": true,
+    "solidCount": 1,
+    "volumeMm3": 3905.3333333333335,
+    "sizeMm": [
+      20.0,
+      20.0,
+      10.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/chamfer.step",
+    "sha256": "ded87b7e5c3755360dca815e8fe2b1910e521c17f39ac519068641c2b3d22bdc"
+  },
+  {
+    "name": "direct-empty-entry-rectangle",
+    "valid": true,
+    "solidCount": 1,
+    "volumeMm3": 51000.0,
+    "sizeMm": [
+      85.0,
+      50.0,
+      12.0
+    ],
+    "step": "/tmp/joyniu-cad-entry-final-20260913/direct-empty-entry-rectangle.step",
+    "sha256": "97d441efc74046402db8091427953e0d5f0d3b6eb633e1b36fc55537c9f70a65"
+  }
+]

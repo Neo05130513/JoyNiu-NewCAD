@@ -1,0 +1,63 @@
+{
+  "format": "joyniu-community-independent-review-v1",
+  "date": "2026-09-13",
+  "scope": "本地只读源码审查与隔离数据验证；未操作生产，未修改冻结业务源码。",
+  "backend": {
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "durationSeconds": 19.018,
+    "method": "真实 CadQuery/OCCT 构建、STEP 回读及 FastAPI 社区端点。",
+    "cases": [
+      {
+        "name": "test_public_exact_version_has_real_step_glb_and_no_private_record_fields",
+        "durationSeconds": 8.412
+      },
+      {
+        "name": "test_cross_account_copy_keeps_bindings_and_source_is_independent",
+        "durationSeconds": 2.394
+      },
+      {
+        "name": "test_explicit_consent_owner_permissions_and_exact_built_revision_required",
+        "durationSeconds": 0.038
+      },
+      {
+        "name": "test_withdraw_blocks_new_download_and_open_including_old_request_replay",
+        "durationSeconds": 0.009
+      },
+      {
+        "name": "test_imported_step_dependency_is_renamed_private_metadata_removed_and_real_edit_still_works",
+        "durationSeconds": 7.948
+      },
+      {
+        "name": "test_tampered_community_geometry_cannot_be_downloaded_or_create_document",
+        "durationSeconds": 0.008
+      }
+    ]
+  },
+  "frontend": {
+    "tests": 60,
+    "passed": 60,
+    "failed": 0,
+    "skipped": 0,
+    "suites": [
+      "src/cadEditorPanels.test.js",
+      "src/directFeatureWorkspace.test.js",
+      "src/cadEditorSurface.test.js"
+    ],
+    "method": "实际组件逻辑与守卫专项；本次不替代独立浏览器验收。"
+  },
+  "independentVerification": {
+    "source": "上述测试实际生成的三个已发布资源，包含导入依赖；无预制几何替代。",
+    "backup": "正常 commercial_backup.backup → verify → restore，逐文件字节与 SHA-256 核对。",
+    "concurrency": "真实服务资源锁下测试两个相同请求并发打开、撤下先获得锁后再发起打开；仅为确定顺序暂停锁内读取，不模拟业务结果。",
+    "gate": "实际 OperationsGateMiddleware，对列表、发布、打开、撤下、实体下载五类请求检查维护期 503。",
+    "privacy": "扫描可交付文件，不含原 owner/source ID、私有测试文件名和本地路径。"
+  },
+  "boundaries": [
+    "这些测试集合可能与整体回归重叠，不应累加为新的总测试数量。",
+    "备份恢复使用隔离数据目录；生产路径覆盖仅按当前 Compose /data 挂载和备份契约核对。",
+    "未复制凭据、账号数据库、备份、原始日志或任何公开模型之外的私有内容。"
+  ]
+}

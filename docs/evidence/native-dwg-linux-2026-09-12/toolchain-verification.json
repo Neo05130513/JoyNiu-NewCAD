@@ -1,0 +1,48 @@
+{
+  "uname": {
+    "system": "Linux",
+    "node": "28380f699422",
+    "release": "6.8.0-117-generic",
+    "version": "#117-Ubuntu SMP PREEMPT_DYNAMIC Thu May  7 17:26:37 UTC 2026",
+    "machine": "aarch64",
+    "processor": ""
+  },
+  "tools": {
+    "dwgread": {
+      "version": "dwgread 0.14",
+      "ldd": "linux-vdso.so.1 (0x0000ec451aedd000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000ec4519d50000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ec4519ba0000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000ec451ae90000)",
+      "sha256": "e550d86b697906c0792a5b989df007d1e705277aa1a0b4f04b1ed562aebe497d",
+      "executable": true,
+      "noDynamicLibreDwgDependency": true
+    },
+    "dwg2dxf": {
+      "version": "dwg2dxf 0.14",
+      "ldd": "linux-vdso.so.1 (0x0000e591d46c7000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000e591d38f0000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000e591d3740000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000e591d4680000)",
+      "sha256": "c33293dff45063608f723658fb9a518b9e47d59da527eed564cf55e26f5c9b56",
+      "executable": true,
+      "noDynamicLibreDwgDependency": true
+    },
+    "dxf2dwg": {
+      "version": "dxf2dwg 0.14",
+      "ldd": "linux-vdso.so.1 (0x0000e95e7e63b000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000e95e7db90000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000e95e7d9e0000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000e95e7e5f0000)",
+      "sha256": "d6df68c46d0040659c1ad4023eb3e455f3be01de25a350830797cdddd509cc56",
+      "executable": true,
+      "noDynamicLibreDwgDependency": true
+    },
+    "joyniu-native-dwg-adapter": {
+      "version": "JoyNiu native DWG compatibility adapter / LibreDWG",
+      "ldd": "linux-vdso.so.1 (0x0000e1991b269000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000e1991a7c0000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000e1991a610000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000e1991b220000)",
+      "sha256": "60c937f143d119ef403c47077a69240b99ab75db529510022f4992e8023e38b9",
+      "executable": true,
+      "noDynamicLibreDwgDependency": true
+    }
+  },
+  "image": {
+    "id": "sha256:5dbeed10d4a498e4333aa1232c728bba5de2f55fc584b1635c3d75f5e3e9fbd3",
+    "architecture": "arm64",
+    "os": "linux",
+    "tag": "joyniu-dwg-adapter-verify:20260912"
+  },
+  "container": "--rm temporary read-only network-none container completed; no service started",
+  "adapterSourceSha256": "5ce8220a36ef57640a239f9fb44bec0cafb2a53e70cfc819eb1b9b9d95c3ea30"
+}

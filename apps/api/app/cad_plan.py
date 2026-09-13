@@ -9,6 +9,8 @@ import math
 import re
 from typing import Any
 
+from .cad_advanced_features import ADVANCED_OP_FIELDS, REFERENCE_OPS, advanced_schema_properties, validate_advanced_feature
+
 VERSION = "cad-plan-v1"
 MAX_FEATURES = 128
 MAX_PARAMETERS = 100
@@ -136,19 +138,39 @@ def resolve_parameters(plan: dict[str, Any]) -> dict[str, float]:
     raise PlanValidationError("Derived parameters contain a cycle or reference unknown names: " + ", ".join(pending))
 
 
+from .cad_editor_entities import EDITOR_PLAN_FIELDS, validate_editor_entities, editor_entities_schema
+from .cad_surface_features import SURFACE_OP_FIELDS, validate_surface_feature, surface_schema_properties
+from .cad_profile_operations import PROFILE_OP_FIELDS, validate_profile_operation, profile_operation_properties
+from .cad_standard_parts import STANDARD_PART_OP_FIELDS, standard_part_schema_properties, validate_standard_part
+from .cad_import_assets import IMPORT_OP_FIELDS, import_schema_properties, validate_import_feature
+
 _OP_FIELDS = {
     "box": ({"size"}, {"origin"}),
     "cylinder": ({"radius", "height"}, {"origin", "direction"}),
-    "profile_extrude": ({"plane", "start", "segments", "distance"}, {"origin"}),
-    "profile_revolve": ({"plane", "start", "segments", "axisStart", "axisEnd"}, {"origin", "angle"}),
+    "profile_extrude": ({"plane", "start", "segments", "distance"}, {"origin", "frame", "planeSource", "planeAttachment", "sketchConstraints", "contours"}),
+    "profile_revolve": ({"plane", "start", "segments", "axisStart", "axisEnd"}, {"origin", "angle", "frame", "planeSource", "planeAttachment", "sketchConstraints", "contours"}),
     "union": ({"inputs"}, set()), "cut": ({"inputs"}, set()), "intersect": ({"inputs"}, set()),
+    "compound": ({"inputs"}, set()),
     "translate": ({"input", "vector"}, set()),
     "fillet": ({"input", "radius", "edges"}, set()),
+    "mirror": ({"input", "plane"}, {"origin", "frame", "keepOriginal"}),
+    **ADVANCED_OP_FIELDS,
+    **SURFACE_OP_FIELDS,
+    **PROFILE_OP_FIELDS,
+    **STANDARD_PART_OP_FIELDS,
+    **IMPORT_OP_FIELDS,
 }
+for _profile_op in ("profile_extrude", "profile_revolve"):
+    _OP_FIELDS[_profile_op][1].update({"sketchId", "planeReference"})
+for _axis_op in ("rotate", "circular_pattern", "body_edit", "profile_revolve"):
+    _OP_FIELDS[_axis_op][1].add("axisReference")
+_OP_FIELDS["mirror"][1].add("planeReference")
 
 
 def validate_plan(plan: Any, *, allow_unresolved: bool = True) -> dict[str, Any]:
     """Return a canonical JSON copy after structural and expression validation."""
+    from .cad_topology import validate_topology_selector
+    from .cad_sketch_constraints import validate_sketch_constraints
     if not isinstance(plan, dict):
         raise PlanValidationError("CAD plan must be an object")
     try:
@@ -157,7 +179,7 @@ def validate_plan(plan: Any, *, allow_unresolved: bool = True) -> dict[str, Any]
     except (TypeError, ValueError, RecursionError) as exc:
         raise PlanValidationError("CAD plan must contain finite JSON values") from exc
     result = deepcopy(plan)
-    extra = set(result) - {"version", "name", "units", "parameters", "features", "result", "notes", "questions"}
+    extra = set(result) - {"version", "name", "units", "parameters", "features", "result", "notes", "questions"} - EDITOR_PLAN_FIELDS
     if extra:
         raise PlanValidationError("Unknown plan fields: " + ", ".join(sorted(extra)))
     if result.get("version") != VERSION or result.get("units", "mm") != "mm":
@@ -210,8 +232,30 @@ def validate_plan(plan: Any, *, allow_unresolved: bool = True) -> dict[str, Any]
             scalar(item)
 
     features = result.get("features")
-    if not isinstance(features, list) or not 1 <= len(features) <= MAX_FEATURES:
+    if not isinstance(features, list) or not 0 <= len(features) <= MAX_FEATURES or (not features and not (result.get("sketches") or result.get("references"))):
         raise PlanValidationError(f"Expected 1 to {MAX_FEATURES} CAD features")
+    def validate_sketch(sketch):
+        from .cad_profile_geometry import validate_profile
+        if sketch.get("plane") not in {"XY", "XZ", "YZ", "custom"}: raise PlanValidationError("Sketch plane must be XY, XZ, YZ or custom")
+        if sketch["plane"] == "custom":
+            frame = sketch.get("frame")
+            if not isinstance(frame, dict) or set(frame) != {"origin", "xDir", "normal"} or "origin" in sketch: raise PlanValidationError("Custom sketch requires one explicit frame")
+            for value in frame.values(): vector(value, 3)
+        elif "frame" in sketch: raise PlanValidationError("Sketch frame requires plane custom")
+        if "origin" in sketch: vector(sketch["origin"], 3)
+        if "planeSource" in sketch:
+            if sketch.get("plane") != "custom" or "planeReference" in sketch: raise PlanValidationError("A face-attached sketch requires its own custom frame")
+            validate_topology_selector(sketch["planeSource"], "face", {f.get("id") for f in features if isinstance(f, dict)})
+        if "planeAttachment" in sketch:
+            attachment = sketch["planeAttachment"]
+            if ("planeSource" not in sketch or "binding" not in sketch["planeSource"] or not isinstance(attachment, dict)
+                    or set(attachment) != {"version", "origin", "xDir", "normal"} or type(attachment.get("version")) is not int or attachment["version"] != 1): raise PlanValidationError("Sketch attachment requires a saved server binding")
+            for key in ("origin", "xDir", "normal"):
+                vector(attachment[key], 3)
+                if any(type(v) not in (int, float) for v in attachment[key]): raise PlanValidationError("Sketch attachment must contain finite coordinates")
+        validate_profile(sketch, scalar, vector)
+        validate_sketch_constraints(sketch, scalar, vector)
+    validate_editor_entities(result, scalar, vector, validate_sketch)
     seen: set[str] = set()
     for feature in features:
         feature_id = feature.get("id") if isinstance(feature, dict) else None
@@ -226,11 +270,31 @@ def validate_plan(plan: Any, *, allow_unresolved: bool = True) -> dict[str, Any]
                 raise PlanValidationError(f"Invalid fields for {op}; required={sorted(required)}, optional={sorted(optional)}")
             if "label" in feature and (not isinstance(feature["label"], str) or len(feature["label"]) > 200):
                 raise PlanValidationError("Feature label must be bounded text")
-            if op in {"union", "cut", "intersect"}:
+            if "axisReference" in feature:
+                reference = feature["axisReference"]
+                if not isinstance(reference, str) or not any(ref["id"] == reference and ref["kind"] == "axis" for ref in result.get("references", [])): raise PlanValidationError("引用的基准轴不存在。")
+            linked = [feature]
+            if op == "profile_sweep" and isinstance(feature.get("path"), dict): linked.append(feature["path"])
+            if op == "profile_loft" and isinstance(feature.get("sections"), list): linked.extend(section for section in feature["sections"] if isinstance(section, dict))
+            for link in linked:
+                if "curveReference" in link and not any(ref["id"] == link["curveReference"] and ref["kind"] == "helix" for ref in result.get("references", [])):
+                    raise PlanValidationError("扫掠引用的螺旋参考线不存在。")
+                if "sketchId" not in link: continue
+                ref = link["sketchId"]
+                sketch = next((item for item in result.get("sketches", []) if item["id"] == ref), None) if isinstance(ref, str) else None
+                if sketch is None: raise PlanValidationError("引用的独立草图不存在。")
+                if "planeSource" in sketch: validate_topology_selector(sketch["planeSource"], "face", seen)
+            if feature.get("sketchId"):
+                from .cad_editor_entities import SKETCH_FIELDS
+                sketch = next(item for item in result["sketches"] if item["id"] == feature["sketchId"])
+                feature = {**{key: value for key, value in feature.items() if key not in SKETCH_FIELDS}, **{key: value for key, value in sketch.items() if key in SKETCH_FIELDS}}
+            if op in {"union", "cut", "intersect", "compound"}:
                 refs = feature["inputs"]
                 if not isinstance(refs, list) or not 2 <= len(refs) <= 32 or any(not isinstance(ref, str) or ref not in seen for ref in refs):
-                    raise PlanValidationError("Boolean inputs must contain 2 to 32 earlier feature IDs")
-            elif op in {"translate", "fillet"}:
+                    raise PlanValidationError("多实体须引用 2 至 32 个前置特征。" if op == "compound" else "Boolean inputs must contain 2 to 32 earlier feature IDs")
+                if op == "compound" and len(set(refs)) != len(refs):
+                    raise PlanValidationError("多实体的输入特征不能重复。")
+            elif op in {"translate", "fillet", "mirror"} | REFERENCE_OPS:
                 if not isinstance(feature["input"], str) or feature["input"] not in seen:
                     raise PlanValidationError("Input must name an earlier feature")
             for key in ("radius", "height", "distance", "angle"):
@@ -239,35 +303,65 @@ def validate_plan(plan: Any, *, allow_unresolved: bool = True) -> dict[str, Any]
             for key in ("origin", "direction", "size", "vector"):
                 if key in feature:
                     vector(feature[key], 3)
-            if op.startswith("profile_"):
-                if not isinstance(feature["plane"], str) or feature["plane"] not in {"XY", "XZ", "YZ"}:
-                    raise PlanValidationError("Profile plane must be XY, XZ or YZ")
-                vector(feature["start"], 2)
-                segments = feature["segments"]
-                if not isinstance(segments, list) or not 2 <= len(segments) <= 128:
-                    raise PlanValidationError("Profile needs 2 to 128 line/arc segments; closing edge is automatic")
-                for segment in segments:
-                    if not isinstance(segment, dict) or not isinstance(segment.get("type"), str) or segment.get("type") not in {"line", "arc"}:
-                        raise PlanValidationError("Profile segment must be line or arc")
-                    keys = {"type", "to"} | ({"through"} if segment["type"] == "arc" else set())
-                    optional_keys = {"radius"} if segment["type"] == "arc" else set()
-                    if not keys.issubset(segment) or set(segment) - keys - optional_keys:
-                        raise PlanValidationError("Unexpected profile segment fields")
-                    vector(segment["to"], 2)
-                    if "through" in segment:
-                        vector(segment["through"], 2)
-                    if "radius" in segment:
-                        scalar(segment["radius"])
+            if op == "mirror":
+                if not isinstance(feature["plane"], str) or feature["plane"] not in {"XY", "XZ", "YZ", "custom"}: raise PlanValidationError("Mirror plane must be XY, XZ, YZ or custom")
+                if "keepOriginal" in feature and type(feature["keepOriginal"]) is not bool: raise PlanValidationError("keepOriginal must be a boolean")
+                if feature["plane"] == "custom":
+                    frame = feature.get("frame")
+                    if not isinstance(frame, dict) or set(frame) != {"origin", "xDir", "normal"} or "origin" in feature: raise PlanValidationError("Custom mirror requires frame without duplicate origin")
+                    for value in frame.values(): vector(value, 3)
+                elif "frame" in feature: raise PlanValidationError("Mirror frame requires plane custom")
+            if op in {"profile_extrude", "profile_revolve", "profile_sweep"}:
+                if not isinstance(feature["plane"], str) or feature["plane"] not in {"XY", "XZ", "YZ", "custom"}:
+                    raise PlanValidationError("Profile plane must be XY, XZ, YZ or custom")
+                if feature["plane"] == "custom":
+                    frame = feature.get("frame")
+                    if not isinstance(frame, dict) or set(frame) != {"origin", "xDir", "normal"} or "origin" in feature:
+                        raise PlanValidationError("Custom profile requires frame {origin,xDir,normal}; do not also supply origin")
+                    for value in frame.values(): vector(value, 3)
+                    if "planeSource" in feature: validate_topology_selector(feature["planeSource"], "face", seen)
+                elif "frame" in feature or "planeSource" in feature:
+                    raise PlanValidationError("Frame and planeSource require plane custom")
+                if "planeAttachment" in feature:
+                    attachment = feature["planeAttachment"]
+                    if ("planeSource" not in feature or "binding" not in feature["planeSource"] or not isinstance(attachment, dict)
+                            or set(attachment) != {"version", "origin", "xDir", "normal"} or type(attachment.get("version")) is not int or attachment["version"] != 1):
+                        raise PlanValidationError("Plane attachment requires a server-generated persistent face binding")
+                    for key in ("origin", "xDir", "normal"):
+                        vector(attachment[key], 3)
+                        if any(type(value) not in (int, float) for value in attachment[key]): raise PlanValidationError("Plane attachment coordinates must be finite numbers")
+                from .cad_profile_geometry import validate_profile
+                validate_profile(feature, scalar, vector)
                 if op == "profile_revolve":
                     vector(feature["axisStart"], 2)
                     vector(feature["axisEnd"], 2)
-            if op == "fillet" and (not isinstance(feature["edges"], str) or feature["edges"] not in {"all", "parallelX", "parallelY", "parallelZ"}):
+                validate_sketch_constraints(feature, scalar, vector)
+            selected = feature.get("edges") if op in {"fillet", "chamfer"} else feature.get("faces") if op == "shell" else None
+            topology_selection = isinstance(selected, list) and any(isinstance(item, dict) for item in selected)
+            if topology_selection:
+                kind = "face" if op == "shell" else "edge"
+                if not 1 <= len(selected) <= (5 if kind == "face" else 64): raise PlanValidationError("Topology selection exceeds the allowed edge/face count")
+                identities = set()
+                for item in selected:
+                    validate_topology_selector(item, kind, seen)
+                    if item["sourceFeatureId"] != feature["input"] or item["index"] in identities: raise PlanValidationError("Topology selection must reference the input feature without duplicates")
+                    identities.add(item["index"])
+            if op == "fillet" and not topology_selection and (not isinstance(feature["edges"], str) or feature["edges"] not in {"all", "parallelX", "parallelY", "parallelZ"}):
                 raise PlanValidationError("Fillet edges must be all, parallelX, parallelY or parallelZ")
+            if op in ADVANCED_OP_FIELDS:
+                # Keep the existing scalar rules; typed topology replaces only
+                # the legacy axis/extreme selector part of the validation.
+                check = {**feature, **({"edges": "all"} if op == "chamfer" else {"faces": ["maxZ"]})} if topology_selection else feature
+                validate_advanced_feature(check, scalar, vector)
+            if op in SURFACE_OP_FIELDS: validate_surface_feature(feature, scalar, vector, seen)
+            if op in PROFILE_OP_FIELDS: validate_profile_operation(feature, scalar, vector)
+            if op in STANDARD_PART_OP_FIELDS: validate_standard_part(feature, scalar, vector)
+            if op in IMPORT_OP_FIELDS: validate_import_feature(feature, scalar, vector)
             seen.add(feature_id)
         except PlanValidationError as exc:
             exc.feature_id = feature_id
             raise
-    if not isinstance(result.get("result"), str) or result.get("result") not in seen:
+    if not isinstance(result.get("result"), str) or (result.get("result") not in seen and not (not features and result.get("result") == "")):
         raise PlanValidationError("result must name a feature")
     if not allow_unresolved:
         resolve_parameters(result)
@@ -279,12 +373,20 @@ def cad_plan_schema() -> dict[str, Any]:
     scalar = {"anyOf": [{"type": "number"}, {"type": "string", "maxLength": 256}]}
     def vec(size: int) -> dict[str, Any]:
         return {"type": "array", "items": scalar, "minItems": size, "maxItems": size}
+    from .cad_sketch_constraints import sketch_constraint_schema
+    def selector(kind):
+        fields = {"kind": {"const": kind}, "sourceFeatureId": {"type": "string"}, "geometryVersion": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "index": {"type": "integer", "minimum": 0}, "signature": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+        return {"type": "object", "properties": {**fields, "binding": {"type": "object", "properties": {"version": {"const": 1}, "key": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "required": ["version", "key"], "additionalProperties": False}}, "required": list(fields), "additionalProperties": False}
     common = {"id": {"type": "string", "pattern": _IDENTIFIER.pattern}, "label": {"type": "string"}}
     properties = {
         "size": vec(3), "origin": vec(3), "direction": vec(3), "vector": vec(3),
         "radius": scalar, "height": scalar, "distance": scalar, "angle": scalar,
-        "plane": {"enum": ["XY", "XZ", "YZ"]}, "start": vec(2), "axisStart": vec(2), "axisEnd": vec(2),
+        "plane": {"enum": ["XY", "XZ", "YZ", "custom"]}, "start": vec(2), "axisStart": vec(2), "axisEnd": vec(2),
+        "frame": {"type": "object", "properties": {key: vec(3) for key in ("origin", "xDir", "normal")}, "required": ["origin", "xDir", "normal"], "additionalProperties": False},
+        "planeSource": selector("face"), "sketchConstraints": sketch_constraint_schema(scalar, vec), "keepOriginal": {"type": "boolean"},
+        "planeAttachment": {"type": "object", "properties": {"version": {"const": 1}, **{key: {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3} for key in ("origin", "xDir", "normal")}}, "required": ["version", "origin", "xDir", "normal"], "additionalProperties": False},
         "input": {"type": "string"}, "inputs": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 32},
+        "sketchId": {"type": "string", "pattern": _IDENTIFIER.pattern}, "planeReference": {"type": "string", "pattern": _IDENTIFIER.pattern}, "axisReference": {"type": "string", "pattern": _IDENTIFIER.pattern},
         "edges": {"enum": ["all", "parallelX", "parallelY", "parallelZ"]},
         "segments": {"type": "array", "minItems": 2, "maxItems": 128, "items": {"oneOf": [
             {"type": "object", "properties": {"type": {"const": "line"}, "to": vec(2)}, "required": ["type", "to"], "additionalProperties": False},
@@ -293,14 +395,30 @@ def cad_plan_schema() -> dict[str, Any]:
              "required": ["type", "to", "through"], "additionalProperties": False},
         ]}},
     }
-    features = [{"type": "object", "properties": {**common, "op": {"const": op}, **{key: properties[key] for key in required | optional}},
+    properties.update(advanced_schema_properties(scalar, vec))
+    from .cad_profile_geometry import contours_schema, segment_schema
+    properties["segments"] = segment_schema(scalar, vec)
+    properties["contours"] = contours_schema(scalar, vec)
+    properties["edges"] = {"oneOf": [properties["edges"], {"type": "array", "minItems": 1, "maxItems": 64, "items": selector("edge")}]}
+    properties["faces"] = {"oneOf": [properties["faces"], {"type": "array", "minItems": 1, "maxItems": 5, "items": selector("face")}]}
+    import_properties = {**properties, **import_schema_properties(scalar, vec)}
+    standard_properties = {**properties, **standard_part_schema_properties(scalar, vec)}
+    profile_properties = {**properties, **profile_operation_properties(scalar, vec)}
+    surface_properties = {**properties, **surface_schema_properties(scalar, vec, selector)}
+    features = [{"type": "object", "properties": {**common, "op": {"const": op}, **{key: vec(3) if key in {"axisStart", "axisEnd"} and op in {"rotate", "circular_pattern", "body_edit"} else {**properties[key], "uniqueItems": True, "description": "Keep all input solids independently without Boolean fusion, including touching or overlapping bodies."} if key == "inputs" and op == "compound" else (surface_properties if op in SURFACE_OP_FIELDS else profile_properties if op in PROFILE_OP_FIELDS else standard_properties if op in STANDARD_PART_OP_FIELDS else import_properties if op in IMPORT_OP_FIELDS else properties)[key] for key in required | optional}},
                  "required": ["id", "op", *sorted(required)], "additionalProperties": False}
                 for op, (required, optional) in _OP_FIELDS.items()]
     return {"type": "object", "additionalProperties": False,
             "description": "Bounded CAD plan, no recipes or Python. Expressions permit named parameters and + - * / **, sqrt abs min max sin cos radians. Box origin is its minimum corner. Cylinder origin is base center, direction is unit-normalized. Plane local (u,v,normal): XY=(X,Y,+Z), XZ=(X,Z,-Y), YZ=(Y,Z,+X); positive extrusion follows normal. Profiles close automatically. Boolean first input is target. Derived parameters use expression and value=null. Unknown dimensions use value=null plus question; never fill invented defaults.",
             "properties": {"version": {"const": VERSION}, "name": {"type": "string"}, "units": {"const": "mm"},
                 "parameters": {"type": "object", "maxProperties": MAX_PARAMETERS, "additionalProperties": {"type": "object", "additionalProperties": False,
-                    "properties": {"value": {"type": ["number", "null"]}, "expression": {"type": "string"}, "source": {"type": ["object", "string"]}, "question": {"type": "string"}, "label": {"type": "string"}, "status": {"type": "string"}}}},
-                "features": {"type": "array", "minItems": 1, "maxItems": MAX_FEATURES, "items": {"oneOf": features}},
+                    "properties": {"value": {"type": ["number", "null"]}, "expression": {"type": "string"}, "source": {"type": ["object", "string"]}, "question": {"type": "string"}, "label": {"type": "string", "description": "Concise Chinese customer-facing dimension name including its physical meaning and datum; keep the parameter key unchanged."}, "status": {"type": "string"}}}},
+                **editor_entities_schema(),
+                "features": {"type": "array", "minItems": 0, "maxItems": MAX_FEATURES, "items": {"oneOf": features}},
                 "result": {"type": "string"}, "notes": {"type": "array", "items": {"type": "string"}}, "questions": {"type": "array", "items": {"type": "string"}}},
-            "required": ["version", "parameters", "features", "result"]}
+            "required": ["version", "parameters", "features", "result"],
+            "allOf": [{"if": {"properties": {"features": {"maxItems": 0}}},
+                       "then": {"properties": {"result": {"const": ""}}, "anyOf": [
+                           {"required": ["sketches"], "properties": {"sketches": {"minItems": 1}}},
+                           {"required": ["references"], "properties": {"references": {"minItems": 1}}}]},
+                       "else": {"properties": {"result": {"minLength": 1}}}}]}

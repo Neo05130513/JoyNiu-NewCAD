@@ -1,0 +1,41 @@
+{
+  "scope": "Sanitized isolated restoration diagnosis, targeted validation, and read-only frozen candidate verification",
+  "credentialFilesIncluded": false,
+  "files": [
+    {
+      "name": "README.md",
+      "bytes": 4153,
+      "sha256": "cca4cadac342f0f5c458a5df41748371776224d42f668a7fa06370c31314a48a"
+    },
+    {
+      "name": "editor-and-base-release-tests.log",
+      "bytes": 160,
+      "sha256": "7fcc46904bad8c16f525a40bf2feeb1b75612b3bbe19f6add6251b9e461211ab"
+    },
+    {
+      "name": "final-test-collection.log",
+      "bytes": 21016,
+      "sha256": "99139af7103b2076656e375123e691e73d28e58fadd9ad3a44c2166cbefad5fc"
+    },
+    {
+      "name": "r7-isolated-restoration-diagnosis.jsonl",
+      "bytes": 2562,
+      "sha256": "6e2388af9f59f4ec02e4bac3be6ee136386660fd89efdb0d2a64073608586431"
+    },
+    {
+      "name": "r8-frozen-audit.json",
+      "bytes": 863,
+      "sha256": "99d280814b2f2079c7036921d5f2a02effaa13a0b31bab3d6a2e4511ebec4cea"
+    },
+    {
+      "name": "repair-validation.json",
+      "bytes": 1624,
+      "sha256": "d5ed8244ce09c6be52776c090211615c5ff2236e45b2b3cf17f022ea8a4a4cb0"
+    },
+    {
+      "name": "restore-http-and-base-publisher-tests.log",
+      "bytes": 810,
+      "sha256": "70db8ac6cd4a0ecefa26263b468db98a15a142619871b44707bb371b09a0baeb"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "frontendTests": {
+    "passed": 514,
+    "failed": 0
+  },
+  "backendTests": {
+    "passed": 2135,
+    "failed": 0
+  },
+  "liveAcceptanceContractTests": 11,
+  "browser": {
+    "endpoint": "http://localhost:5180",
+    "api": "http://localhost:8016/api/v1",
+    "selectedSourceCount": 2,
+    "resolvedSourceCount": 4,
+    "fileCount": 13,
+    "packageId": "delivery_b7cbb105854f4f8b9c86ca8e00d1aa3f",
+    "navigationRetainsDraft": true,
+    "packageReopenedAfterPageReload": true,
+    "zipAndSingleStepDownloadTriggered": true,
+    "osDownloadLocationVerified": false,
+    "allArchiveFileHashesVerifiedIndependently": true,
+    "sameNamedFilesShowSourcesAndVersions": true,
+    "responsive390px": {
+      "documentWidth": 390,
+      "mainScrollWidth": 390,
+      "visibleLayoutChecked": true
+    },
+    "responsive1024px": {
+      "documentWidth": 1024,
+      "navigationAndActionsDoNotOverlap": true
+    }
+  },
+  "preReleaseBackup": {
+    "id": "scheduled-20260912T145036Z-a559c96e",
+    "files": 1040,
+    "databases": 2,
+    "verified": true,
+    "restoredToIndependentDirectory": true,
+    "serviceRecovered": true
+  },
+  "finalActivationAndToolsTests": {
+    "passed": 58,
+    "failed": 0,
+    "activationTests": 44,
+    "toolsTests": 14
+  }
+}

@@ -1,0 +1,74 @@
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm
+FROM ${PYTHON_IMAGE} AS dwg-builder
+
+ARG LIBREDWG_VERSION=0.14
+ARG LIBREDWG_SHA256=62ebb73b984f865960f20ed26619ea5f8789d5e3fd088fa40a2598384da81275
+ARG GNU_MIRROR=https://ftp.gnu.org/gnu
+ARG DEBIAN_MIRROR=http://deb.debian.org
+RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install --no-install-recommends -y ca-certificates curl build-essential pkg-config xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /tmp/libredwg
+COPY apps/api/app/native_drawing_libredwg.c /tmp/native_drawing_libredwg.c
+# Release tarballs contain configure and generated source files. Bindings and
+# shared LibreDWG libraries are not needed: converters and our separate numeric
+# compatibility adapter link the static library in this build stage.
+RUN curl --fail --location --retry 3 --connect-timeout 20 --max-time 300 \
+        "${GNU_MIRROR}/libredwg/libredwg-${LIBREDWG_VERSION}.tar.xz" -o source.tar.xz \
+    && printf '%s  source.tar.xz\n' "${LIBREDWG_SHA256}" | sha256sum -c - \
+    && tar -xJf source.tar.xz --strip-components=1 \
+    && ./configure --disable-bindings --disable-shared --enable-static --disable-Werror --disable-werror \
+    && make -j2 \
+    && install -Dm755 programs/dwgread /out/dwgread \
+    && install -Dm755 programs/dwg2dxf /out/dwg2dxf \
+    && install -Dm755 programs/dxf2dwg /out/dxf2dwg \
+    && ./libtool --mode=link --tag=CC cc -O2 -Iinclude -I. \
+        /tmp/native_drawing_libredwg.c src/libredwg.la -lm -o /out/joyniu-native-dwg-adapter \
+    && /out/dwgread --version \
+    && /out/dwg2dxf --version \
+    && /out/dxf2dwg --version \
+    && /out/joyniu-native-dwg-adapter --version
+
+FROM ${PYTHON_IMAGE} AS api
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG DEBIAN_MIRROR=http://deb.debian.org
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    MPLBACKEND=Agg \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    XDG_CACHE_HOME=/tmp/joyniu-cache \
+    LANG=C.UTF-8 \
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1
+
+RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=3 update \
+    && apt-get -o Acquire::Retries=3 install --no-install-recommends -y \
+        ca-certificates \
+        libgl1 libglu1-mesa libegl1 libopengl0 \
+        libglib2.0-0 libgomp1 \
+        libx11-6 libxext6 libxrender1 libxt6 libsm6 libice6 \
+        fontconfig fonts-dejavu-core fonts-noto-cjk \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 joyniu \
+    && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/joyniu joyniu \
+    && mkdir -p /data/cad-agent \
+    && chown -R 10001:10001 /data
+
+WORKDIR /opt/joyniu-api
+COPY apps/api/pyproject.toml apps/api/README.md ./
+COPY apps/api/app ./app
+RUN python -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" ".[geometry,ocr,dwg,pdf,image,payment]"
+
+COPY --from=dwg-builder /out/dwgread /out/dwg2dxf /out/dxf2dwg /out/joyniu-native-dwg-adapter /usr/local/bin/
+RUN dwgread --version && dxf2dwg --version && joyniu-native-dwg-adapter --version
+
+# The host bind mount must also be owned by UID/GID 10001 before startup.
+USER 10001:10001
+EXPOSE 8010
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*", "--no-access-log"]

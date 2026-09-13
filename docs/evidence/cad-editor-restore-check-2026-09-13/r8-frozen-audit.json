@@ -1,0 +1,30 @@
+{
+  "sourceAndBuildSha256": "05952dab9b1898724f802b99a8f5ae64e126af48e3324a8cf3f3799c69a9c211",
+  "archiveSha256": "35c3bb156678f25f71cb2a0ca5a7920516c2e99890f3ae8c1fda8900584206c9",
+  "manifestFiles": 490,
+  "allManifestHashesValid": true,
+  "releaseIdentityValid": true,
+  "runtimeTreesIdenticalToR7": [
+    {
+      "tree": "apps/api/app/",
+      "files": 92
+    },
+    {
+      "tree": "src/",
+      "files": 246
+    },
+    {
+      "tree": "dist/assets/",
+      "files": 4
+    }
+  ],
+  "changedManifestFiles": [
+    "deploy/currentcad_release_smoke.py",
+    "docs/cad-editor-customer-guide.md",
+    "docs/currentcad-editor-complete-2026-09-13.md"
+  ],
+  "r8SmokeCheckerSha256": "0cf1cc7168137aa6b791c90fa320ceff6938ef270134db6d3a6043608d08cc97",
+  "archiveInventoryMatchesFreeze": true,
+  "archiveFiles": 492,
+  "frozenGateAcceptsActual21CheckEvidence": true
+}

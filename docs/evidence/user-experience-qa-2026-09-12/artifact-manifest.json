@@ -1,0 +1,168 @@
+{
+  "createdAt": "2026-09-12T13:23:57.166859+00:00",
+  "cases": {
+    "singleBoxAndGear": "user-box-gear-verification.json",
+    "twoBoxAssembly": "user-assembly-verification.json",
+    "nativeUndoRedo": "user-native-history-verification.json",
+    "embeddedFontPdf": "font-verification.json"
+  },
+  "boundaries": [
+    "Local isolated acceptance API and authenticated artifact responses were checked. No deployment or browser download completion is claimed.",
+    "The original user-gear-sheet.pdf and its earlier visual notes remain historical evidence. user-gear-sheet-embedded.pdf supersedes its font-embedding limitation.",
+    "Embedded PDF uses the same original dimensions/settings; changing label offset is not claimed.",
+    "Native revisions 1 through 5 were archived and each DXF hash and LINE 8D geometry rechecked. Revision 4 end X is 40.5; revision 5 is 55.25."
+  ],
+  "files": [
+    {
+      "file": "backend-tests.log",
+      "bytes": 3697,
+      "sha256": "c3d8b0377f84c0442ec53176dbd6f60d3e97fc933422966af135b464904055e6"
+    },
+    {
+      "file": "build.log",
+      "bytes": 914,
+      "sha256": "bbb1069eb2d12d582e09f084b1013c3a01e1bc2b4c9f951e5e95f05b329e34c9"
+    },
+    {
+      "file": "drawing-result.json",
+      "bytes": 2201,
+      "sha256": "257b37b059a770b2f4df70190a8c69ce8ed8659d3417bc438f86275cc5955a92"
+    },
+    {
+      "file": "embedded-pdf-font-list.json",
+      "bytes": 150,
+      "sha256": "499138c46cce43749112c604f333ada39239c2a74a5ec9334a4ad034af8a7ebd"
+    },
+    {
+      "file": "font-verification.json",
+      "bytes": 440,
+      "sha256": "494d58e5603952201f69b7f096ca59924c3aa68ebe698356aefcbc86d22dc253"
+    },
+    {
+      "file": "frontend-tests.log",
+      "bytes": 117507,
+      "sha256": "2ad2ad972034658eb12346e48977151059e0976c437e38014b4cda02d3bd6d54"
+    },
+    {
+      "file": "gear-mupdf.png",
+      "bytes": 38738,
+      "sha256": "a0ab6a9a60aa7c93816a953b7831ac77c5419c99cf9238353abbc1c46a68cdd3"
+    },
+    {
+      "file": "gear-poppler-footer.png",
+      "bytes": 7450,
+      "sha256": "b0b9ba0d3911e8e9cceb326f7d6d225f16c3e7fa3e7e1646a2757ea5178790ec"
+    },
+    {
+      "file": "gear-poppler.png",
+      "bytes": 25970,
+      "sha256": "961bc76ced2f4f36b44e2248537b2cdf7f30cf7efe2d2c2506eb72149261c88d"
+    },
+    {
+      "file": "pdf-final-tests.log",
+      "bytes": 1165,
+      "sha256": "acb6bd8861c3de0dc7953e6920fa73f9e2202416f60e0b352204571c6d84352d"
+    },
+    {
+      "file": "user-artifact-api-check.json",
+      "bytes": 5885,
+      "sha256": "9d422d3a3f94d85929c681d1ec4dc14876c80b2eaaace07aee8852c5f6939cb7"
+    },
+    {
+      "file": "user-assembly-verification.json",
+      "bytes": 3848,
+      "sha256": "8c6819d01c07ed61e180e4a356851b1d7544706598cb8143106a0712669ed4a3"
+    },
+    {
+      "file": "user-box-assembly-bom.csv",
+      "bytes": 93,
+      "sha256": "da9e9923e906a35e5739ad5cd0ffda715f2063857d0e98252a8c537d80b648e8"
+    },
+    {
+      "file": "user-box-assembly.step",
+      "bytes": 32489,
+      "sha256": "0e14ec9d33753d2545e880940b6995eb2a8b821fc80d59c63ba46e13577b4eb9"
+    },
+    {
+      "file": "user-box-gear-verification.json",
+      "bytes": 6119,
+      "sha256": "c8757249c079e6a2c6cc94ee88ea70e458402ca3cf290f0a5f8173ed052bbed7"
+    },
+    {
+      "file": "user-box.step",
+      "bytes": 15429,
+      "sha256": "a8840fee3f57444ea93f26432dff799fe02ee8ef64b63ff29a610513eb483aec"
+    },
+    {
+      "file": "user-gear-sheet-embedded.dxf",
+      "bytes": 257974,
+      "sha256": "f47650d323bed645abbc2e31ac4d013200650db2a5a0b35a0d28916f2bbab8da"
+    },
+    {
+      "file": "user-gear-sheet-embedded.pdf",
+      "bytes": 171096,
+      "sha256": "5cf7fcbef47fd68d2d21e721ec828cf1de59e7eaa04b8cf6ec8fb4d146721f8b"
+    },
+    {
+      "file": "user-gear-sheet-embedded.svg",
+      "bytes": 175317,
+      "sha256": "4573ecb938b5f75cf529ac67f5c1c885b9f2f3432d97628ffb32470fbdee18c7"
+    },
+    {
+      "file": "user-gear-sheet-preview.png",
+      "bytes": 25986,
+      "sha256": "d41b56cfdc8f0ef727963f2a6008a042ad876a7733529670a7533106733b5292"
+    },
+    {
+      "file": "user-gear-sheet.dxf",
+      "bytes": 257973,
+      "sha256": "668a40793249b56532a641c45d57118fa76bd96f4a423d6bccf3b883fb0c3db7"
+    },
+    {
+      "file": "user-gear-sheet.pdf",
+      "bytes": 166386,
+      "sha256": "a3c00221bb1aa8ae1ce3bafdc1af297b7bfece3dea7f0e727d9989d0879bd963"
+    },
+    {
+      "file": "user-gear-sheet.svg",
+      "bytes": 175317,
+      "sha256": "4573ecb938b5f75cf529ac67f5c1c885b9f2f3432d97628ffb32470fbdee18c7"
+    },
+    {
+      "file": "user-gear.step",
+      "bytes": 1132518,
+      "sha256": "989dd09d9111df7e6cd3d17ae2be52d0f95edfe73c54c7a4c5f2b72553944103"
+    },
+    {
+      "file": "user-native-history-verification.json",
+      "bytes": 2751,
+      "sha256": "32066699166ef27e0ca4e7be8531bc205bbc61ecc04fca52dbcfce1fc1cb06f6"
+    },
+    {
+      "file": "user-native-revision-1.dxf",
+      "bytes": 35486,
+      "sha256": "b8d8215a106cbb935eb44ce630fc8f7f55e9d57870e19ec7ab8e71de0e996359"
+    },
+    {
+      "file": "user-native-revision-2.dxf",
+      "bytes": 35606,
+      "sha256": "654cf681613edd467f81856c98346c4fe891fa03aba333027f8725692368a86c"
+    },
+    {
+      "file": "user-native-revision-3.dxf",
+      "bytes": 35607,
+      "sha256": "b4c70066b5225261d0274c8dfcd9eba85bf9247d96121aa23394c9bad8c6bba9"
+    },
+    {
+      "file": "user-native-revision-4.dxf",
+      "bytes": 35606,
+      "sha256": "a2817377d5281ae0f37cc670ba7491f434e20a54f94391bde8b3d6dae8871006"
+    },
+    {
+      "file": "user-native-revision-5.dxf",
+      "bytes": 35607,
+      "sha256": "cda70bd41a20d6cce943af957bd89bdd4aa0e0853740a0d230527dff529ad193"
+    }
+  ],
+  "updatedAt": "2026-09-12T13:33:00.463232+00:00"
+}

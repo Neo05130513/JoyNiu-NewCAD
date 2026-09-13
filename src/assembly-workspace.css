@@ -3,6 +3,7 @@
 .aw-workspace button, .aw-workspace input, .aw-workspace select { font: inherit; }
 .aw-workspace button { min-height: 34px; border: 1px solid #cddbea; border-radius: 7px; background: #fff; padding: 7px 11px; color: #4d6580; font-size: 11px; cursor: pointer; line-height: 1.4; }
 .aw-workspace button:hover { background: #eff6ff; border-color: #a7c9f4; color: #1d65c1; }
+.aw-workspace button:disabled { opacity: .45; cursor: not-allowed; }
 .aw-workspace button:focus-visible, .aw-workspace input:focus-visible, .aw-workspace select:focus-visible { outline: 3px solid #8cbefa; outline-offset: 2px; }
 .aw-workspace button.aw-primary { background: #2774d5; border-color: #2774d5; color: #fff; }
 .aw-workspace button.aw-primary:hover { background: #1c62ba; }

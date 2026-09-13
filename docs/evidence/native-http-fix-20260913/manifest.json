@@ -1,0 +1,20 @@
+{
+  "name": "native-http-fix-20260913",
+  "scope": "web-only",
+  "apiBase": "/api/v1",
+  "files": {
+    "deploy/Dockerfile.web": "e4f6e81cecb2f8ea7a9258d9649e38c7ad0b42bb13837c81ae1cdd461aa1dbb9",
+    "deploy/nginx.conf": "5c79bcb65711a292d0e2f3afee097f3c440949bbca9a8cb4101e7348f4140c62",
+    "dist/assets/AdminShell-B3_0RzMi.js": "a70dbde28270ca2838aa5a8e3ab1b62470cf6345159677f66d78dfcf718bccaf",
+    "dist/assets/AdminShell-IMmj5css.css": "8fcf3832f739eed00832fe6aae6e1e8f3eb6e7164395d4ed85bd20056511eaf7",
+    "dist/assets/index-B41d91hL.js": "5924f3750a8726ebb7e5dfe68d44fb49580dd07824246677689734c3632dda02",
+    "dist/assets/index-B5UWJeBE.css": "5b2b380499212fc79b793572cc9d5800d87637f5eaed4ed2445bc588315fbb1a",
+    "dist/index.html": "859a0f586758d2c5cb117a8218739203d71173cc3b344ff529e281df122687b4",
+    "source/EngineeringWorkspace.jsx": "78f812db94102c6835ce3099ff235a5412fd6dfe8e0d4c048847cc2b2cf98a75",
+    "source/NativeDrawingWorkspace.jsx": "77068b0459d617e5d91350dc4988a0c88d44bf67612c3482205fe178b5e273cd",
+    "source/NativeParametricLibrary.jsx": "783524fd019306180decfe123c88651b292fe9847af887c1010d22a9e2570649",
+    "source/clientId.js": "bfdddeca94607145f8f9179f6f4e693682e01f06ac20d89468d5b9531ccff1cc",
+    "source/engineeringAssemblySubmit.test.js": "ff261fc8f7f3160dbd9c795cdb58344fad8cbcc1d519448e35487a8b46e55c17",
+    "source/nativeDrawingWorkspace.test.js": "8be3a36d0a82b1440dfc38bda2800703fee968a47bc55b738e005c9de2531b9f"
+  }
+}

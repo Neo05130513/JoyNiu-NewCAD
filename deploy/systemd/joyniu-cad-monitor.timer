@@ -1,0 +1,11 @@
+[Unit]
+Description=Check JoyNiu CAD every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+Persistent=true
+Unit=joyniu-cad-monitor.service
+
+[Install]
+WantedBy=timers.target

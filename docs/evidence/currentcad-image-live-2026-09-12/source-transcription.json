@@ -1,0 +1,186 @@
+{
+  "version": "cad-source-reader-v2",
+  "readerVersion": "cad-source-reader-v2",
+  "sourceFiles": [
+    {
+      "fileIndex": 0,
+      "sha256": "93a2a55483500670b1a3ed75d6f4d8f7d10419f34ff01324b4805b17f4da4d14",
+      "sizeBytes": 13288
+    }
+  ],
+  "preparedFiles": [
+    {
+      "fileIndex": 0,
+      "sha256": "93a2a55483500670b1a3ed75d6f4d8f7d10419f34ff01324b4805b17f4da4d14",
+      "sizeBytes": 13288
+    }
+  ],
+  "sourceFingerprint": "9b598763a5f3ed29af338ea529afe494aadf887927116a371379ecc3fef57f81",
+  "status": "succeeded",
+  "candidateEvidence": true,
+  "verified": false,
+  "annotations": [],
+  "structureObservations": [],
+  "questions": [
+    "图纸内容区域内未读到可见尺寸标注，请补充尺寸要求或可读图纸。"
+  ],
+  "provider": {
+    "mode": "codex",
+    "name": "codex-cli",
+    "streaming": false,
+    "model": "gpt-6-astra",
+    "reasoningEffort": "medium",
+    "configured": true,
+    "binaryAvailable": true,
+    "authentication": "cli-managed",
+    "proxyConfigured": false,
+    "deployment": "local",
+    "requestCount": 1,
+    "plannedRequestCount": 1
+  },
+  "evidencePolicy": "Candidate visual transcription; not verified dimensions, geometry acceptance or human approval.",
+  "images": [
+    {
+      "imageId": "source-0-original",
+      "fileIndex": 0,
+      "sourceSha256": "93a2a55483500670b1a3ed75d6f4d8f7d10419f34ff01324b4805b17f4da4d14",
+      "preparedSha256": "93a2a55483500670b1a3ed75d6f4d8f7d10419f34ff01324b4805b17f4da4d14",
+      "crop": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "imageSize": [
+        960,
+        720
+      ],
+      "sourceType": "original_prepared_image",
+      "viewDetected": false,
+      "sha256": "93a2a55483500670b1a3ed75d6f4d8f7d10419f34ff01324b4805b17f4da4d14"
+    }
+  ],
+  "regionReadings": [
+    {
+      "imageId": "source-0-original",
+      "fileIndex": 0,
+      "sourceRegion": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "status": "succeeded",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "succeeded",
+          "diagnostics": {
+            "firstByteSeconds": 0.0186,
+            "firstOutputTextSeconds": 7.0683,
+            "elapsedSeconds": 20.9815,
+            "responseBytes": 408,
+            "outputChars": 33,
+            "eventCount": 4,
+            "terminalEventCount": 1,
+            "terminalStatus": "completed",
+            "protocol": "json",
+            "streamEndReason": "terminal_event",
+            "codexEventType": "turn.completed",
+            "codexItemType": "agent_message",
+            "usage": {
+              "input_tokens": 5689,
+              "output_tokens": 11,
+              "cached_tokens": 2816,
+              "reasoning_tokens": 0
+            }
+          },
+          "elapsedSeconds": 20.988,
+          "annotationCount": 0,
+          "outputCharacters": 33,
+          "outputLayout": {
+            "itemCount": 1,
+            "items": [
+              {
+                "index": 0,
+                "type": "message",
+                "phase": "final_answer",
+                "channel": null,
+                "status": "completed",
+                "role": "assistant",
+                "contentPartCount": 1,
+                "content": [
+                  {
+                    "index": 0,
+                    "type": "output_text",
+                    "textChars": 33
+                  }
+                ]
+              }
+            ],
+            "aggregateTextChars": 0
+          },
+          "usage": {
+            "input_tokens": 5689,
+            "output_tokens": 11
+          }
+        }
+      ],
+      "diagnostics": {
+        "firstByteSeconds": 0.0186,
+        "firstOutputTextSeconds": 7.0683,
+        "elapsedSeconds": 20.9815,
+        "responseBytes": 408,
+        "outputChars": 33,
+        "eventCount": 4,
+        "terminalEventCount": 1,
+        "terminalStatus": "completed",
+        "protocol": "json",
+        "streamEndReason": "terminal_event",
+        "codexEventType": "turn.completed",
+        "codexItemType": "agent_message",
+        "usage": {
+          "input_tokens": 5689,
+          "output_tokens": 11,
+          "cached_tokens": 2816,
+          "reasoning_tokens": 0
+        }
+      },
+      "elapsedSeconds": 20.988,
+      "annotationCount": 0,
+      "outputCharacters": 33,
+      "outputLayout": {
+        "itemCount": 1,
+        "items": [
+          {
+            "index": 0,
+            "type": "message",
+            "phase": "final_answer",
+            "channel": null,
+            "status": "completed",
+            "role": "assistant",
+            "contentPartCount": 1,
+            "content": [
+              {
+                "index": 0,
+                "type": "output_text",
+                "textChars": 33
+              }
+            ]
+          }
+        ],
+        "aggregateTextChars": 0
+      },
+      "usage": {
+        "input_tokens": 5689,
+        "output_tokens": 11
+      },
+      "candidateReading": {
+        "questions": [],
+        "annotations": [],
+        "structureObservations": []
+      }
+    }
+  ],
+  "elapsedSeconds": 20.999
+}

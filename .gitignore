@@ -10,3 +10,12 @@ __pycache__
 .venv
 apps/api/data
 apps/api/artifacts
+
+# Production credentials and persistent server data
+.env.production
+deploy/.secrets/
+deploy/.cache/
+data/
+
+# Local manual-modeling runtime cache
+/cad-feature-workspace/

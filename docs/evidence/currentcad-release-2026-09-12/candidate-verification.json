@@ -1,0 +1,33 @@
+{
+  "sourceAndBuildSha256": "c37d318523b594109f30f56cfdd241ca680bbf69e89f4c556c0caa2dd5e5a355",
+  "apiImage": {
+    "tag": "joyniu-cad-api-codex:currentcad-delivery-20260912",
+    "id": "sha256:458c1d7bf39cb2e017e6b012f4644f2929eb98e2abe90014eccf6aaaa377dde3",
+    "architecture": "amd64"
+  },
+  "webImage": {
+    "tag": "joyniu-cad-web:currentcad-delivery-20260912-r3",
+    "id": "sha256:8df193ec0165d7550c464d4a2d858c506be107cbb4b9fa1a001edeab21d76270",
+    "architecture": "amd64"
+  },
+  "baseImage": {
+    "tag": "joyniu-cad-api-codex:offline-credits-20260912",
+    "id": "sha256:bed56d48945238eb7bdec6d1ca8ca75a023bf7e658a37ebf89ac75f5dfb03c41",
+    "architecture": "amd64"
+  },
+  "toolsImage": {
+    "tag": "joyniu-currentcad-tools:20260912-amd64",
+    "id": "sha256:689cfa61d5abdc1bbe68fbd799539cc5de779b5e92402217e7c469fe374ed042",
+    "architecture": "amd64"
+  },
+  "webFilesVerified": 6,
+  "smoke": {
+    "containerId": "d3d2a87ab5fb41eb6d52053212f7e08b3779525a51a86b2e0335187b69d5282f",
+    "apiImageId": "sha256:458c1d7bf39cb2e017e6b012f4644f2929eb98e2abe90014eccf6aaaa377dde3",
+    "sourceAndBuildSha256": "c37d318523b594109f30f56cfdd241ca680bbf69e89f4c556c0caa2dd5e5a355",
+    "scriptSha256": "0d30d34e81031b21f312cd52c93f0b9d464d721d6d1cf3fd3159fed285c0c539",
+    "path": "/opt/joyniu-candidates/currentcad-delivery-20260912-r3/smoke-evidence/verification.json",
+    "sha256": "1fab06a263dd4e1a0dad8ed728e60374a4367f0a5fae235ae94cb267c9192518"
+  },
+  "baseNginxErrorPageSha256": "876766b4e80133fd490603e073d3567425b88794828a9292104244c9e40875ed"
+}

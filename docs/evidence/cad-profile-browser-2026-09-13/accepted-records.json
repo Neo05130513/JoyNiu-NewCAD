@@ -1,0 +1,515 @@
+[
+  {
+    "status": 200,
+    "body": {
+      "id": "feature_f40441b8836b44ffb7348cb961d15705",
+      "revision": 1,
+      "name": "新零件 1",
+      "plan": {
+        "version": "cad-plan-v1",
+        "units": "mm",
+        "name": "新零件 1",
+        "parameters": {},
+        "features": [
+          {
+            "id": "profile_loft1",
+            "op": "profile_loft",
+            "label": "放样 1",
+            "sections": [
+              {
+                "id": "section1",
+                "start": [
+                  -5,
+                  -4.004
+                ],
+                "segments": [
+                  {
+                    "type": "line",
+                    "to": [
+                      4.998000000000001,
+                      -4.004
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      4.998000000000001,
+                      4.023
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      4.023
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      -4.004
+                    ]
+                  }
+                ],
+                "sketchConstraints": [
+                  {
+                    "id": "sketch_rect_0",
+                    "type": "horizontal",
+                    "edge": 0
+                  },
+                  {
+                    "id": "sketch_rect_1",
+                    "type": "vertical",
+                    "edge": 1
+                  },
+                  {
+                    "id": "sketch_rect_2",
+                    "type": "horizontal",
+                    "edge": 2
+                  },
+                  {
+                    "id": "sketch_rect_3",
+                    "type": "vertical",
+                    "edge": 3
+                  },
+                  {
+                    "id": "sketch_rect_origin",
+                    "type": "fixed",
+                    "points": [
+                      "start"
+                    ],
+                    "position": [
+                      -5,
+                      -4.004
+                    ]
+                  }
+                ],
+                "frame": {
+                  "origin": [
+                    0,
+                    0,
+                    0
+                  ],
+                  "xDir": [
+                    1,
+                    0,
+                    0
+                  ],
+                  "normal": [
+                    0,
+                    0,
+                    1
+                  ]
+                }
+              },
+              {
+                "id": "section2",
+                "start": [
+                  3.9979999999999998,
+                  0.024
+                ],
+                "segments": [
+                  {
+                    "type": "ellipse",
+                    "center": [
+                      0,
+                      -0.004
+                    ],
+                    "radii": [
+                      3.998098047822239,
+                      2.0269502906298693
+                    ],
+                    "rotation": 0.40126453167719633,
+                    "startAngle": 0,
+                    "endAngle": 360,
+                    "to": [
+                      3.9979999999999998,
+                      0.024
+                    ]
+                  }
+                ],
+                "sketchConstraints": [],
+                "frame": {
+                  "origin": [
+                    0,
+                    0,
+                    15
+                  ],
+                  "xDir": [
+                    1,
+                    0,
+                    0
+                  ],
+                  "normal": [
+                    0,
+                    0,
+                    1
+                  ]
+                }
+              }
+            ],
+            "ruled": false
+          }
+        ],
+        "result": "profile_loft1"
+      },
+      "suppressed": [],
+      "sourceRun": null,
+      "fileId": "file_3b91cd54-ea23-456b-951e-1d0e08be52e3",
+      "changeNote": "新建放样 1",
+      "status": "built",
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "updatedAt": "2026-09-13T09:38:12.307270+00:00",
+      "artifacts": {
+        "step": {
+          "format": "step",
+          "mimeType": "application/step",
+          "url": "/api/cad/features/feature_f40441b8836b44ffb7348cb961d15705/versions/1/artifacts/step"
+        },
+        "glb": {
+          "format": "glb",
+          "mimeType": "model/gltf-binary",
+          "url": "/api/cad/features/feature_f40441b8836b44ffb7348cb961d15705/versions/1/artifacts/glb"
+        },
+        "plan": {
+          "format": "plan",
+          "mimeType": "application/json",
+          "url": "/api/cad/features/feature_f40441b8836b44ffb7348cb961d15705/versions/1/artifacts/plan"
+        }
+      },
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 7,
+        "edgeCount": 15,
+        "volumeMm3": 759.2814491838777,
+        "surfaceAreaMm2": 513.592940587232,
+        "geometryKind": "solid",
+        "shellCount": 1,
+        "bbox": {
+          "min": [
+            -5.0000001,
+            -4.0040001,
+            -1e-7
+          ],
+          "max": [
+            4.998000100000001,
+            4.0230001,
+            15.000000100000001
+          ],
+          "size": [
+            9.998000200000002,
+            8.0270002,
+            15.0000002
+          ]
+        },
+        "bboxLength": 9.998000200000002,
+        "bboxWidth": 8.0270002,
+        "bboxHeight": 15.0000002,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 1,
+          "volumeMm3": 759.2814491838773,
+          "bbox": {
+            "min": [
+              -5.000000100000001,
+              -4.0040001,
+              -1e-7
+            ],
+            "max": [
+              4.998000100000001,
+              4.0230001,
+              15.0000001
+            ],
+            "size": [
+              9.998000200000003,
+              8.0270002,
+              15.000000199999999
+            ]
+          }
+        }
+      },
+      "resolvedParameters": {},
+      "execution": {
+        "isolatedProcess": true,
+        "durationMs": 2248,
+        "timeoutSeconds": 120,
+        "memoryLimitMb": 4096,
+        "arbitraryCodeAllowed": false
+      },
+      "sharedDesign": null
+    }
+  },
+  {
+    "status": 200,
+    "body": {
+      "id": "feature_eae190daed044d19be9276787fe2c92b",
+      "revision": 1,
+      "name": "新零件 2",
+      "plan": {
+        "version": "cad-plan-v1",
+        "units": "mm",
+        "name": "新零件 2",
+        "parameters": {},
+        "features": [
+          {
+            "id": "profile_sweep1",
+            "op": "profile_sweep",
+            "label": "扫掠 1",
+            "plane": "XY",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "start": [
+              -1,
+              -0.504
+            ],
+            "segments": [
+              {
+                "type": "line",
+                "to": [
+                  1,
+                  -0.504
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  1,
+                  0.524
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  -1,
+                  0.524
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  -1,
+                  -0.504
+                ]
+              }
+            ],
+            "path": {
+              "start": [
+                0,
+                0,
+                0
+              ],
+              "segments": [
+                {
+                  "type": "line",
+                  "to": [
+                    0,
+                    0,
+                    20
+                  ]
+                },
+                {
+                  "type": "arc",
+                  "through": [
+                    5,
+                    0,
+                    25
+                  ],
+                  "to": [
+                    10,
+                    0,
+                    20
+                  ]
+                },
+                {
+                  "type": "line",
+                  "to": [
+                    10,
+                    0,
+                    0
+                  ]
+                }
+              ]
+            },
+            "isFrenet": false,
+            "transition": "transformed",
+            "sketchConstraints": [
+              {
+                "id": "sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0
+              },
+              {
+                "id": "sketch_rect_1",
+                "type": "vertical",
+                "edge": 1
+              },
+              {
+                "id": "sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2
+              },
+              {
+                "id": "sketch_rect_3",
+                "type": "vertical",
+                "edge": 3
+              },
+              {
+                "id": "sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  -1,
+                  -0.504
+                ]
+              }
+            ]
+          }
+        ],
+        "result": "profile_sweep1"
+      },
+      "suppressed": [],
+      "sourceRun": null,
+      "fileId": "file_76fa9c37-d46c-4d9d-b275-92a1b0e3dd04",
+      "changeNote": "新建扫掠 1",
+      "status": "built",
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "updatedAt": "2026-09-13T09:38:20.827244+00:00",
+      "artifacts": {
+        "step": {
+          "format": "step",
+          "mimeType": "application/step",
+          "url": "/api/cad/features/feature_eae190daed044d19be9276787fe2c92b/versions/1/artifacts/step"
+        },
+        "glb": {
+          "format": "glb",
+          "mimeType": "model/gltf-binary",
+          "url": "/api/cad/features/feature_eae190daed044d19be9276787fe2c92b/versions/1/artifacts/glb"
+        },
+        "plan": {
+          "format": "plan",
+          "mimeType": "application/json",
+          "url": "/api/cad/features/feature_eae190daed044d19be9276787fe2c92b/versions/1/artifacts/plan"
+        }
+      },
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 10,
+        "edgeCount": 24,
+        "volumeMm3": 114.53557247890308,
+        "surfaceAreaMm2": 341.479425550699,
+        "geometryKind": "solid",
+        "shellCount": 1,
+        "bbox": {
+          "min": [
+            -1,
+            -0.504,
+            0
+          ],
+          "max": [
+            11,
+            0.524,
+            26
+          ],
+          "size": [
+            12,
+            1.028,
+            26
+          ]
+        },
+        "bboxLength": 12,
+        "bboxWidth": 1.028,
+        "bboxHeight": 26,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 4,
+            "radius": 4,
+            "diameter": 8,
+            "origin": [
+              5,
+              -0.504,
+              20
+            ],
+            "axis": [
+              0,
+              1,
+              0
+            ],
+            "area": 12.918228991561229
+          },
+          {
+            "faceIndex": 5,
+            "radius": 6,
+            "diameter": 12,
+            "origin": [
+              5,
+              0.524,
+              20
+            ],
+            "axis": [
+              0,
+              -1,
+              0
+            ],
+            "area": 19.377343487341843
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 1,
+          "volumeMm3": 114.5355724789045,
+          "bbox": {
+            "min": [
+              -1,
+              -0.504,
+              0
+            ],
+            "max": [
+              11,
+              0.524,
+              26
+            ],
+            "size": [
+              12,
+              1.028,
+              26
+            ]
+          }
+        }
+      },
+      "resolvedParameters": {},
+      "execution": {
+        "isolatedProcess": true,
+        "durationMs": 2240,
+        "timeoutSeconds": 120,
+        "memoryLimitMb": 4096,
+        "arbitraryCodeAllowed": false
+      },
+      "sharedDesign": null
+    }
+  }
+]

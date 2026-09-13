@@ -1,0 +1,345 @@
+{
+  "description": "Synthetic real-browser regression: edit first edge only, preserving a unique extrusion end face across box to trapezoid conversion.",
+  "baselinePlan": {
+    "version": "cad-plan-v1",
+    "units": "mm",
+    "name": "新零件 2",
+    "parameters": {},
+    "features": [
+      {
+        "id": "box1",
+        "op": "box",
+        "label": "长方体 1",
+        "size": [
+          80,
+          50,
+          12
+        ],
+        "origin": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "profile_extrude1",
+        "op": "profile_extrude",
+        "label": "轮廓拉伸 1",
+        "plane": "custom",
+        "start": [
+          -4.255,
+          1.69
+        ],
+        "segments": [
+          {
+            "type": "line",
+            "to": [
+              8.354,
+              1.69
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              8.354,
+              11.266
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              -4.255,
+              11.266
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              -4.255,
+              1.69
+            ]
+          }
+        ],
+        "distance": 5,
+        "frame": {
+          "origin": [
+            40,
+            25,
+            11.999999999999998
+          ],
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "xDir": [
+            1,
+            0,
+            0
+          ]
+        },
+        "planeSource": {
+          "kind": "face",
+          "sourceFeatureId": "box1",
+          "geometryVersion": "462a60d132291dcbbeb17b4bfd929975512af0795557034733e20e6e89a1709d",
+          "index": 5,
+          "signature": "26dddf55d30759c609fb062633a5cbfe46cd1232e548e84d1ca7b7f652c5f36b",
+          "binding": {
+            "version": 1,
+            "key": "b049d27855a60bd83e602a6f74414c91fcd30e3e459f4bc743fb493145615d65"
+          }
+        },
+        "planeAttachment": {
+          "version": 1,
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "xDir": [
+            1,
+            0,
+            0
+          ],
+          "normal": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "id": "union1",
+        "op": "union",
+        "label": "布尔合并 1",
+        "inputs": [
+          "box1",
+          "profile_extrude1"
+        ]
+      },
+      {
+        "id": "fillet1",
+        "op": "fillet",
+        "label": "圆角 1",
+        "input": "union1",
+        "radius": 1,
+        "edges": [
+          {
+            "kind": "edge",
+            "sourceFeatureId": "union1",
+            "geometryVersion": "04126602b53e4637835b6868247d7b75a4904bcb2bc8fe6f1e020abaec48a280",
+            "index": 18,
+            "signature": "f11751c1b1cbc579b890f2754329c9fa9b6bbe5c4720257f8d6a335e720b3c12",
+            "binding": {
+              "version": 1,
+              "key": "212af12dd9ca6522407bfcd6e873ccf519e199edfb62ccf243e6fdc2a24e0e24"
+            }
+          },
+          {
+            "kind": "edge",
+            "sourceFeatureId": "union1",
+            "geometryVersion": "04126602b53e4637835b6868247d7b75a4904bcb2bc8fe6f1e020abaec48a280",
+            "index": 20,
+            "signature": "7d388944d9156a68e8694eaba426f777faa078030d8d5abe2fdafd749711b919",
+            "binding": {
+              "version": 1,
+              "key": "866eba0aeee2ed8a03f3b1838fe00577c866b6cb8ab5cdb802763e94bdc9b847"
+            }
+          }
+        ]
+      }
+    ],
+    "result": "fillet1"
+  },
+  "candidatePlan": {
+    "version": "cad-plan-v1",
+    "units": "mm",
+    "name": "新零件 2",
+    "parameters": {},
+    "features": [
+      {
+        "id": "box1",
+        "label": "长方体 1",
+        "op": "profile_extrude",
+        "plane": "XY",
+        "origin": [
+          0,
+          0,
+          0
+        ],
+        "start": [
+          -2.500000004503,
+          1.563193954815e-07
+        ],
+        "segments": [
+          {
+            "type": "line",
+            "to": [
+              82.4999999955,
+              1.563193954815e-07
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              80,
+              50
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              0,
+              50
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              -2.500000004503,
+              1.563193954815e-07
+            ]
+          }
+        ],
+        "distance": 12,
+        "sketchConstraints": [
+          {
+            "id": "sketch_dim_0",
+            "type": "length",
+            "edge": 0,
+            "value": 85
+          }
+        ]
+      },
+      {
+        "id": "profile_extrude1",
+        "op": "profile_extrude",
+        "label": "轮廓拉伸 1",
+        "plane": "custom",
+        "start": [
+          -4.255,
+          1.69
+        ],
+        "segments": [
+          {
+            "type": "line",
+            "to": [
+              8.354,
+              1.69
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              8.354,
+              11.266
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              -4.255,
+              11.266
+            ]
+          },
+          {
+            "type": "line",
+            "to": [
+              -4.255,
+              1.69
+            ]
+          }
+        ],
+        "distance": 5,
+        "frame": {
+          "origin": [
+            40,
+            25,
+            11.999999999999998
+          ],
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "xDir": [
+            1,
+            0,
+            0
+          ]
+        },
+        "planeSource": {
+          "kind": "face",
+          "sourceFeatureId": "box1",
+          "geometryVersion": "462a60d132291dcbbeb17b4bfd929975512af0795557034733e20e6e89a1709d",
+          "index": 5,
+          "signature": "26dddf55d30759c609fb062633a5cbfe46cd1232e548e84d1ca7b7f652c5f36b",
+          "binding": {
+            "version": 1,
+            "key": "b049d27855a60bd83e602a6f74414c91fcd30e3e459f4bc743fb493145615d65"
+          }
+        },
+        "planeAttachment": {
+          "version": 1,
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "xDir": [
+            1,
+            0,
+            0
+          ],
+          "normal": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "id": "union1",
+        "op": "union",
+        "label": "布尔合并 1",
+        "inputs": [
+          "box1",
+          "profile_extrude1"
+        ]
+      },
+      {
+        "id": "fillet1",
+        "op": "fillet",
+        "label": "圆角 1",
+        "input": "union1",
+        "radius": 1,
+        "edges": [
+          {
+            "kind": "edge",
+            "sourceFeatureId": "union1",
+            "geometryVersion": "04126602b53e4637835b6868247d7b75a4904bcb2bc8fe6f1e020abaec48a280",
+            "index": 18,
+            "signature": "f11751c1b1cbc579b890f2754329c9fa9b6bbe5c4720257f8d6a335e720b3c12",
+            "binding": {
+              "version": 1,
+              "key": "212af12dd9ca6522407bfcd6e873ccf519e199edfb62ccf243e6fdc2a24e0e24"
+            }
+          },
+          {
+            "kind": "edge",
+            "sourceFeatureId": "union1",
+            "geometryVersion": "04126602b53e4637835b6868247d7b75a4904bcb2bc8fe6f1e020abaec48a280",
+            "index": 20,
+            "signature": "7d388944d9156a68e8694eaba426f777faa078030d8d5abe2fdafd749711b919",
+            "binding": {
+              "version": 1,
+              "key": "866eba0aeee2ed8a03f3b1838fe00577c866b6cb8ab5cdb802763e94bdc9b847"
+            }
+          }
+        ]
+      }
+    ],
+    "result": "fillet1"
+  },
+  "baselineVolumeMm3": 48599.05384859119
+}

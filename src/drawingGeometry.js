@@ -23,6 +23,11 @@ export function isDrawingKernelReady(generation, pending = false) {
     && !['unavailable', 'recovering'].includes(generation.artifactStatus)
 }
 
+export function isDrawingDataPending(generation, drawingJob) {
+  return Boolean(generation?.pendingDrawing || (drawingJob?.evidence && drawingJob.evidence.status !== 'confirmed')
+    || ['queued', 'analyzing', 'generating'].includes(drawingJob?.status))
+}
+
 function makeView(id, title) {
   const entities = [], dimensions = []
   const add = (type, payload, layer = 'OBJECT', feature = '') => {
@@ -316,6 +321,7 @@ export function buildDrawingScene(model, options = {}) {
   if (!validation.valid) return { ...validation, entities: [], views: [], dimensions: [], layers: drawingLayers, notes: [], width: 420, height: 297 }
   const p = Object.fromEntries(Object.entries(model).map(([key, value]) => [key, typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) ? Number(value) : value]))
   const factories = { shaft: shaftViews, bracket: bracketViews, split_clamp_support: clampViews, stepped_tapered_nozzle: nozzleViews, arched_clevis_support: archedClevisViews }
+  if (!factories[validation.kind]) return { ...validation, valid: false, unsupported: true, errors: [{ field: 'kind', message: '当前模型使用实体投影视图，尚无参数化 DXF 工程图。请返回建模查看可导出的文件。' }], entities: [], views: [], dimensions: [], layers: drawingLayers, notes: [], width: 420, height: 297 }
   const rawViews = factories[validation.kind](p)
   const bounds = rawViews.map((view) => {
     const points = view.entities.flatMap(entityPoints), xs = points.map(([x]) => x), ys = points.map(([, y]) => y)
@@ -345,7 +351,9 @@ export function buildDrawingScene(model, options = {}) {
 export function dxfForModel(model, options = {}) {
   const scene = options.scene || (model?.entities && model?.views ? model : buildDrawingScene(model, options))
   if (!scene.valid) throw new Error(scene.errors?.map((error) => error.message).join('；') || '图纸参数无效，不能导出 DXF。')
+  if (isDrawingDataPending(options.generation, options.drawingJob)) throw new Error('当前图纸数据尚未确认，请确认尺寸后再导出 DXF。')
   const isVisible = (layer) => options.layers?.[layer] !== false
+  if (!scene.entities.some((entity) => isVisible(entity.layer))) throw new Error('所有图层均已隐藏，请至少显示一个图层后再导出 DXF。')
   const out = [], pair = (code, value) => { out.push(String(code), typeof value === 'number' ? String(round(value)) : String(value).replace(/[\r\n]/g, ' ')) }
   const section = (name) => { pair(0, 'SECTION'); pair(2, name) }
   section('HEADER'); pair(9, '$ACADVER'); pair(1, 'AC1021'); pair(9, '$INSUNITS'); pair(70, 4); pair(9, '$MEASUREMENT'); pair(70, 1); pair(0, 'ENDSEC')

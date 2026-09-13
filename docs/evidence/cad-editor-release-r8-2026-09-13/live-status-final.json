@@ -1,0 +1,91 @@
+{
+  "release": {
+    "release": "cad-editor-parity-20260913",
+    "gitBase": "5cc68383923f43624fd86a44a338b2f5bcf04d14",
+    "workingTreeSnapshot": true,
+    "sourceAndBuildSha256": "05952dab9b1898724f802b99a8f5ae64e126af48e3324a8cf3f3799c69a9c211"
+  },
+  "services": {
+    "api": {
+      "containerId": "f7d7f2d16dadd63770814facc5e824a28fe8bb3939f0328e9077b626a3934be4",
+      "imageId": "sha256:5876d58c7484896f763b9d3464144e661aecc73b33436b661f1e68297fdbc628",
+      "imageTag": "joyniu-cad-api-codex:cad-editor-parity-20260913-r8",
+      "running": true,
+      "health": "healthy",
+      "startedAt": "2026-09-13T10:41:34.941891864Z"
+    },
+    "web": {
+      "containerId": "7f707d93f6a2c77940a23525ca936764fad7e7ee204e3e5b46010d35c98f415d",
+      "imageId": "sha256:478acd4681679ef93a26487da7e7ece161e66b0903a5ae0fe9a1ad02ed1b8321",
+      "imageTag": "joyniu-cad-web:cad-editor-parity-20260913-r8",
+      "running": true,
+      "health": null,
+      "startedAt": "2026-09-13T10:41:35.68423494Z"
+    },
+    "cad-egress": {
+      "containerId": "72871074282b3ce3e2a0979fafcc5cb13d1abd7816395a080f71d03982a6a917",
+      "imageId": "sha256:35bbedf2336301678a6b64f4ef892311f55550251ae0b52a23a4b97d62725545",
+      "imageTag": "joyniu-cad-egress:v1.19.30",
+      "running": true,
+      "health": null,
+      "startedAt": "2026-09-09T16:15:16.480250042Z"
+    }
+  },
+  "health": {
+    "status": "ok",
+    "service": "joyniu-cad-api",
+    "version": "0.2.0",
+    "checkedAt": "2026-09-13T10:51:16.983125+00:00",
+    "geometry": {
+      "available": true,
+      "version": "2.8.0",
+      "error": null,
+      "engine": "cadquery-occt"
+    },
+    "dwg": {
+      "available": true,
+      "engine": "libredwg-dwgread",
+      "converterCandidates": [
+        "libredwg-dwgread",
+        "libredwg-dwg2dxf"
+      ],
+      "dependencies": {
+        "ezdxf": true,
+        "matplotlib": true,
+        "Pillow": true
+      },
+      "error": null,
+      "pipeline": "DWG -> DXF -> vector/dimension evidence + PNG",
+      "rawDwgSentToAI": false
+    },
+    "pdf": {
+      "available": true,
+      "engine": "PyMuPDF",
+      "dependencies": {
+        "PyMuPDF": true,
+        "Pillow": true
+      },
+      "pipeline": "PDF -> page text evidence + PNG previews",
+      "rawPdfSentToAI": false
+    },
+    "capabilities": {
+      "drawingRecognition": true,
+      "drawingResultSubmission": true,
+      "bracketValidation": true,
+      "stepExport": true,
+      "glbExport": true,
+      "cadqueryBRep": true,
+      "dwgVectorParsing": true,
+      "pdfVectorParsing": true,
+      "ocr": {
+        "available": true,
+        "engine": "pytesseract",
+        "version": "5.5.0"
+      }
+    },
+    "notes": []
+  },
+  "activationStage": "completed",
+  "maintenance": false,
+  "egressPreserved": true
+}

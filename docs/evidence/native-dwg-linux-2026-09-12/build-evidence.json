@@ -1,0 +1,21 @@
+{
+  "officialSourceArchive": "/tmp/joyniu-dwg-audit-20260910/libredwg-0.14.tar.xz",
+  "archiveSha256": "62ebb73b984f865960f20ed26619ea5f8789d5e3fd088fa40a2598384da81275",
+  "sourceDockerfileSha256": "371ef6ccd6eb0e790d916031a87e3d6f6ab20d6291232ee04a5e96ce4c23dc80",
+  "derivedDockerfileSha256": "d390ba72d731ee2d3a86e4d606517540cb94dc62b40e2498adf93ff9aa286d7c",
+  "onlyChange": "COPY local verified archive replaces curl; checksum and all configure/build/link commands unchanged",
+  "command": [
+    "docker",
+    "build",
+    "--target",
+    "dwg-builder",
+    "-f",
+    "/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-dwg-cached-build-waareuue/Dockerfile",
+    "-t",
+    "joyniu-dwg-adapter-verify:20260912",
+    "/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-dwg-cached-build-waareuue"
+  ],
+  "exitCode": 0,
+  "completedAt": "2026-09-12T12:20:47.689643+00:00",
+  "log": "/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-dwg-cached-build-waareuue/build.log"
+}

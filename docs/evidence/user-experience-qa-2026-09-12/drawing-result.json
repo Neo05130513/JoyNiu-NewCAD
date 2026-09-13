@@ -1,0 +1,128 @@
+{
+  "page": "A3",
+  "layouts": [
+    {
+      "view": "front",
+      "index": 0,
+      "scale": 1.0,
+      "x": 115.5,
+      "y": 154.5,
+      "tx": 115.5,
+      "ty": 147.0,
+      "frame": {
+        "normal": [
+          0,
+          -1,
+          0
+        ],
+        "horizontal": [
+          1,
+          0,
+          0
+        ],
+        "vertical": [
+          0,
+          0,
+          1
+        ],
+        "origin": [
+          0,
+          0,
+          0
+        ]
+      },
+      "naturalSizeMm": [
+        51.99999999999999,
+        15.0
+      ]
+    },
+    {
+      "view": "right",
+      "index": 1,
+      "scale": 1.0,
+      "x": 306.5,
+      "y": 154.5,
+      "tx": 306.49999999999994,
+      "ty": 147.0,
+      "frame": {
+        "normal": [
+          1,
+          0,
+          0
+        ],
+        "horizontal": [
+          0,
+          1,
+          0
+        ],
+        "vertical": [
+          0,
+          0,
+          1
+        ],
+        "origin": [
+          0,
+          0,
+          0
+        ]
+      },
+      "naturalSizeMm": [
+        51.999999999999936,
+        15.0
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "index": 0,
+      "value": 15.0,
+      "units": "mm",
+      "orientation": "vertical"
+    }
+  ],
+  "curveToleranceMm": 0.05,
+  "settings": {
+    "page": "A3",
+    "hidden": true,
+    "views": [
+      {
+        "view": "front"
+      },
+      {
+        "view": "right"
+      }
+    ],
+    "dimensions": [
+      {
+        "viewIndex": 1,
+        "orientation": "vertical",
+        "offset": 10,
+        "a": {
+          "kind": "face",
+          "index": 3
+        },
+        "b": {
+          "kind": "face",
+          "index": 4
+        }
+      }
+    ]
+  },
+  "artifacts": {
+    "user-gear-sheet-embedded.svg": {
+      "filename": "user-gear-sheet-embedded.svg",
+      "mimeType": "image/svg+xml",
+      "label": "工程图 SVG"
+    },
+    "user-gear-sheet-embedded.dxf": {
+      "filename": "user-gear-sheet-embedded.dxf",
+      "mimeType": "application/dxf",
+      "label": "工程图 DXF"
+    },
+    "user-gear-sheet-embedded.pdf": {
+      "filename": "user-gear-sheet-embedded.pdf",
+      "mimeType": "application/pdf",
+      "label": "工程图 PDF"
+    }
+  }
+}

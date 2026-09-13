@@ -8,7 +8,11 @@
 
 import { readableError } from './workspaceFeedback.js'
 
-export const API_BASE = (import.meta.env?.VITE_API_BASE || 'http://localhost:8010/api/v1').replace(/\/$/, '')
+const DEFAULT_API_BASE = 'http://localhost:8010/api/v1'
+export function resolveApiBase(configuredBase, origin = globalThis.window?.location?.origin) {
+  return new URL(configuredBase || DEFAULT_API_BASE, origin || new URL(DEFAULT_API_BASE).origin).href.replace(/\/+$/, '')
+}
+export const API_BASE = resolveApiBase(import.meta.env?.VITE_API_BASE)
 
 const fieldLabels = { email: '邮箱', password: '密码', displayName: '显示名称', display_name: '显示名称', roles: '角色', file: '文件', files: '文件', message: '消息' }
 function validationMessage(value) {
@@ -57,31 +61,33 @@ function transportError(error) {
 
 async function request(path, options = {}) {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs || 45_000)
+  let timedOut = false
+  const timeout = window.setTimeout(() => { timedOut = true; controller.abort() }, options.timeoutMs || 45_000)
   const { timeoutMs: _timeoutMs, ...fetchOptions } = options
   const externalSignal = fetchOptions.signal
   const forwardAbort = () => controller.abort(externalSignal?.reason)
   if (externalSignal?.aborted) forwardAbort()
   else externalSignal?.addEventListener('abort', forwardAbort, { once: true })
-  let response
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
       ...fetchOptions,
       signal: controller.signal,
-      headers: { Accept: 'application/json', ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(fetchOptions.headers || {}) },
+      headers: { Accept: 'application/json', 'X-JoyNiu-CSRF': '1', ...(fetchOptions.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(fetchOptions.headers || {}) },
     })
+    // Reading the body is part of the request. Keep the deadline and account
+    // cancellation active if response headers arrive before a stalled body.
+    const contentType = response.headers.get('content-type') || ''
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text()
+    if (!response.ok) throw responseError(payload, response.status)
+    return payload
   } catch (error) {
+    if (timedOut && !externalSignal?.aborted) throw Object.assign(new Error('服务响应超时，请稍后重试。'), { name: 'TimeoutError' })
     throw transportError(error)
   } finally {
     window.clearTimeout(timeout)
     externalSignal?.removeEventListener('abort', forwardAbort)
   }
-  const contentType = response.headers.get('content-type') || ''
-  const payload = contentType.includes('application/json') ? await response.json() : await response.text()
-  if (!response.ok) {
-    throw responseError(payload, response.status)
-  }
-  return payload
 }
 
 async function streamRequest(path, options = {}, onEvent = () => {}) {
@@ -212,7 +218,15 @@ export const api = {
   validateModel: (payload) => request('/models/validate', { method: 'POST', body: JSON.stringify(payload) }),
   generateModel: (payload, signal) => request('/models/generate', { method: 'POST', body: JSON.stringify(payload), signal }),
   artifactUrl: (artifactId, format = 'step') => absoluteUrl(`/api/artifacts/${encodeURIComponent(artifactId)}.${format}`),
+  authStatus: () => request('/auth/status'),
   login: (email, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  accountCapabilities: () => request('/auth/account-capabilities'),
+  register: (payload) => request('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
+  refreshSession: () => request('/auth/refresh', { method: 'POST', body: '{}' }),
+  logout: token => request('/auth/logout', { method: 'POST', body: '{}', headers: authHeaders(token) }),
+  changePassword: (payload, token) => request('/auth/password/change', { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
+  forgotPassword: (email) => request('/auth/password/forgot', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetUserPassword: (id, newPassword, token) => request(`/auth/users/${encodeURIComponent(id)}/password/reset`, { method: 'POST', body: JSON.stringify({ newPassword }), headers: authHeaders(token) }),
   createUser: (payload, token) => request('/auth/users', { method: 'POST', body: JSON.stringify(payload), headers: authHeaders(token) }),
   users: (token, includeInactive = false) => request(`/auth/users?include_inactive=${includeInactive ? 'true' : 'false'}`, { headers: authHeaders(token) }),
   me: (token) => request('/auth/me', { headers: authHeaders(token) }),

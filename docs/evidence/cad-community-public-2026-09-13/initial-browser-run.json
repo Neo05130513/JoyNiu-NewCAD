@@ -1,0 +1,731 @@
+{
+  "browser": "isolated headless Chromium",
+  "base": "http://122.51.168.205",
+  "checks": {
+    "explicitConsent": true,
+    "browserDownload": true,
+    "withdrawRejectsNewDownload": true
+  },
+  "events": [
+    {
+      "actor": "author",
+      "path": "/api/v1/auth/refresh",
+      "method": "POST",
+      "status": 403
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/ai/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/auth/account-capabilities",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/auth/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/account/workspace",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/ai/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/billing/wallet",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/pdm/projects",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/features",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/features",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/pdm/projects",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/account/workspace",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/designs/imports",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/features/preview",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/features/commit",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/features/feature_b591016f87d34c07819d2953f0a67e54/versions/1/artifacts/glb",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/community",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/v1/account/workspace",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/community",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/community",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/artifacts/glb",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/features/preview",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/auth/refresh",
+      "method": "POST",
+      "status": 403
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/ai/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/auth/account-capabilities",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/auth/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/account/workspace",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/billing/wallet",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/pdm/projects",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/ai/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/community",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/pdm/projects",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/community",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/artifacts/glb",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/account/workspace",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/artifacts/step",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/open",
+      "method": "POST",
+      "status": 201
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/pdm/projects",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917/versions",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917/versions/1/artifacts/glb",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/account/workspace",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/preview",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/commit",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917/versions/2/artifacts/glb",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/account/workspace",
+      "method": "PUT",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917/versions/2/artifacts/step",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/cad/features/preview",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/withdraw",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "actor": "author",
+      "path": "/api/cad/community",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/auth/refresh",
+      "method": "POST",
+      "status": 403
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/auth/account-capabilities",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "actor": "reader",
+      "path": "/api/v1/ai/status",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "original": {
+    "id": "feature_b591016f87d34c07819d2953f0a67e54",
+    "revision": 1,
+    "inspection": {
+      "engine": "cadquery-occt",
+      "kernelBacked": true,
+      "valid": true,
+      "solidCount": 1,
+      "faceCount": 6,
+      "edgeCount": 12,
+      "volumeMm3": 3199.999999999999,
+      "surfaceAreaMm2": 1359.9999999999998,
+      "geometryKind": "solid",
+      "shellCount": 1,
+      "bbox": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          20,
+          16,
+          10
+        ],
+        "size": [
+          20,
+          16,
+          10
+        ]
+      },
+      "bboxLength": 20,
+      "bboxWidth": 16,
+      "bboxHeight": 10,
+      "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+      "cylinders": [],
+      "raySections": {},
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+      "stepReadback": {
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 3199.999999999999,
+        "bbox": {
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "max": [
+            20,
+            16,
+            10
+          ],
+          "size": [
+            20,
+            16,
+            10
+          ]
+        }
+      }
+    }
+  },
+  "resource": {
+    "id": "resource_93bc2cbce79470fbd88e7faad1659bfd",
+    "name": "验收-社区独立副本-1789296236405",
+    "description": "合成 20 × 16 × 10 mm 实体，用于社区发布、复制与撤下验收。",
+    "publishedAt": "2026-09-13T10:43:57.449631+00:00",
+    "status": "published",
+    "inspection": {
+      "valid": true,
+      "solidCount": 1,
+      "volumeMm3": 3199.999999999999,
+      "surfaceAreaMm2": 1359.9999999999998,
+      "bbox": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          20,
+          16,
+          10
+        ],
+        "size": [
+          20,
+          16,
+          10
+        ]
+      },
+      "stepReadback": {
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 3199.999999999999,
+        "bbox": {
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "max": [
+            20,
+            16,
+            10
+          ],
+          "size": [
+            20,
+            16,
+            10
+          ]
+        }
+      }
+    },
+    "canWithdraw": true,
+    "sharing": "public-copy-download",
+    "drawingAgreement": "not_checked",
+    "productionReady": false,
+    "artifacts": {
+      "step": {
+        "url": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/artifacts/step",
+        "mimeType": "application/step"
+      },
+      "glb": {
+        "url": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/artifacts/glb",
+        "mimeType": "model/gltf-binary"
+      }
+    }
+  },
+  "publicResponse": {
+    "id": "resource_93bc2cbce79470fbd88e7faad1659bfd",
+    "name": "验收-社区独立副本-1789296236405",
+    "description": "合成 20 × 16 × 10 mm 实体，用于社区发布、复制与撤下验收。",
+    "publishedAt": "2026-09-13T10:43:57.449631+00:00",
+    "status": "published",
+    "inspection": {
+      "bbox": {
+        "max": [
+          20,
+          16,
+          10
+        ],
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "size": [
+          20,
+          16,
+          10
+        ]
+      },
+      "solidCount": 1,
+      "stepReadback": {
+        "bbox": {
+          "max": [
+            20,
+            16,
+            10
+          ],
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "size": [
+            20,
+            16,
+            10
+          ]
+        },
+        "solidCount": 1,
+        "valid": true,
+        "volumeMm3": 3199.999999999999
+      },
+      "surfaceAreaMm2": 1359.9999999999998,
+      "valid": true,
+      "volumeMm3": 3199.999999999999
+    },
+    "canWithdraw": false,
+    "sharing": "public-copy-download",
+    "drawingAgreement": "not_checked",
+    "productionReady": false,
+    "artifacts": {
+      "step": {
+        "url": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/artifacts/step",
+        "mimeType": "application/step"
+      },
+      "glb": {
+        "url": "/api/cad/community/resource_93bc2cbce79470fbd88e7faad1659bfd/artifacts/glb",
+        "mimeType": "model/gltf-binary"
+      }
+    }
+  },
+  "copy": {
+    "id": "feature_1c0839a3494887840f83a45772afa917",
+    "revision": 1,
+    "name": "验收-社区独立副本-1789296236405",
+    "plan": {
+      "features": [
+        {
+          "assetId": "asset_2eb4b9bbe43e9b49164e2c935fb1d59f",
+          "id": "import_64c0b703ea574319b03c",
+          "label": "合成社区模型",
+          "op": "import_step",
+          "sha256": "d1962526622775b7a0089e77c80c6d7524ce0f50af7cb142e7ab804472bca5e7"
+        },
+        {
+          "id": "import_64c0b703ea574319b03c_position",
+          "input": "import_64c0b703ea574319b03c",
+          "op": "translate",
+          "vector": [
+            "import_64c0b703ea574319b03c_x",
+            "import_64c0b703ea574319b03c_y",
+            "import_64c0b703ea574319b03c_z"
+          ]
+        }
+      ],
+      "name": "验收-社区独立副本-1789296236405",
+      "parameters": {
+        "import_64c0b703ea574319b03c_x": {
+          "label": "合成社区模型 · X 位移 mm",
+          "value": 0
+        },
+        "import_64c0b703ea574319b03c_y": {
+          "label": "合成社区模型 · Y 位移 mm",
+          "value": 0
+        },
+        "import_64c0b703ea574319b03c_z": {
+          "label": "合成社区模型 · Z 位移 mm",
+          "value": 0
+        }
+      },
+      "result": "import_64c0b703ea574319b03c_position",
+      "units": "mm",
+      "version": "cad-plan-v1"
+    }
+  },
+  "modified": {
+    "id": "feature_1c0839a3494887840f83a45772afa917",
+    "revision": 2,
+    "inspection": {
+      "engine": "cadquery-occt",
+      "kernelBacked": true,
+      "valid": true,
+      "solidCount": 1,
+      "faceCount": 6,
+      "edgeCount": 12,
+      "volumeMm3": 3199.999999999999,
+      "surfaceAreaMm2": 1359.9999999999998,
+      "geometryKind": "solid",
+      "shellCount": 1,
+      "bbox": {
+        "min": [
+          10,
+          0,
+          0
+        ],
+        "max": [
+          30,
+          16,
+          10
+        ],
+        "size": [
+          20,
+          16,
+          10
+        ]
+      },
+      "bboxLength": 20,
+      "bboxWidth": 16,
+      "bboxHeight": 10,
+      "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+      "cylinders": [],
+      "raySections": {},
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+      "stepReadback": {
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 3199.999999999999,
+        "bbox": {
+          "min": [
+            10,
+            0,
+            0
+          ],
+          "max": [
+            30,
+            16,
+            10
+          ],
+          "size": [
+            20,
+            16,
+            10
+          ]
+        }
+      }
+    },
+    "plan": {
+      "features": [
+        {
+          "assetId": "asset_2eb4b9bbe43e9b49164e2c935fb1d59f",
+          "id": "import_64c0b703ea574319b03c",
+          "label": "合成社区模型",
+          "op": "import_step",
+          "sha256": "d1962526622775b7a0089e77c80c6d7524ce0f50af7cb142e7ab804472bca5e7"
+        },
+        {
+          "id": "import_64c0b703ea574319b03c_position",
+          "input": "import_64c0b703ea574319b03c",
+          "op": "translate",
+          "vector": [
+            "import_64c0b703ea574319b03c_x",
+            "import_64c0b703ea574319b03c_y",
+            "import_64c0b703ea574319b03c_z"
+          ]
+        }
+      ],
+      "name": "验收-社区独立副本-1789296236405",
+      "parameters": {
+        "import_64c0b703ea574319b03c_x": {
+          "label": "合成社区模型 · X 位移 mm",
+          "value": 10,
+          "source": {
+            "type": "user",
+            "text": "手工特征工作台修改"
+          }
+        },
+        "import_64c0b703ea574319b03c_y": {
+          "label": "合成社区模型 · Y 位移 mm",
+          "value": 0
+        },
+        "import_64c0b703ea574319b03c_z": {
+          "label": "合成社区模型 · Z 位移 mm",
+          "value": 0
+        }
+      },
+      "result": "import_64c0b703ea574319b03c_position",
+      "units": "mm",
+      "version": "cad-plan-v1"
+    }
+  },
+  "mobile": {
+    "width": 390,
+    "scrollWidth": 390
+  },
+  "failure": "locator.waitFor: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByText('已保存 r2', { exact: true }) to be visible\u001b[22m\n",
+  "withdrawn": true
+}

@@ -1,0 +1,118 @@
+{
+  "checkedAt": "2026-09-12T13:17:48.583301+00:00",
+  "source": "Read-only SQLite transaction and actual stored DXF revisions; no server mutation",
+  "document": {
+    "id": "nd_42f3cde33d984d29be23b64ce97a0d23",
+    "name": "用户体验二维验收",
+    "revision": 5,
+    "created_at": "2026-09-12T13:14:24.458124+00:00",
+    "updated_at": "2026-09-12T13:15:48.526825+00:00"
+  },
+  "versions": [
+    {
+      "revision": 1,
+      "entityCount": 0,
+      "line8D": null,
+      "undo": [],
+      "redo": [],
+      "artifact": "user-native-revision-1.dxf",
+      "sha256": "b8d8215a106cbb935eb44ce630fc8f7f55e9d57870e19ec7ab8e71de0e996359"
+    },
+    {
+      "revision": 2,
+      "entityCount": 1,
+      "line8D": {
+        "start": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "end": [
+          40.5,
+          0.0,
+          0.0
+        ]
+      },
+      "undo": [
+        1
+      ],
+      "redo": [],
+      "artifact": "user-native-revision-2.dxf",
+      "sha256": "654cf681613edd467f81856c98346c4fe891fa03aba333027f8725692368a86c"
+    },
+    {
+      "revision": 3,
+      "entityCount": 1,
+      "line8D": {
+        "start": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "end": [
+          55.25,
+          0.0,
+          0.0
+        ]
+      },
+      "undo": [
+        1,
+        2
+      ],
+      "redo": [],
+      "artifact": "user-native-revision-3.dxf",
+      "sha256": "b4c70066b5225261d0274c8dfcd9eba85bf9247d96121aa23394c9bad8c6bba9"
+    },
+    {
+      "revision": 4,
+      "entityCount": 1,
+      "line8D": {
+        "start": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "end": [
+          40.5,
+          0.0,
+          0.0
+        ]
+      },
+      "undo": [
+        1
+      ],
+      "redo": [
+        3
+      ],
+      "artifact": "user-native-revision-4.dxf",
+      "sha256": "a2817377d5281ae0f37cc670ba7491f434e20a54f94391bde8b3d6dae8871006"
+    },
+    {
+      "revision": 5,
+      "entityCount": 1,
+      "line8D": {
+        "start": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "end": [
+          55.25,
+          0.0,
+          0.0
+        ]
+      },
+      "undo": [
+        1,
+        4
+      ],
+      "redo": [],
+      "artifact": "user-native-revision-5.dxf",
+      "sha256": "cda70bd41a20d6cce943af957bd89bdd4aa0e0853740a0d230527dff529ad193"
+    }
+  ],
+  "finding": "Backend correctly saved 55.25, undid to 40.5, and redid to 55.25. Stale Numeric display was a frontend synchronization defect.",
+  "uiFix": "Synchronize draft on changed external value even while focused; unchanged numeric values retain incomplete decimal/sign input.",
+  "tests": "9 actual JSX/Hook component cases passed, including 2 Numeric regressions",
+  "distModified": false
+}

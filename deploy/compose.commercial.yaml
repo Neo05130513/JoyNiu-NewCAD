@@ -1,0 +1,19 @@
+# Append to the existing base + Codex compose files after migration validation.
+services:
+  api:
+    image: joyniu-cad-api-codex:offline-credits-20260912
+    build:
+      dockerfile: deploy/Dockerfile.commercial
+      args:
+        CURRENT_CAD_IMAGE: joyniu-cad-api-codex:admin-login-20260911
+    environment:
+      JOYNIU_PUBLIC_REGISTRATION: "false"
+      JOYNIU_BILLING_ENABLED: "false"
+      JOYNIU_ONLINE_PAYMENTS_ENABLED: "false"
+      JOYNIU_REFUNDS_ENABLED: "false"
+      JOYNIU_CAD_ALLOW_LEGACY_FILE_TOKENS: "false"
+  web:
+    image: joyniu-cad-web:offline-credits-20260912
+    build:
+      args:
+        NGINX_IMAGE: joyniu-cad-web:admin-login-20260911

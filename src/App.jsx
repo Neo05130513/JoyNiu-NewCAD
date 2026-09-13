@@ -1,9 +1,42 @@
+import {cadPdmClient} from './cadPdmClient.js'
+import {cadCommunityClient} from './cadCommunityClient.js'
+import { cadDocumentTarget, cadProjectDocuments, emptyCadDocumentSnapshot, matchesCadDocumentSource } from './cadDocumentSession.js'
+import { directFeatureClient } from './directFeatureClient.js'
+import { describeModelEditing } from './modelEditing.js'
+import { createManualFeatureReference, applyManualFeatureReference, manualFeatureRecordMatchesReference } from './manualFeatureReference.js'
+import ManualFeatureResult from './ManualFeatureResult.jsx'
+import DirectFeatureWorkspace from './DirectFeatureWorkspace.jsx'
+import StudioNavigation from './StudioNavigation.jsx'
+import StudioHome from './StudioHome.jsx'
+import PhotoModelingWorkspace from './PhotoModelingWorkspace.jsx'
+import MechanicalCaseGallery from './MechanicalCaseGallery.jsx'
+import EngineeringWorkspace from './EngineeringWorkspace.jsx'
+import RetainedWorkspace from './RetainedWorkspace.jsx'
+import DeliveryWorkspace from './DeliveryWorkspace.jsx'
+import { engineeringTabs, independentWorkspaces, standardLibraryAssemblyMode, primaryWorkspaceMode, workspaceContext, modeForProjectFile, migrateWorkspaceSnapshotNavigation } from './workspaceNavigation.js'
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api, API_BASE } from './api.js'
+import { createClientId } from './clientId.js'
 import { cadAgent, cadArtifactUrl } from './cadAgentClient.js'
 import { configuredAiProvider, workspaceAiProvider, aiProviderPresentation } from './aiProviderState.js'
-import { isFeatureModel, shouldUseCadAgent, isLegacyDrawingDraft, normalizeCadWorkspaceMode, cadLegacySourceFiles, cadModelFromResult, cadGenerationFromResult, cadGenerationIsCurrent, cadConfirmationParameters, cadParameterEditMessage, cadRequestState, cadExplicitMaterial, cadProgressFromEvent, cadWorkflowSnapshot, cadPrimaryAction, cadRetryMessage, cadRetryFiles, cadTerminalResult, cadPlanSignature, editCadParameter } from './cadAgentState.js'
+import { drawingPreprocessFailure } from './drawingPreprocessFailure.js'
+import { isFeatureModel, shouldUseCadAgent, isLegacyDrawingDraft, normalizeCadWorkspaceMode, cadLegacySourceFiles, cadModelFromResult, cadGenerationFromResult, cadGenerationIsCurrent, cadConfirmationParameters, cadParameterEditMessage, cadRequestState, cadExplicitMaterial, cadProgressFromEvent, cadWorkflowSnapshot, cadFailureSummary, cadPrimaryAction, cadRetryMessage, cadRetryFiles, cadTerminalResult, cadPlanSignature, editCadParameter } from './cadAgentState.js'
 import CadAgentPanel, { CadAgentSummary, CadAgentDrawing } from './CadAgentPanel.jsx'
+import DrawingReviewWorkspace from './DrawingReviewWorkspace.jsx'
+import PlatformDocuments from './PlatformDocuments.jsx'
+import CustomerShell from './CustomerShell.jsx'
+import AccountWorkspace from './AccountWorkspace.jsx'
+import BillingWorkspace from './BillingWorkspace.jsx'
+import TaskWorkspace from './TaskWorkspace.jsx'
+import { canAdmin } from './adminPermissions.js'
+import { adminPath, adminSections, navigateApplication } from './adminNavigation.js'
+import CommercialTermsWorkspace from './CommercialTermsWorkspace.jsx'
+import SupportWorkspace from './SupportWorkspace.jsx'
+import { billingClient } from './billingClient.js'
+import { cancellationResult } from './taskWorkspaceState.js'
+import { refreshCadResourceLinks, cadResourceRefreshDelay } from './cadFileResources.js'
+import { downloadCadDeliveryReport } from './cadDeliveryReport.js'
+import { platformScope, platformScopeIsCurrent } from './platformWorkspaceState.js'
 import {
   aiEditOutcome,
   applyAiModelPatch,
@@ -18,9 +51,11 @@ import {
   shouldProtectConcurrentModelEdit,
 } from './candidateSync.js'
 import ThreeDViewer from './ThreeDViewer.jsx'
+import { VIEWER_MIN_ZOOM, VIEWER_MAX_ZOOM } from './viewerState.js'
 import * as ProjectStore from './projectStore.js'
-import ProjectFilesWorkspace from './ProjectFilesWorkspace.jsx'
+import ProjectFilesWorkspace, { BackupImportButton } from './ProjectFilesWorkspace.jsx'
 import DrawingWorkspace from './DrawingWorkspace.jsx'
+import NativeDrawingWorkspace from './NativeDrawingWorkspace.jsx'
 import AssemblyWorkspace from './AssemblyWorkspace.jsx'
 import LibraryWorkspace from './LibraryWorkspace.jsx'
 import { validateModelParameters } from './modelValidation.js'
@@ -31,12 +66,11 @@ import { WorkspaceDialog, NewProjectDialog, CommandDialog, SettingsWorkspace, He
 
 const ParameterErrors = createContext([])
 const welcomeMessages = () => [
-  { role: 'ai', text: '欢迎来到设计工作台。上传一张图纸，或描述你想设计、检查或修改的内容。', status: 'complete' },
-  { role: 'ai', text: '模型、对话与版本保存在当前项目文件中；图纸候选经你确认后再生成实体。', status: 'complete' },
+  { role: 'ai', text: '描述你想设计的零件，或添加一张图纸。', status: 'complete' },
 ]
 const defaultPreferences = { defaultMaterial: '45# 钢', defaultView: 'isometric', textSize: 'normal' }
 const emptyModel = (name = '新建零件', material = defaultPreferences.defaultMaterial) => ({ name, kind: '', material })
-const modeForFile = (file) => ({ '工程图': '2D 工程图', '装配体': '装配', '文档': '项目管理' }[file?.type] || '3D 建模')
+const modeForFile = modeForProjectFile
 
 const defaultModel = {
   name: '动力轴 · 版本 04',
@@ -154,7 +188,7 @@ const steppedTaperedNozzleModel = {
 }
 
 const acceptanceDrawingSha256 = 'ea337023af0158438f9cea2482e8e2d6d4052fc04e7e7f4265956824478c4366'
-const mainModes = ['首页', '3D 建模', '2D 工程图', '装配']
+const mainModes = ['首页', '3D 建模', '特征编辑', '原生二维', '工程设计', '交付中心']
 const workflowSteps = [
   { id: 'upload', label: '输入 / 上传', short: '上传' },
   { id: 'recognize', label: 'AI 分析', short: '分析' },
@@ -453,14 +487,7 @@ const recognitionParameterAliases = {
   insert_thread_designation: 'insertThreadDesignation', insert_axial_offset: 'insertAxialOffset',
 }
 
-let chatSequence = 0
-const chatId = (prefix = 'msg') => {
-  chatSequence += 1
-  const random = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID().slice(0, 8)
-    : `${Date.now().toString(36)}-${chatSequence}`
-  return `${prefix}-${random}`
-}
+const chatId = (prefix = 'msg') => `${prefix}-${createClientId()}`
 const chatAbortError = () => Object.assign(new Error('AI turn cancelled'), { name: 'AbortError' })
 const chatMessage = (role, text, extra = {}) => ({ id: chatId(role), role, text, status: 'complete', ...extra })
 const normalizeChatMessage = (message) => ({
@@ -963,10 +990,10 @@ function productionArtifactsAvailable(generation) {
 
 const evidenceAcceptedForPreview = (evidence) => ['confirmed', 'preview_confirmed'].includes(String(evidence?.status || ''))
 
-function App() {
+function WorkbenchApp({ initialStore, account, workspace, suspended = false }) {
   const initialStoreRef = useRef(null)
-  if (!initialStoreRef.current) initialStoreRef.current = ProjectStore.loadProjectStore(localStorage)
-  const initialSnapshot = ProjectStore.getFileSnapshot(initialStoreRef.current) || {}
+  if (!initialStoreRef.current) initialStoreRef.current = initialStore
+  const initialSnapshot = migrateWorkspaceSnapshotNavigation(ProjectStore.getFileSnapshot(initialStoreRef.current) || {}, ProjectStore.getActiveFile(initialStoreRef.current))
   const [workspaceStore, setWorkspaceStore] = useState(initialStoreRef.current)
   const storeRef = useRef(workspaceStore)
   storeRef.current = workspaceStore
@@ -978,14 +1005,39 @@ function App() {
   const [settings, setSettings] = useState(() => {
     try { return { ...defaultPreferences, ...JSON.parse(localStorage.getItem('joyniu-preferences')) } } catch { return defaultPreferences }
   })
-  const [activeMode, setActiveMode] = useState(normalizeCadWorkspaceMode(initialSnapshot.activeMode) || (initialSnapshot.drawingJob?.evidence || initialSnapshot.generation ? modeForFile(activeFile) : '首页'))
+  const [activeCase, setActiveCase] = useState(null)
+  const [editingTarget, setEditingTarget] = useState(() => {
+    if (initialSnapshot.activeMode !== '特征编辑') return null
+    const document = cadDocumentTarget(initialStoreRef.current, { accountKey: account.session?.user?.id || 'guest', projectId: initialStoreRef.current.activeProjectId, fileId: activeFile?.id })
+    if (document || initialSnapshot.manualFeatureReference || initialSnapshot.cadEditorDocument) return document
+    const source = { accountKey: account.session?.user?.id || 'guest', projectId: initialStoreRef.current.activeProjectId, fileId: activeFile?.id }
+    const reference = initialSnapshot.manualFeatureReference
+    const entry = describeModelEditing({ ...source, model: initialSnapshot.model, generation: initialSnapshot.generation })
+    if (!reference && !entry.editable) return null
+    return { ...source, name: activeFile?.name, model: initialSnapshot.model, generation: initialSnapshot.generation,
+      initialDraft: entry.initialDraft, initialPlan: initialSnapshot.model?.cadPlan,
+      initialPlanKey: reference ? `saved-feature:${source.fileId}:${reference.featureId}` : entry.initialPlanKey,
+      savedFeatureId: reference?.featureId || null, reference }
+  })
+  const [showOriginalModel, setShowOriginalModel] = useState(false)
+  const manualFeatureReference = activeFile?.snapshot?.manualFeatureReference || null
+  const [activeMode, setActiveMode] = useState(initialSnapshot.activeMode === '特征编辑' && !editingTarget && (initialSnapshot.manualFeatureReference || initialSnapshot.cadEditorDocument) ? '3D 建模' : normalizeCadWorkspaceMode(initialSnapshot.activeMode) || (initialSnapshot.drawingJob?.evidence || initialSnapshot.generation ? modeForFile(activeFile) : '首页'))
+  const [engineeringTab, setEngineeringTab] = useState(engineeringTabs[activeMode] || 'viewer')
+  useEffect(() => { if (engineeringTabs[activeMode]) setEngineeringTab(engineeringTabs[activeMode]) }, [activeMode])
+  const context = workspaceContext(activeMode)
+  const accountKey = account.session?.user?.id || 'guest'
   const [activePanel, setActivePanel] = useState('参数')
+  const [inspectorRequest, setInspectorRequest] = useState(false)
+  const [chatRequest, setChatRequest] = useState(false)
+  const [homePrompt, setHomePrompt] = useState('')
   const [model, setModel] = useState(() => modelForPendingDrawing(initialSnapshot.model || emptyModel(activeFile?.name, settings.defaultMaterial), initialSnapshot.drawingJob))
   const hasModel = Boolean(model.kind)
   const [selectedFeature, setSelectedFeature] = useState('keyway')
   const [drawingJob, setDrawingJob] = useState(initialSnapshot.drawingJob || { file: null, previewUrl: '', status: 'idle', evidence: null })
   const [storageError, setStorageError] = useState('')
+  const [creditBalance, setCreditBalance] = useState(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [navCollapsed, setNavCollapsed] = useState(false)
   const [dialog, setDialog] = useState('')
   const transientFilesRef = useRef(new Map())
   const currentSnapshotRef = useRef(initialSnapshot)
@@ -993,7 +1045,9 @@ function App() {
   workspaceIdRef.current = `${workspaceStore.activeProjectId}:${workspaceStore.activeFileId}`
   const [backend, setBackend] = useState({ status: 'checking', engine: '正在连接几何服务', productionReady: false, health: null, error: '' })
   const [generation, setGeneration] = useState(initialSnapshot.generation || null)
-  const [platform, setPlatform] = useState(() => emptyPlatformState())
+  const [platform, setPlatform] = useState(() => ({ ...emptyPlatformState(), token: account.session?.access_token || '', user: account.session?.user || null }))
+  useEffect(() => { setPlatform(current => ({ ...current, token: account.session?.access_token || '', user: account.session?.user || null })) }, [account.session?.access_token])
+  useEffect(() => () => { chatAbortRef.current?.abort(); aiRequestRef.current += 1; drawingRequestRef.current += 1; clearTimeout(drawingTimerRef.current) }, [])
   const [aiConversation, setAiConversation] = useState({ conversationId: chatId('conversation'), previousResponseId: '', serviceStatus: null, status: null, providerRoute: '', error: '', turnStatus: 'idle', statusMessage: '' })
   const [chatAttachments, setChatAttachments] = useState([])
   const [prompt, setPrompt] = useState(initialSnapshot.prompt || '')
@@ -1015,9 +1069,24 @@ function App() {
   const drawingRequestRef = useRef(0)
   const aiRequestRef = useRef(0)
   const chatAbortRef = useRef(null)
+  const resourceDownloadsRef = useRef(new Set())
+  useEffect(() => () => { for (const controller of resourceDownloadsRef.current) controller.abort(); resourceDownloadsRef.current.clear() }, [])
+  const cancelCadRef = useRef(false)
+  const cancelledCadRequestRef = useRef(null)
+  const accountTokenRef = useRef(account.session?.access_token || '')
+  accountTokenRef.current = account.session?.access_token || ''
+  useEffect(() => {
+    if (!account.session?.access_token) { setCreditBalance(null); return }
+    const controller = new AbortController()
+    billingClient.wallet(account.session.access_token, controller.signal).then(value => {
+      if (!controller.signal.aborted) setCreditBalance(value.creditUnits)
+    }).catch(() => {})
+    return () => controller.abort()
+  }, [account.session?.access_token, model.agentRun?.status, model.agentRun?.runId])
   const cadConfirmRef = useRef(null)
   const modelInteractionRevisionRef = useRef(0)
   const artifactRecoveryRef = useRef({ inFlight: false, attemptedParameterSignatures: new Set() })
+  const cadArtifactRecoveryRef = useRef({ inFlight: new Set(), attemptedUrls: new Set() })
   const modelRef = useRef(model)
   const generationRef = useRef(generation)
   const drawingJobRef = useRef(drawingJob)
@@ -1033,6 +1102,29 @@ function App() {
   generationRef.current = generation
   drawingJobRef.current = drawingJob
   chatAttachmentsRef.current = chatAttachments
+
+  useEffect(() => {
+    const run = model.agentRun
+    if (!account.session?.access_token || !run?.runId || !run.revision || drawingJob?.cadTask) return
+    const controller = new AbortController()
+    let timer
+    async function refreshLinks() {
+      try {
+        const result = await cadAgent.getRun({ token: () => accountTokenRef.current, runId: run.runId, revision: run.revision, signal: controller.signal })
+        if (controller.signal.aborted) return
+        const refreshed = refreshCadResourceLinks(modelRef.current, generationRef.current, result)
+        if (refreshed) {
+          setModel(refreshed.model)
+          setGeneration(refreshed.generation)
+        }
+        timer = setTimeout(refreshLinks, cadResourceRefreshDelay(result.fileLinksExpiresAt))
+      } catch (error) {
+        if (!controller.signal.aborted && ![401, 403, 404].includes(error.status)) timer = setTimeout(refreshLinks, 60000)
+      }
+    }
+    void refreshLinks()
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [activeFile?.id, model.agentRun?.runId, model.agentRun?.revision, account.session?.access_token, Boolean(drawingJob?.cadTask)])
 
   // A refresh restores the drawing evidence and model snapshot separately.
   // Let a typed recipe identity win over an unrelated old shaft/bracket demo,
@@ -1065,39 +1157,44 @@ function App() {
 
   currentSnapshotRef.current = {
     ...(activeFile?.snapshot || {}), model: activeFile?.type === '文档' || !hasModel ? null : model,
-    drawingJob, generation, messages, assemblyItems, prompt, drawingScale, drawingPreferences, activeMode, view, section, zoom,
+    drawingJob, generation, messages, assemblyItems, prompt, drawingScale, drawingPreferences, activeMode, workspaceModeVersion: 2, view, section, zoom,
   }
   useEffect(() => {
     setWorkspaceStore((current) => ProjectStore.updateFileSnapshot(current, current.activeProjectId, current.activeFileId, currentSnapshotRef.current))
   }, [model, drawingJob, generation, messages, assemblyItems, prompt, drawingScale, drawingPreferences, activeMode, view, section, zoom])
   useEffect(() => {
-    try { ProjectStore.persistProjectStore(workspaceStore, localStorage); setStorageError('') }
+    try { workspace.persist(workspaceStore); setStorageError('') }
     catch (error) { setStorageError(readableError(error)) }
   }, [workspaceStore])
   useEffect(() => {
     try { localStorage.setItem('joyniu-preferences', JSON.stringify(settings)) } catch (error) { setStorageError(readableError(error)) }
   }, [settings])
   useEffect(() => {
+    if (suspended) return
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     setMobileMenuOpen(false)
-  }, [activeMode])
+  }, [activeMode, suspended])
+  useEffect(() => { if (suspended) { setDialog(''); setMobileMenuOpen(false) } }, [suspended])
   useEffect(() => { if (toast && toast.type !== 'error') { const timer = setTimeout(() => setToast(null), 4500); return () => clearTimeout(timer) } }, [toast])
   useEffect(() => { setCheckResult(null) }, [model])
   useEffect(() => {
     const onKeyDown = (event) => {
+      if (suspended || event.defaultPrevented) return
       if (event.key === 'Escape') setMobileMenuOpen(false)
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return
       const key = event.key.toLowerCase()
       if (['k', 'n', 's'].includes(key)) {
         event.preventDefault()
-        if (key === 'k') setDialog('commands')
-        else if (key === 'n') setDialog('project')
-        else saveVersionForFile(storeRef.current.activeFileId)
+        if (key === 'k') { setMobileMenuOpen(false); setDialog('commands') }
+        else if (key === 'n') { setMobileMenuOpen(false); setDialog('project') }
+        else if (['特征编辑', '原生二维'].includes(activeMode)) return
+        else if (context === 'project') saveVersionForFile(storeRef.current.activeFileId)
+        else showToast(independentWorkspaces.includes(activeMode) ? '请使用当前工作台的保存或生成按钮；切换页面会保留本次编辑。' : '请先打开需要保存的设计文件。', 'info')
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [suspended, activeMode, context])
   useEffect(() => {
     let active = true
     api.health().then((health) => {
@@ -1251,8 +1348,40 @@ function App() {
   }
   const recoverExpiredProductionGlb = async (failure = {}) => {
     if (isFeatureModel(modelRef.current)) {
-      setGeneration((current) => current ? { ...current, artifactStatus: 'unavailable' } : current)
-      showToast('当前实体文件不可用，请点击“重建实体”恢复。', 'error')
+      const run = modelRef.current.agentRun
+      const source = generationRef.current
+      if (!run?.runId || !source || source.runId !== run.runId || source.revision !== run.revision
+        || (failure.runId && failure.runId !== run.runId) || (failure.revision && failure.revision !== run.revision)) return
+      const failedUrl = failure.artifactUrl || failure.url
+      const url = failedUrl ? cadArtifactUrl({ url: failedUrl }) : cadArtifactUrl(source.artifacts?.find(item => item.format === 'glb'))
+      if (failedUrl && !source.artifacts?.some(item => item.format === 'glb' && cadArtifactUrl(item) === url)) return
+      const recovery = cadArtifactRecoveryRef.current
+      const key = `${run.runId}:${run.revision}:${url}`
+      if (recovery.inFlight.has(key) || recovery.attemptedUrls.has(key)) return
+      recovery.inFlight.add(key); recovery.attemptedUrls.add(key)
+      const controller = new AbortController()
+      const scope = workspaceIdRef.current
+      resourceDownloadsRef.current.add(controller)
+      const current = () => !controller.signal.aborted && workspaceIdRef.current === scope
+        && modelRef.current?.agentRun?.runId === run.runId && modelRef.current.agentRun.revision === run.revision
+      try {
+        const result = await cadAgent.getRun({ token: () => accountTokenRef.current, runId: run.runId, revision: run.revision, signal: controller.signal })
+        if (!current()) return
+        const refreshed = refreshCadResourceLinks(modelRef.current, generationRef.current, result)
+        const glb = refreshed?.generation?.artifacts?.find(item => item.format === 'glb')
+        if (!refreshed || !cadArtifactUrl(glb) || cadArtifactUrl(glb) === url) throw new Error('实体文件仍不可用，请在“我的任务”刷新并重新打开；文件缺失时再重建实体。')
+        setModel(refreshed.model)
+        setGeneration({ ...refreshed.generation, artifactStatus: 'available', artifactRecoveryError: '' })
+      } catch (error) {
+        if (current()) {
+          setGeneration(value => value?.runId === run.runId && value.revision === run.revision
+            ? { ...value, artifactStatus: 'unavailable', artifactRecoveryError: readableError(error) } : value)
+          showToast(`模型预览暂不可用：${readableError(error)}`, 'error')
+        }
+      } finally {
+        recovery.inFlight.delete(key)
+        resourceDownloadsRef.current.delete(controller)
+      }
       return
     }
     const currentGeneration = generationRef.current
@@ -1384,8 +1513,9 @@ function App() {
     }
   }
   const applyCadResult = (result, previous, sourceFile = null) => {
-    if (!result || !['needs_input', 'review_required', 'ready', 'failed'].includes(result.status)) throw new Error('CAD 服务返回的建模状态无效')
+    if (!result || !['needs_input', 'review_required', 'ready', 'failed', 'cancelled'].includes(result.status)) throw new Error('CAD 服务返回的建模状态无效')
     const next = cadModelFromResult(result, previous)
+    const failureMessage = result.status === 'failed' ? cadFailureSummary(result, next.cadPlan) : ''
     modelRef.current = next
     setModel(next)
     setGeneration(cadGenerationFromResult(result, next.cadPlan))
@@ -1393,14 +1523,15 @@ function App() {
       ...current, ...(sourceFile ? { file: sourceFile, fileMeta: { name: sourceFile.name, size: sourceFile.size, type: sourceFile.type } } : {}),
       status: result.status === 'failed' ? 'error' : result.status === 'ready' ? 'generated' : 'ready', evidence: null, analysis: null,
       agentRunId: result.runId, cadTask: null, questions: result.questions || [], requiresFileReselection: false, sourceFileUnavailable: false,
-      interrupted: false, error: result.status === 'failed' ? result.message : '', warning: '',
+      interrupted: false, error: failureMessage, warning: '',
     }))
     setActivePanel('参数')
     return next
   }
   const sendCadConversation = async (userText, files = [], { resumeTask = null } = {}) => {
+    if (!accountTokenRef.current) { setActiveMode('账号'); showToast('请先登录，建模任务会保存在你的账号下。', 'info'); return false }
     if (isAccepting || cadConfirmRef.current || chatAbortRef.current) { showToast('当前操作仍在处理，请等待完成后再发送。', 'info'); return false }
-    if (drawingJobRef.current?.cadTask?.runId && !resumeTask) { showToast('本轮已在后台运行，请先检查后台结果。', 'info'); return false }
+    if (drawingJobRef.current?.cadTask && !resumeTask) { showToast('本轮提交记录已保存，请先检查后台结果。', 'info'); return false }
     if (files.length && modelRef.current?.kind) {
       const currentStore = flushWorkspace()
       commitStore(ProjectStore.saveBeforeDrawingReplacement(currentStore, currentStore.activeProjectId, currentStore.activeFileId, currentSnapshotRef.current))
@@ -1410,6 +1541,8 @@ function App() {
     const previous = files.length ? emptyModel(activeFile?.name, settings.defaultMaterial) : modelRef.current
     const assistantId = resumeTask?.assistantId || chatId('assistant'), turnId = chatId('turn')
     const controller = new AbortController()
+    cancelCadRef.current = false
+    cancelledCadRequestRef.current = null
     chatAbortRef.current?.abort()
     chatAbortRef.current = controller
     const current = () => requestId === aiRequestRef.current && workspaceIdRef.current === scope && !controller.signal.aborted
@@ -1425,47 +1558,61 @@ function App() {
       modelRef.current = previous
       setModel(previous)
       setGeneration(null)
-      const job = { file: files[0], fileMeta: { name: files[0].name, size: files[0].size, type: files[0].type }, status: 'analyzing', evidence: null }
+      const job = { file: files[0], files, fileMeta: { name: files[0].name, size: files[0].size, type: files[0].type }, status: 'analyzing', evidence: null }
       drawingJobRef.current = job; setDrawingJob(job)
     }
-    if (resumeTask) saveTask({ ...resumeTask, paused: false })
+    saveTask({ ...resumeTask, requestId: resumeTask?.requestId || createClientId(), status: resumeTask?.status || 'submitted', prompt: userText, assistantId, paused: false })
     const onProgress = (payload) => {
       if (!current()) return
       const message = payload.message || payload.summary || '正在处理本轮建模…'
       const progress = cadProgressFromEvent({ ...payload, message }, durableTask?.progress)
-      if (payload.runId || durableTask) saveTask({ ...durableTask, runId: payload.runId || durableTask.runId, revision: payload.revision || durableTask?.revision || 1, status: 'running', prompt: userText, assistantId, paused: false, progress })
+      if (payload.runId || durableTask) saveTask({ ...durableTask, runId: payload.runId || durableTask?.runId, jobId: payload.jobId || durableTask?.jobId, attemptId: payload.attemptId || durableTask?.attemptId, revision: payload.revision || durableTask?.revision || 1, status: payload.status || 'running', prompt: userText, assistantId, paused: false, progress })
       setAiConversation((state) => ({ ...state, status: payload.provider || state.status, providerRoute: 'cad', turnStatus: 'streaming', statusMessage: message, cadProgress: progress }))
       setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, statusText: message } : item))
     }
     try {
       let result
       try {
-        result = resumeTask ? await cadAgent.waitForRun({ token: platform.token, runId: resumeTask.runId, signal: controller.signal, onProgress })
-          : await cadAgent.run({ token: platform.token, message: userText, files, modelState: cadRequestState(previous), history: files.length ? [] : conversationHistory(messages), signal: controller.signal, onEvent: (event, payload) => {
+        if (resumeTask && !resumeTask.runId) {
+          const registered = await cadAgent.byRequest({ token: accountTokenRef.current, requestId: resumeTask.requestId, signal: controller.signal })
+          onProgress(registered)
+        }
+        result = resumeTask ? await cadAgent.waitForRun({ token: () => accountTokenRef.current, runId: durableTask.runId, signal: controller.signal, onProgress })
+          : await cadAgent.run({ token: accountTokenRef.current, requestId: durableTask.requestId, message: userText, files, modelState: cadRequestState(previous), history: files.length ? [] : conversationHistory(messages), signal: controller.signal, onEvent: (event, payload) => {
             if (event === 'progress' || event.endsWith('.progress')) onProgress(payload)
           } })
       } catch (error) {
         if (!durableTask?.runId || controller.signal.aborted || resumeTask) throw error
         onProgress({ stage: 'agent_working', message: '连接已中断，正在读取后台保存的进度…' })
-        result = await cadAgent.waitForRun({ token: platform.token, runId: durableTask.runId, signal: controller.signal, onProgress })
+        result = await cadAgent.waitForRun({ token: () => accountTokenRef.current, runId: durableTask.runId, signal: controller.signal, onProgress })
+      }
+      if (['queued', 'running', 'cancel_requested'].includes(result?.status)) {
+        onProgress(result)
+        result = await cadAgent.waitForRun({ token: () => accountTokenRef.current, runId: result.runId, signal: controller.signal, onProgress })
       }
       result = cadTerminalResult(result)
       if (!current()) return false
       if (modelInteractionRevisionRef.current !== revision) throw new Error('本轮期间模型已被编辑，返回结果未覆盖你的修改，请重试。')
-      if (durableTask && (result.runId !== durableTask.runId || result.revision !== durableTask.revision)) throw new Error('后台返回了其他模型版本，本页未被覆盖。')
-      applyCadResult(result, previous, files[0])
+      if (durableTask?.runId && (result.runId !== durableTask.runId || result.revision !== durableTask.revision)) throw new Error('后台返回了其他模型版本，本页未被覆盖。')
+      const next = applyCadResult(result, previous, files[0])
+      const resultMessage = result.status === 'failed' ? cadFailureSummary(result, next.cadPlan) : result.message
       drawingJobRef.current = { ...drawingJobRef.current, cadTask: null }
       setLastAiTurn({ prompt: userText, files, workspaceId: scope, cadRun: { runId: result.runId, revision: result.revision } })
-      setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, text: [result.message, ...(result.questions || []).map((question) => `待确认：${question}`)].filter(Boolean).join('\n'), status: result.status === 'failed' ? 'error' : 'complete', statusText: '' } : item))
-      setAiConversation((state) => ({ ...state, status: result.provider || state.status, providerRoute: 'cad', turnStatus: result.status === 'failed' ? 'error' : 'complete', statusMessage: '', error: result.status === 'failed' ? result.message || '本轮建模未完成，请继续修正。' : '' }))
-      return result.status !== 'failed'
+      setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, text: [resultMessage, ...(result.questions || []).map((question) => `待确认：${question}`)].filter(Boolean).join('\n'), status: result.status === 'failed' ? 'error' : result.status === 'cancelled' ? 'cancelled' : 'complete', statusText: '' } : item))
+      setAiConversation((state) => ({ ...state, status: result.provider || state.status, providerRoute: 'cad', turnStatus: result.status === 'failed' ? 'error' : 'complete', statusMessage: '', error: result.status === 'failed' ? resultMessage || '本轮建模未完成，请继续修正。' : '' }))
+      return !['failed', 'cancelled'].includes(result.status)
     } catch (error) {
       if (requestId !== aiRequestRef.current || workspaceIdRef.current !== scope) return false
-      const stopped = error.name === 'AbortError'
-      const message = stopped ? durableTask?.runId ? '已停止等待；后台仍在处理，可稍后检查结果。' : '已停止等待本轮建模。可以重新发送。' : durableTask?.runId ? `${readableError(error)}；运行记录已保存，可检查后台结果。` : readableError(error)
+      const cancelledBeforeStart = durableTask?.requestId && cancelledCadRequestRef.current === durableTask.requestId
+      const stopped = error.name === 'AbortError' || cancelledBeforeStart
+      const message = cancelledBeforeStart ? '本次提交已取消，服务器不会启动这个请求。' : stopped ? durableTask?.runId ? '已停止等待；后台仍在处理，可稍后检查结果。' : '已停止等待本轮建模。可以重新发送。' : durableTask?.runId ? `${readableError(error)}；运行记录已保存，可检查后台结果。` : readableError(error)
       setMessages((items) => items.map((item) => item.id === assistantId ? { ...item, text: message, status: stopped ? 'interrupted' : 'error', statusText: '' } : item))
       setAiConversation((state) => ({ ...state, turnStatus: stopped ? 'idle' : 'error', statusMessage: '', error: stopped ? '' : message }))
-      if (durableTask?.runId) saveTask({ ...durableTask, paused: true })
+      if (cancelledBeforeStart) saveTask(null)
+      else if (!resumeTask && durableTask?.requestId && !durableTask?.runId && [400, 401, 402, 403, 413, 422, 429].includes(error.status)) {
+        saveTask(null)
+        if (files.length || drawingJobRef.current?.fileMeta) setDrawingJob(job => ({ ...job, status: 'error', requiresFileReselection: !files.length, error: message }))
+      } else if (durableTask) saveTask({ ...durableTask, paused: true })
       else if (files.length) setDrawingJob((job) => ({ ...job, status: 'error', error: message }))
       else setGeneration((value) => value ? { ...value, lastTurnError: message } : value)
       return false
@@ -1474,13 +1621,13 @@ function App() {
     }
   }
   const confirmCadModel = async () => {
-    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask?.runId) return false
+    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask) return false
     const currentModel = modelRef.current
     const action = cadPrimaryAction(currentModel)
     if (!currentModel.agentRun?.runId) return showToast(action.hint || '请先描述零件并开始建模。', 'info')
     if (action.kind === 'retry') return sendCadConversation(cadRetryMessage(currentModel))
     if (action.kind === 'answer') {
-      document.querySelector('[aria-label="给 AI 发送消息"]')?.focus()
+      setChatRequest(true)
       return showToast(action.hint, 'info')
     }
     const validation = validateModelParameters(currentModel)
@@ -1512,7 +1659,7 @@ function App() {
       if (current()) {
         if (error.status === 409) {
           setPrompt('请重新检查当前保存版本，保持本页尺寸与结构，并更新预览。')
-          document.querySelector('[aria-label="给 AI 发送消息"]')?.focus()
+          setChatRequest(true)
           showToast('当前保存的是历史版本。已准备重新检查的消息，发送后会建立独立的新版本。', 'info')
         } else showToast(`确认未完成：${readableError(error)}`, 'error')
       }
@@ -1739,18 +1886,10 @@ function App() {
           invalid_stream: '流式响应异常',
           invalid_response: '模型返回格式异常',
           not_configured: '远程大模型未配置',
-          invalid_dwg_input: 'DWG 文件签名无效或文件已损坏',
-          dwg_input_too_large: 'DWG 文件超过本地解析上限',
-          dwg_converter_unavailable: '服务器未安装 DWG 转换引擎',
-          dwg_conversion_timeout: 'DWG 本地转换超时',
-          dwg_conversion_failed: 'DWG 本地转换失败',
-          dxf_parser_unavailable: '服务器未安装 DXF 矢量解析组件',
-          dxf_parse_failed: '转换后的 DXF 无法解析',
-          dxf_render_failed: 'DWG 工程图预览生成失败',
-          dwg_resource_limit_exceeded: 'DWG 实体数量或输出超过安全上限',
-          dwg_preprocessor_unavailable: '服务器 DWG 解析组件不可用',
         }
-        const failureMessage = `${errorLabels[errorCode] || `中转站请求失败（${errorCode}）`}${attempts ? `；已自动尝试 ${attempts} 次` : ''}。原图已保留，可直接重新分析。`
+        const sourceFailure = drawingPreprocessFailure(errorCode)
+        const failureMessage = sourceFailure ? `${sourceFailure.message}原图已保留。`
+          : `${errorLabels[errorCode] || `中转站请求失败（${errorCode}）`}${attempts ? `；已自动尝试 ${attempts} 次` : ''}。原图已保留，可直接重新分析。`
         setDrawingJob((current) => ({
           ...current,
           status: 'error',
@@ -2116,7 +2255,7 @@ function App() {
     }
   }
   const runGenerate = async () => {
-    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask?.runId) return showToast('当前操作尚未完成，请先等待或检查后台结果。', 'info')
+    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask) return showToast('当前操作尚未完成，请先等待或检查后台结果。', 'info')
     if (!prompt.trim() && !chatAttachments.length) return showToast('请先描述设计或上传一份图纸')
     const submittedPrompt = prompt
     const submittedAttachments = [...chatAttachments]
@@ -2125,13 +2264,39 @@ function App() {
     setChatAttachments([])
     await sendAiConversation(submittedPrompt, submittedAttachments)
   }
-  const stopAiConversation = () => {
-    if (!chatAbortRef.current) return
+  const stopAiConversation = async () => {
+    if (!chatAbortRef.current && !drawingJobRef.current?.cadTask) return
+    const task = drawingJobRef.current?.cadTask
+    if (task) {
+      if (cancelCadRef.current) return
+      const scope = workspaceIdRef.current
+      cancelCadRef.current = true
+      try {
+        const result = task.runId ? await cadAgent.cancel({ token: accountTokenRef.current, runId: task.runId })
+          : await cadAgent.cancelRequest({ token: accountTokenRef.current, requestId: task.requestId })
+        if (workspaceIdRef.current !== scope || !accountTokenRef.current) return
+        if (!result.runId && result.status === 'cancelled' && result.requestId === task.requestId) {
+          cancelledCadRequestRef.current = task.requestId
+          drawingJobRef.current = { ...drawingJobRef.current, cadTask: null, status: 'idle' }
+          setDrawingJob(drawingJobRef.current)
+          chatAbortRef.current?.abort()
+          showToast('本次提交已取消，服务器不会启动这个请求。', 'info')
+        } else {
+          if (typeof result.runId !== 'string') throw new Error('取消接口没有返回有效任务编号，请刷新任务状态。')
+          showToast(cancellationResult(result, task.runId || result.runId).notice, 'info')
+          if (!chatAbortRef.current) await sendCadConversation(task.prompt || '检查取消结果', [], { resumeTask: { ...task, runId: result.runId, revision: result.revision } })
+        }
+        // Keep consuming the durable result. An acknowledged request is not yet a stopped job.
+      } catch (error) {
+        if (workspaceIdRef.current === scope) showToast(error.status === 404 ? '任务还在上传或准备，尚未登记；稍后可以再次取消。' : `取消未成功：${readableError(error)}`, 'error')
+      } finally { cancelCadRef.current = false }
+      return
+    }
     chatAbortRef.current.abort()
     showToast('已停止等待本轮 AI 回复')
   }
   const startNewConversation = () => {
-    if (isAccepting || cadConfirmRef.current || drawingJobRef.current?.cadTask?.runId) return showToast('当前模型仍在处理，请完成后再开始新对话。', 'info')
+    if (isAccepting || cadConfirmRef.current || drawingJobRef.current?.cadTask) return showToast('当前模型仍在处理，请完成后再开始新对话。', 'info')
     chatAbortRef.current?.abort()
     aiRequestRef.current += 1
     chatAbortRef.current = null
@@ -2153,7 +2318,8 @@ function App() {
     setModel(next)
     setGeneration(null)
     setActivePanel('参数')
-    showToast('基础轴已创建，可在右侧修改尺寸')
+    setInspectorRequest(true)
+    showToast('基础轴已创建，可修改尺寸')
   }
   const resetModel = () => {
     if (!hasModel) return
@@ -2220,7 +2386,7 @@ function App() {
     const job = { ...(snapshot.drawingJob || { status: 'idle', evidence: null }), ...(transient.file ? { file: transient.file, requiresFileReselection: false, sourceFileUnavailable: false } : {}) }
     const nextModel = modelForPendingDrawing(snapshot.model || emptyModel(file?.name, settings.defaultMaterial), job)
     modelRef.current = nextModel; drawingJobRef.current = job; generationRef.current = snapshot.generation || null
-    setModel(nextModel); setDrawingJob(job); setGeneration(snapshot.generation || null)
+    setModel(nextModel); setDrawingJob(job); setGeneration(snapshot.generation || null); setShowOriginalModel(false)
     setMessages(snapshot.messages?.length ? snapshot.messages.map(normalizeChatMessage) : welcomeMessages())
     setPrompt(snapshot.prompt || ''); setAssemblyItems(snapshot.assemblyItems || []); setDrawingScale(snapshot.drawingScale || '1:1'); setDrawingPreferences(snapshot.drawingPreferences || { layers: {}, selectedView: 'all' })
     setChatAttachments(transient.attachments || []); setLastAiTurn(null); setCheckResult(null)
@@ -2229,59 +2395,257 @@ function App() {
     setActiveMode(normalizeCadWorkspaceMode(mode) || (file && !file.contentUnavailable ? modeForFile(file) : '项目管理'))
     setMobileMenuOpen(false)
   }
+  const modelEditing = describeModelEditing({ accountKey, fileId: activeFile?.id, model, generation })
+  const openModelEditor = (reference = null) => {
+    if (!reference && !modelEditing.editable) { showToast(modelEditing.reason, 'info'); return }
+    const source = { accountKey, projectId: workspaceStore.activeProjectId, fileId: activeFile.id }
+    if (reference && (reference.accountKey !== accountKey || reference.sourceFileId !== source.fileId || reference.sourceProjectId !== source.projectId)) { showToast('该编辑版本不属于当前文件。', 'error'); return }
+    flushWorkspace()
+    setActiveCase(null)
+    setEditingTarget({ ...source, name: activeFile.name, model, generation,
+      initialDraft: modelEditing.initialDraft, initialPlan: model.cadPlan,
+      initialPlanKey: reference ? editingTarget?.fileId === source.fileId && editingTarget?.savedFeatureId === reference.featureId ? editingTarget.initialPlanKey : `saved-feature:${source.fileId}:${reference.featureId}` : modelEditing.initialPlanKey,
+      savedFeatureId: reference?.featureId || null,
+      reference })
+    setActiveMode('特征编辑')
+  }
+  const saveEditedModel = (value, source) => {
+    if (!source || source.accountKey !== accountKey) return
+    try {
+      const reference = createManualFeatureReference(value, source)
+      const current = flushWorkspace()
+      const next = applyManualFeatureReference(current, reference, { accountKey })
+      if (next === current) return
+      setEditingTarget(current => current?.initialPlanKey === source.initialPlanKey && current?.fileId === source.fileId ? { ...current, savedFeatureId: value.id } : current)
+      commitStore(next)
+      if (current.activeProjectId === source.projectId && current.activeFileId === source.fileId) {
+        currentSnapshotRef.current = { ...currentSnapshotRef.current, manualFeatureReference: reference }
+        setShowOriginalModel(false)
+      }
+    } catch (error) { showToast(`模型已保存，但项目关联失败：${readableError(error)}`, 'error') }
+  }
+  const returnFromModelEditor = () => {
+    if (!editingTarget) return setActiveMode('3D 建模')
+    const current = flushWorkspace()
+    if (!ProjectStore.getProjectFile(current, editingTarget.projectId, editingTarget.fileId)) { setActiveMode('项目管理'); return }
+    restoreWorkspace(ProjectStore.selectProjectFile(current, editingTarget.projectId, editingTarget.fileId), '3D 建模')
+  }
   const canSwitch = () => {
     if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || platform.busy) { showToast('当前操作正在处理，请完成或停止等待后再切换文件。', 'info'); return false }
     return true
   }
   const selectLocalProject = (projectId) => {
-    if (!canSwitch()) return
+    if (!canSwitch() || !storeRef.current.projects.some((project) => project.id === projectId)) return false
     restoreWorkspace(ProjectStore.selectProject(flushWorkspace(), projectId), activeMode === '项目管理' ? '项目管理' : undefined)
+    return true
   }
   const openProjectFile = (file) => {
-    if (!canSwitch() || file.contentUnavailable) return
-    restoreWorkspace(ProjectStore.selectProjectFile(flushWorkspace(), file.projectId, file.id))
+    if (!canSwitch() || !file) return false
+    const target = ProjectStore.getProjectFile(storeRef.current, file.projectId, file.id)
+    if (!target || target.contentUnavailable) return false
+    const next = ProjectStore.selectProjectFile(flushWorkspace(), file.projectId, file.id)
+    const document = target.snapshot?.cadEditorDocument === true ? cadDocumentTarget(next, { accountKey, projectId: file.projectId, fileId: file.id, previousTarget: editingTarget }) : null
+    if (document) { setEditingTarget(document); setActiveCase(null) }
+    restoreWorkspace(next, document ? '特征编辑' : undefined)
+    return true
   }
-  const createProject = (name) => {
-    if (!canSwitch()) return
-    if (typeof name !== 'string') return setDialog('project')
-    const next = ProjectStore.createProject(flushWorkspace(), { name })
-    restoreWorkspace(next, '3D 建模'); setDialog(''); showToast('独立项目已创建')
-  }
-  const createFile = ({ name, type, source }) => {
-    if (!canSwitch()) return
+  const openTask = async (task, signal) => {
+    if (!canSwitch()) return false
+    const scope = workspaceIdRef.current
+    const userId = account.session?.user.id
+    const result = cadTerminalResult(await cadAgent.getRun({ token: accountTokenRef.current, runId: task.runId, signal }))
+    if (signal?.aborted || workspaceIdRef.current !== scope || account.session?.user.id !== userId) return false
     const current = flushWorkspace()
-    const next = ProjectStore.createProjectFile(current, current.activeProjectId, { name, type,
+    const matching = current.projects.flatMap(project => project.files.map(file => ({ ...file, projectId: project.id }))).find(file => file.snapshot?.drawingJob?.cadTask?.runId === task.runId || file.snapshot?.model?.agentRun?.runId === task.runId)
+    if (matching) {
+      restoreWorkspace(ProjectStore.selectProjectFile(current, matching.projectId, matching.id), '3D 建模')
+      if (!matching.snapshot?.drawingJob?.cadTask && !['queued', 'running', 'cancel_requested'].includes(result.status)) showToast('已打开此任务的项目文件，保留你的本地修改。', 'info')
+      return true
+    }
+    // Recover into a new file. Never replace a model that the customer has edited.
+    const pending = ['queued', 'running', 'cancel_requested'].includes(result.status)
+    const modelResult = cadModelFromResult(result)
+    const snapshot = {
+      model: modelResult, generation: pending ? null : cadGenerationFromResult(result, modelResult.cadPlan),
+      drawingJob: { status: pending ? 'analyzing' : result.status === 'failed' ? 'error' : 'ready', agentRunId: result.runId,
+        cadTask: pending ? { requestId: result.requestId, jobId: result.jobId, runId: result.runId, revision: result.revision, status: result.status, progress: result.progress, prompt: '继续检查本轮建模结果', paused: false } : null },
+      messages: [{ role: 'ai', text: result.message || '已恢复服务器保存的任务记录。', status: 'complete' }],
+    }
+    const withProject = current.activeProjectId ? current : ProjectStore.createProject(current, { name: '恢复的建模任务' })
+    const next = ProjectStore.createProjectFile(withProject, withProject.activeProjectId, { name: task.name || '恢复的任务', type: '零件', snapshot })
+    restoreWorkspace(next, '3D 建模')
+    showToast('任务已恢复到新的项目文件。', 'success')
+    return true
+  }
+  const createProject = (name, mode) => {
+    if (!canSwitch()) return false
+    if (typeof name !== 'string') { setDialog('project'); return true }
+    const next = ProjectStore.createProject(flushWorkspace(), { name })
+    restoreWorkspace(next, mode === '项目管理' ? '项目管理' : '3D 建模'); setDialog(''); showToast('独立项目已创建')
+    return true
+  }
+  const createFile = ({ name, type, source, projectId }) => {
+    if (!canSwitch()) return false
+    const current = flushWorkspace()
+    const next = ProjectStore.createProjectFile(current, projectId || current.activeProjectId, { name, type,
       ...(source === 'current' && type !== '文档' ? { snapshot: currentSnapshotRef.current } : {}),
     })
+    if (next === current) return false
     restoreWorkspace(next); showToast(`${type}文件已创建`)
+    return true
   }
-  const renameLocalProject = (id, name) => commitStore(ProjectStore.renameProject(storeRef.current, id, name))
-  const renameLocalFile = (id, name) => {
-    const current = flushWorkspace()
-    const next = ProjectStore.renameProjectFile(current, current.activeProjectId, id, name)
-    commitStore(next)
-    if (id === current.activeFileId && activeFile?.type === '零件') setModel((value) => ({ ...value, name }))
+  const createCadDocument = () => {
+    if (!canSwitch()) return false
+    const current = flushWorkspace(), names = new Set((ProjectStore.getActiveProject(current)?.files || []).map(file => file.name))
+    let number = 1
+    while (names.has(`新零件 ${number}`)) number += 1
+    const name = `新零件 ${number}`
+    const next = ProjectStore.createProjectFile(current, current.activeProjectId, {name,type:'零件',snapshot:emptyCadDocumentSnapshot()})
+    if (next === current) return false
+    const file = ProjectStore.getActiveFile(next)
+    restoreWorkspace(next, '特征编辑'); setActiveCase(null)
+    setEditingTarget(cadDocumentTarget(next, { accountKey, projectId: next.activeProjectId, fileId: file.id }))
+    return true
   }
-  const saveVersionForFile = (fileId, note = '') => {
+  const openPdmVersion = async (entry,options={}) => {
+    if(!canSwitch())return false
+    const stamp=workspaceIdRef.current,owner=accountKey,current=flushWorkspace()
+    let next=ProjectStore.createProjectFile(current,current.activeProjectId,{name:entry.name||'PDM 零件',type:'零件',snapshot:emptyCadDocumentSnapshot()})
+    if(next===current)return false
+    const file=ProjectStore.getActiveFile(next),projectId=next.activeProjectId
+    try {
+      const {record}=await cadPdmClient.open(()=>accountTokenRef.current,entry.versionId,{fileId:file.id,requestId:createClientId()},options.signal)
+      if(stamp!==workspaceIdRef.current||options.signal?.aborted||(options.current&&!options.current()))return false
+      const reference=createManualFeatureReference(record,{accountKey:owner,projectId,fileId:file.id})
+      next=applyManualFeatureReference(next,reference,{accountKey:owner})
+      restoreWorkspace(next,'特征编辑');setActiveCase(null)
+      setEditingTarget(cadDocumentTarget(next,{accountKey:owner,projectId,fileId:file.id}))
+      showToast('PDM 指定版本已作为独立副本打开')
+      return true
+    }catch(error){if(stamp===workspaceIdRef.current)showToast(readableError(error),'error');return false}
+  }
+  const openCommunityResource = async (entry, options={}) => {
+    if (!canSwitch()) return false
+    const stamp=workspaceIdRef.current, owner=accountKey, current=flushWorkspace()
+    let next=ProjectStore.createProjectFile(current,current.activeProjectId,{name:entry.name||'社区零件',type:'零件',snapshot:emptyCadDocumentSnapshot()})
+    if(next===current)return false
+    const file=ProjectStore.getActiveFile(next),projectId=next.activeProjectId
+    try {
+      const {record}=await cadCommunityClient.open(()=>accountTokenRef.current,entry.resourceId,{fileId:file.id,requestId:createClientId()},options.signal)
+      if(stamp!==workspaceIdRef.current||options.signal?.aborted||(options.current&&!options.current()))return false
+      const reference=createManualFeatureReference(record,{accountKey:owner,projectId,fileId:file.id})
+      next=applyManualFeatureReference(next,reference,{accountKey:owner})
+      restoreWorkspace(next,'特征编辑');setActiveCase(null)
+      setEditingTarget(cadDocumentTarget(next,{accountKey:owner,projectId,fileId:file.id}))
+      showToast('资源已作为独立副本打开，可继续编辑')
+      return true
+    }catch(error){if(stamp===workspaceIdRef.current&&!options.signal?.aborted)showToast(readableError(error),'error');return false}
+  }
+  const openCadDocument = document => {
+    const projectId = editingTarget?.projectId || storeRef.current.activeProjectId
+    if (!canSwitch() || !matchesCadDocumentSource(document, { accountKey, projectId })) return false
+    const target = cadDocumentTarget(storeRef.current, { accountKey, projectId, fileId: document.fileId, previousTarget: editingTarget })
+    if (!target) { showToast('图档已不存在，或不属于当前账号和项目。', 'error'); return false }
+    if (target.fileId === editingTarget?.fileId && target.projectId === editingTarget?.projectId) return true
+    const next = ProjectStore.selectProjectFile(flushWorkspace(), projectId, target.fileId)
+    setEditingTarget(target); setActiveCase(null); restoreWorkspace(next, '特征编辑')
+    return true
+  }
+  const cadDocuments = cadProjectDocuments(workspaceStore, { accountKey, projectId: editingTarget?.projectId || workspaceStore.activeProjectId })
+  const duplicateLocalFile = (fileId, name, projectId) => {
+    if (!canSwitch()) return false
     const current = flushWorkspace()
-    const next = ProjectStore.saveFileVersion(current, current.activeProjectId, fileId, { note })
+    const targetProjectId = projectId ?? current.activeProjectId
+    const next = ProjectStore.duplicateProjectFile(current, targetProjectId, fileId, { name })
+    if (next === current) return false
+    restoreWorkspace(next, '项目管理')
+    showToast('文件副本已创建，可独立修改')
+    return true
+  }
+  const deleteLocalFile = (fileId, projectId) => {
+    if (!canSwitch()) return false
+    const current = flushWorkspace()
+    const targetProjectId = projectId ?? current.activeProjectId
+    const next = ProjectStore.deleteProjectFile(current, targetProjectId, fileId)
+    if (next === current) return false
+    transientFilesRef.current.delete(fileId)
+    if (targetProjectId === current.activeProjectId && fileId === current.activeFileId) restoreWorkspace(next, '项目管理')
+    else commitStore(next)
+    showToast('文件已移入回收站，可随时恢复', 'info')
+    return true
+  }
+  const deleteLocalProject = (projectId) => {
+    if (!canSwitch()) return false
+    const current = flushWorkspace()
+    const next = ProjectStore.deleteProject(current, projectId)
+    if (projectId === current.activeProjectId) restoreWorkspace(next, '项目管理')
+    else commitStore(next)
+    showToast('项目已移入回收站，可随时恢复', 'info')
+    return true
+  }
+  const restoreLocalTrash = (trashId) => {
+    if (!canSwitch()) return false
+    restoreWorkspace(ProjectStore.restoreTrashedItem(flushWorkspace(), trashId), '项目管理')
+    showToast('回收站内容已恢复')
+  }
+  const importBackup = (payload) => {
+    if (!canSwitch()) return false
+    const current = flushWorkspace()
+    const next = ProjectStore.importProjectBackup(current, payload)
+    restoreWorkspace(next, '项目管理')
+    showToast(`已导入 ${next.projects.length - current.projects.length} 个项目，现有项目已保留`)
+    return true
+  }
+  const renameLocalProject = (id, name) => {
+    const current = storeRef.current
+    if (!current.projects.some((project) => project.id === id)) return false
+    const next = ProjectStore.renameProject(current, id, name)
+    if (next === current) return false
     commitStore(next)
-    const saved = ProjectStore.getProjectFile(next, next.activeProjectId, fileId)
+    showToast(`项目已重命名为“${next.projects.find((project) => project.id === id).name}”`)
+    return true
+  }
+  const renameLocalFile = (id, name, projectId) => {
+    const current = flushWorkspace()
+    const targetProjectId = projectId ?? current.activeProjectId
+    const next = ProjectStore.renameProjectFile(current, targetProjectId, id, name)
+    if (next === current) return false
+    commitStore(next)
+    const renamed = ProjectStore.getProjectFile(next, targetProjectId, id)
+    if (targetProjectId === current.activeProjectId && id === current.activeFileId && renamed?.type === '零件') setModel((value) => value ? { ...value, name: renamed.name } : null)
+    showToast(`文件已重命名为“${renamed.name}”`)
+    return true
+  }
+  const saveVersionForFile = (fileId, note = '', projectId) => {
+    const current = flushWorkspace()
+    const targetProjectId = projectId ?? current.activeProjectId
+    const next = ProjectStore.saveFileVersion(current, targetProjectId, fileId, { note })
+    if (next === current) return false
+    commitStore(next)
+    const saved = ProjectStore.getProjectFile(next, targetProjectId, fileId)
     if (saved && !saved.contentUnavailable) showToast(`${saved.name} · ${saved.versions.at(-1)?.label} 已保存`)
+    return true
   }
-  const restoreVersion = (fileId, versionId) => {
-    if (!canSwitch()) return
-    let next = flushWorkspace()
-    next = ProjectStore.saveFileVersion(next, next.activeProjectId, fileId, { note: '恢复历史版本前自动保留草稿' })
-    next = ProjectStore.restoreFileVersion(next, next.activeProjectId, fileId, versionId)
-    if (fileId === next.activeFileId) { transientFilesRef.current.delete(fileId); restoreWorkspace(next, '项目管理') }
+  const restoreVersion = (fileId, versionId, projectId) => {
+    if (!canSwitch()) return false
+    const current = flushWorkspace()
+    const targetProjectId = projectId ?? current.activeProjectId
+    const target = ProjectStore.getProjectFile(current, targetProjectId, fileId)
+    if (!target || target.contentUnavailable || !target.versions.some((version) => version.id === versionId)) return false
+    let next = ProjectStore.saveFileVersion(current, targetProjectId, fileId, { note: '恢复历史版本前自动保留草稿' })
+    next = ProjectStore.restoreFileVersion(next, targetProjectId, fileId, versionId)
+    if (targetProjectId === current.activeProjectId && fileId === current.activeFileId) { transientFilesRef.current.delete(fileId); restoreWorkspace(next, '项目管理') }
     else commitStore(next)
     showToast('历史版本已恢复；恢复前的草稿已另存为版本')
+    return true
   }
-  const updateDocument = (fileId, documentText) => {
-    const current = storeRef.current
-    const file = ProjectStore.getProjectFile(current, current.activeProjectId, fileId)
-    if (file) commitStore(ProjectStore.updateFileSnapshot(current, current.activeProjectId, fileId, { ...file.snapshot, documentText }))
+  const updateDocument = (fileId, documentText, projectId) => {
+    const current = flushWorkspace()
+    const targetProjectId = projectId ?? current.activeProjectId
+    const file = ProjectStore.getProjectFile(current, targetProjectId, fileId)
+    if (!file || file.type !== '文档' || file.contentUnavailable) return false
+    commitStore(ProjectStore.updateFileSnapshot(current, targetProjectId, fileId, { ...file.snapshot, documentText }))
+    return true
   }
   const exportFile = async (format, options = {}, targetFile = null) => {
     const scope = workspaceIdRef.current
@@ -2290,22 +2654,46 @@ function App() {
     const exportModel = snapshot.model
     const name = targetFile?.name || activeFile?.name || exportModel?.name || '设计文件'
     try {
+      if (snapshot.manualFeatureReference && (targetFile || !showOriginalModel) && !['json', 'txt'].includes(format)) {
+        const reference = snapshot.manualFeatureReference
+        if (!['step', 'glb'].includes(format)) throw new Error('手工修改版本目前提供 STEP、GLB 和项目草稿；请在模型页查看原 AI 版本后导出原始工程图或报告。')
+        if (reference.accountKey !== accountKey || reference.status !== 'built') throw new Error('请使用来源账号打开手工版本，完成重建后再导出。')
+        const controller = new AbortController()
+        resourceDownloadsRef.current.add(controller)
+        try {
+          const record = await directFeatureClient.get(() => accountTokenRef.current, reference.featureId, reference.revision, controller.signal)
+          if (controller.signal.aborted) return
+          if (!manualFeatureRecordMatchesReference(record, reference)) throw new Error('手工版本与项目引用不一致，请重新打开模型。')
+          const blob = await directFeatureClient.download(() => accountTokenRef.current, record, format, controller.signal)
+          if (controller.signal.aborted) return
+          downloadBlob(blob, `${name}-手工-r${record.revision}.${format}`, blob.type)
+        } finally { resourceDownloadsRef.current.delete(controller) }
+        showToast(`${name} · 手工 r${reference.revision} · ${format.toUpperCase()} 已准备下载`)
+        return
+      }
       if (format === 'json') {
         downloadBlob(JSON.stringify({ schemaVersion: 1, name, type: targetFile?.type || activeFile?.type, snapshot: ProjectStore.sanitizeWorkspaceSnapshot(snapshot), exportedAt: new Date().toISOString() }, null, 2), `${name}.json`)
       } else if (format === 'txt') {
         downloadBlob(snapshot.documentText || '', `${name}.txt`, 'text/plain;charset=utf-8')
+      } else if (format === 'report') {
+        downloadCadDeliveryReport({ model: exportModel, generation: snapshot.generation, drawingJob: snapshot.drawingJob })
       } else {
         if (!exportModel?.kind) throw new Error('当前文件还没有模型，请先描述零件或上传图纸。')
         const validation = validateModelParameters(exportModel)
         if (!validation.valid) throw new Error(validation.errors.map((item) => item.message).join('；'))
         if (isFeatureModel(exportModel)) {
-          if (snapshot.drawingJob?.cadTask?.runId) throw new Error('本轮仍在后台处理，请取得结果后再导出当前模型。')
+          if (snapshot.drawingJob?.cadTask) throw new Error('本轮仍在后台处理，请取得结果后再导出当前模型。')
           if (!productionArtifactsAvailable(snapshot.generation) || !cadGenerationIsCurrent(exportModel, snapshot.generation) || exportModel.agentRun?.status !== 'ready') throw new Error('请先确认当前参数并重新生成实体，再导出交付文件。')
           const artifact = snapshot.generation.artifacts?.find((item) => item.format === format)
           if (!artifact) throw new Error(`当前实体没有 ${format.toUpperCase()} 文件。可导出 STEP、GLB 或 JSON 草稿。`)
-          const response = await fetch(cadArtifactUrl(artifact))
-          if (!response.ok) throw new Error('实体文件读取失败，请重新生成后再导出。')
-          downloadBlob(await response.blob(), `${name}.${format}`, response.headers.get('content-type') || 'application/octet-stream')
+          const controller = new AbortController()
+          resourceDownloadsRef.current.add(controller)
+          try {
+            const file = await cadAgent.downloadArtifact({ token: () => accountTokenRef.current, signal: controller.signal,
+              runId: exportModel.agentRun.runId, revision: exportModel.agentRun.revision, format, artifactId: artifact.id })
+            if (controller.signal.aborted) return
+            downloadBlob(file.blob, `${name}.${format}`, file.mimeType || 'application/octet-stream')
+          } finally { resourceDownloadsRef.current.delete(controller) }
           showToast(`${name} · ${format.toUpperCase()} 已准备下载`)
           return
         }
@@ -2336,7 +2724,7 @@ function App() {
   const retryAi = async () => {
     if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current) return
     const task = drawingJobRef.current?.cadTask
-    if (task?.runId) return sendCadConversation(task.prompt || '继续检查本轮建模结果', [], { resumeTask: task })
+    if (task?.runId || task?.requestId) return sendCadConversation(task.prompt || '继续检查本轮建模结果', [], { resumeTask: task })
     const turn = lastAiTurnRef.current
     if (!turn) {
       if (isFeatureModel(modelRef.current) && modelRef.current.agentRun?.runId) return sendCadConversation('请基于当前已保存的原图与建模草稿，继续检查并完成上一轮未完成的工作。')
@@ -2368,6 +2756,22 @@ function App() {
     finally { setIsChecking(false) }
   }
 
+  const platformContextRef = useRef(null)
+  const platformAuthEpochRef = useRef(0)
+  const platformHydrationEpochRef = useRef(0)
+  platformContextRef.current = platformScope({ token: platform.token, projectId: workspaceStore.activeProjectId,
+    fileId: workspaceStore.activeFileId, generation })
+  const capturePlatformScope = (token = platformContextRef.current.token) => ({ ...platformContextRef.current, token })
+  const platformScopeCurrent = (scope, accountOnly = false) => platformScopeIsCurrent(scope, platformContextRef.current, accountOnly)
+  const updateScopedPlatform = (scope, patch, accountOnly = false) => setPlatform((current) =>
+    current.token === scope.token && platformScopeCurrent(scope, accountOnly) ? { ...current, ...patch } : current)
+  useEffect(() => {
+    // Parameter edits remain available while a PDM request is in flight.
+    // Once that model context changes, its discarded result must not leave
+    // the new workspace permanently blocked by the old operation's spinner.
+    setPlatform((current) => current.busy ? { ...current, busy: false } : current)
+  }, [workspaceStore.activeProjectId, workspaceStore.activeFileId, generation?.requestId, generation?.stale])
+
   const rememberPlatformWorkflow = (projectId = '', planId = '') => {
     platformWorkflowRef.current = {
       projectId: projectId || platformWorkflowRef.current.projectId || '',
@@ -2378,105 +2782,86 @@ function App() {
   const hydratePlatformWorkspace = async (token, _preferredProjectId = '', preferredPlanId = '') => {
     if (!token) return
     const local = ProjectStore.getActiveProject(storeRef.current)
-    const scope = local?.id
+    const scope = capturePlatformScope(token)
+    const hydration = ++platformHydrationEpochRef.current
+    const currentGeneration = generationRef.current
+    const hash = productionArtifactsAvailable(currentGeneration) ? currentGeneration.artifacts?.find((item) => item.format === 'step')?.sha256 || currentGeneration.requestId : ''
     try {
       const listedProjects = await api.projects(token)
       const availableProjects = listedProjects.items || []
       const boundIds = Object.values(local?.pdmBindings || {})
-      const project = availableProjects.find((item) => item.metadata?.localProjectId === scope || boundIds.includes(item.id)) || null
+      const project = availableProjects.find((item) => item.metadata?.localProjectId === scope.projectId || boundIds.includes(item.id)) || null
       const manifest = project ? await api.projectManifest(project.id, token) : null
-      const plans = project ? (await api.camPlans(token, project.id)).items || [] : []
-      const currentGeneration = generationRef.current
-      const hash = productionArtifactsAvailable(currentGeneration) ? currentGeneration.artifacts?.find((item) => item.format === 'step')?.sha256 || currentGeneration.requestId : ''
+      if (hydration !== platformHydrationEpochRef.current || !platformScopeCurrent(scope)) return
+      // Reading project files does not require CAM permissions. Publish the
+      // manifest even when the account cannot access manufacturing records.
+      updateScopedPlatform(scope, { project, manifest, camPlan: null, approval: null, simulation: null, gate: null, nc: null, error: '' })
+      const plans = project ? (await api.camPlans(token, project.id).catch((error) => {
+        if (error.status === 403) return { items: [] }
+        throw error
+      })).items || [] : []
       const matchingPlans = plans.filter((item) => hash && item.geometryHash === hash)
       const camPlan = matchingPlans.find((item) => item.id === preferredPlanId) || matchingPlans[0] || null
       const simulation = camPlan?.latestSimulationId ? await api.camSimulation(camPlan.latestSimulationId, token) : null
       const gate = camPlan ? await api.camGate(camPlan.id, token) : null
       const nc = camPlan?.releasedNcId ? await api.camNcInfo(camPlan.releasedNcId, token) : null
-      if (storeRef.current.activeProjectId !== scope) return
-      setPlatform((current) => current.token === token
-        ? { ...current, project, manifest, camPlan, approval: camPlan?.approvals?.at(-1) || null, simulation, gate, nc, error: '' }
-        : current)
+      if (hydration !== platformHydrationEpochRef.current) return
+      updateScopedPlatform(scope, { project, manifest, camPlan, approval: camPlan?.approvals?.at(-1) || null, simulation, gate, nc, error: '' })
+      return { project, manifest }
     } catch (error) {
-      if (storeRef.current.activeProjectId === scope) setPlatform((current) => current.token === token ? { ...current, error: `工作区恢复失败：${readableError(error)}` } : current)
+      if (hydration === platformHydrationEpochRef.current) updateScopedPlatform(scope, { error: `工作区恢复失败：${readableError(error)}` })
     }
   }
 
-  const platformLogin = async ({ email, password, displayName, roles, bootstrap = false }) => {
-    setPlatform((current) => ({ ...current, busy: true, error: '' }))
-    try {
-      if (bootstrap) {
-        try {
-          await api.createUser({ email, password, displayName, roles })
-        } catch (error) {
-          // A persistent database may already have the bootstrap account. In
-          // that case continue with login and surface other errors normally.
-          if (error.status !== 409) throw error
-        }
-      }
-      const previousWorkflow = { ...platformWorkflowRef.current }
-      const session = await api.login(email, password)
-      setPlatform((current) => ({ ...current, token: session.access_token, user: session.user, users: [], busy: false, error: '' }))
-      showToast(`已登录平台服务 · ${(session.user?.roles || []).join(' / ')}`)
-      if ((session.user?.permissions || []).includes('*') || (session.user?.permissions || []).includes('user:manage')) {
-        api.users(session.access_token).then((result) => setPlatform((current) => current.token === session.access_token ? { ...current, users: result.items || [] } : current)).catch(() => {})
-      }
-      // Resolve project/plan state under this account.  This is deliberately
-      // asynchronous so login remains responsive while a reviewer or
-      // manufacturing account's scoped CAM view is rebuilt.
-      hydratePlatformWorkspace(session.access_token, previousWorkflow.projectId, previousWorkflow.planId)
-      return session
-    } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
-      showToast(`登录失败：${error.message}`)
-      return null
-    }
+  const platformLogin = async (payload) => {
+    try { return await account.login(payload) }
+    catch (error) { setPlatform(current => ({ ...current, busy: false, error: readableError(error) })); return null }
   }
-
-  const platformLogout = () => {
-    rememberPlatformWorkflow(platform.project?.id || '', platform.camPlan?.id || '')
-    // Keep only the ids needed to rehydrate the workflow on the next login;
-    // clear the visible account-scoped records so a logged-out user cannot
-    // inspect a prior project's PDM/CAM details in the UI.
-    setPlatform(emptyPlatformState())
-    setAiConversation((current) => ({ ...current, previousResponseId: '' }))
-    showToast('已退出平台服务')
-  }
+  const platformLogout = () => { chatAbortRef.current?.abort(); void account.logout() }
 
   const refreshPlatformUsers = async () => {
     if (!platform.token) return showToast('请先登录平台服务')
+    const scope = capturePlatformScope()
     try {
       const result = await api.users(platform.token)
-      setPlatform((current) => ({ ...current, users: result.items || [] }))
+      if (!platformScopeCurrent(scope, true)) return
+      updateScopedPlatform(scope, { users: result.items || [] }, true)
       showToast(`已刷新账号列表 · ${(result.items || []).length} 个账号`)
     } catch (error) {
-      setPlatform((current) => ({ ...current, error: error.message }))
+      if (!platformScopeCurrent(scope, true)) return
+      updateScopedPlatform(scope, { error: readableError(error) }, true)
       showToast(`账号列表读取失败：${error.message}`)
     }
   }
 
   const createPlatformUser = async ({ email, password, displayName, roles }) => {
     if (!platform.token) return showToast('请先登录平台服务')
+    const scope = capturePlatformScope()
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
       await api.createUser({ email, password, displayName, roles }, platform.token)
+      if (!platformScopeCurrent(scope, true)) return false
       const result = await api.users(platform.token)
-      setPlatform((current) => ({ ...current, users: result.items || [], busy: false }))
+      if (!platformScopeCurrent(scope, true)) return false
+      updateScopedPlatform(scope, { users: result.items || [], busy: false }, true)
       showToast(`已创建 ${(roles || []).join(' / ')} 账号`)
       return true
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
+      if (!platformScopeCurrent(scope, true)) return false
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) }, true)
       showToast(`创建账号失败：${error.message}`)
       return false
     }
   }
 
-  const resolvePlatformProject = async (local, token, userId) => {
+  const resolvePlatformProject = async (local, token, userId, scope) => {
     const listed = await api.projects(token)
+    if (!platformScopeCurrent(scope)) return null
     const boundId = local.pdmBindings?.[userId]
     let project = (listed.items || []).find((item) => item.id === boundId || item.metadata?.localProjectId === local.id)
     if (!project) project = await api.createProject({ name: local.name, description: 'JoyNiu 当前项目', metadata: { localProjectId: local.id } }, token)
     else if (project.name !== local.name) project = await api.renameProject(project.id, local.name, token)
+    if (!platformScopeCurrent(scope)) return null
     commitStore({ ...storeRef.current, projects: storeRef.current.projects.map((item) => item.id === local.id ? { ...item, pdmBindings: { ...item.pdmBindings, [userId]: project.id } } : item) })
     return project
   }
@@ -2484,14 +2869,26 @@ function App() {
     if (!platform.token) return showToast('请先登录平台服务')
     const local = ProjectStore.getActiveProject(storeRef.current)
     const token = platform.token
+    const scope = capturePlatformScope()
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
-      const project = await resolvePlatformProject(local, token, platform.user.id)
+      const permissions = platform.user?.permissions || []
+      if (!permissions.includes('*') && !permissions.includes('project:write')) {
+        const restored = await hydratePlatformWorkspace(token)
+        if (!platformScopeCurrent(scope)) return
+        updateScopedPlatform(scope, { busy: false })
+        if (restored) showToast(restored.project ? '项目清单已刷新' : '当前项目尚未关联平台记录，请联系项目管理员。', restored.project ? 'success' : 'info')
+        return
+      }
+      const project = await resolvePlatformProject(local, token, platform.user.id, scope)
+      if (!project) return
       const manifest = await api.projectManifest(project.id, token)
-      if (storeRef.current.activeProjectId === local.id) setPlatform((current) => current.token === token ? { ...current, project, manifest, busy: false } : current)
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { project, manifest, busy: false })
       showToast('当前项目已绑定 PDM，清单已刷新')
     } catch (error) {
-      setPlatform((current) => current.token === token ? { ...current, busy: false, error: readableError(error) } : current)
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) })
       showToast(`PDM 操作失败：${readableError(error)}`, 'error')
     }
   }
@@ -2499,6 +2896,7 @@ function App() {
   const shareProjectTeam = async (rawMembers = '') => {
     if (!platform.token) return showToast('请先登录平台服务')
     if (!platform.project) return showToast('请先创建或绑定一个 PDM 项目')
+    const scope = capturePlatformScope()
     const typedMembers = String(rawMembers || '')
       .split(/[,，\s]+/)
       .map((item) => item.trim())
@@ -2513,12 +2911,15 @@ function App() {
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
       const result = await api.updateProjectMembers(platform.project.id, members, platform.token)
+      if (!platformScopeCurrent(scope)) return false
       const manifest = await api.projectManifest(platform.project.id, platform.token).catch(() => platform.manifest)
-      setPlatform((current) => ({ ...current, project: result.project || current.project, manifest, busy: false }))
+      if (!platformScopeCurrent(scope)) return false
+      updateScopedPlatform(scope, { project: result.project || platform.project, manifest, busy: false })
       showToast(`已共享 ${members.length} 个项目成员（只读，可审核/放行）`)
       return true
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
+      if (!platformScopeCurrent(scope)) return false
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) })
       showToast(`项目成员更新失败：${error.message}`)
       return false
     }
@@ -2533,13 +2934,17 @@ function App() {
     const snapshot = ProjectStore.sanitizeWorkspaceSnapshot(currentSnapshotRef.current)
     const sourceFile = drawingJobRef.current?.file
     const token = platform.token
+    const scope = capturePlatformScope()
     setPlatform((value) => ({ ...value, busy: true, error: '' }))
     try {
-      const project = await resolvePlatformProject(local, token, platform.user.id)
+      const project = await resolvePlatformProject(local, token, platform.user.id, scope)
+      if (!project) return
       let manifest = await api.projectManifest(project.id, token)
       const writeVersion = async (category, name, payload) => {
+        if (!platformScopeCurrent(scope)) throw new Error('平台操作已结束')
         let document = (manifest.documents || []).map((entry) => entry.document || entry).find((item) => item.metadata?.localFileId === file.id && item.metadata?.category === category)
         if (!document) document = await api.createDocument(project.id, { name: `${name} [${file.id}:${category}]`, kind: category === 'source' ? 'drawing' : 'model', metadata: { displayName: name, localProjectId: local.id, localFileId: file.id, category } }, token)
+        if (!platformScopeCurrent(scope)) throw new Error('平台操作已结束')
         await api.createVersion(document.id, { ...payload, note: '同步当前文件快照，保留人工修改', metadata: { displayName: name, localFileId: file.id, modelName: snapshot.model?.name, localUpdatedAt: file.updatedAt } }, token)
       }
       await writeVersion('snapshot', file.name, { content: { schemaVersion: 1, fileName: file.name, fileType: file.type, snapshot }, fileName: `${file.name}.json`, contentType: 'application/json' })
@@ -2559,10 +2964,12 @@ function App() {
         }
       }
       manifest = await api.projectManifest(project.id, token)
-      if (storeRef.current.activeProjectId === local.id) setPlatform((value) => value.token === token ? { ...value, project, manifest, busy: false, error: '' } : value)
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { project, manifest, busy: false, error: '' })
       showToast(`PDM 已保存「${file.name}」当前快照${sourceFile ? '、原图' : ''}${savedArtifacts ? `与 ${savedArtifacts} 个实体文件` : '（参数草稿）'}`)
     } catch (error) {
-      setPlatform((value) => value.token === token ? { ...value, busy: false, error: readableError(error) } : value)
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) })
       showToast(`PDM 同步失败：${readableError(error)}`, 'error')
     }
   }
@@ -2572,71 +2979,90 @@ function App() {
     if (!productionArtifactsAvailable(generation)) return showToast('请先生成并校验当前实体')
     if (!platform.project || platform.project.metadata?.localProjectId !== activeProject.id) return showToast('请先绑定当前项目的 PDM 项目')
     if (canonicalPartKind(model.kind) !== 'bracket') return showToast('当前 CAM 三轴铣削方案仅支持安装支架，请使用匹配工艺。', 'info')
+    const scope = capturePlatformScope()
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
       const hash = generation.artifacts?.find((item) => item.format === 'step')?.sha256 || generation.requestId || 'preview-geometry'
       const plan = await api.camPlan({ geometryHash: hash, stock: { length: Number(model.baseLength) + 10, width: Number(model.baseWidth) + 10, height: Number(model.totalHeight) + 5, material: model.material }, machine: '3-axis-mill', projectId: platform.project?.id }, platform.token)
+      if (!platformScopeCurrent(scope)) return
       const operation = await api.camOperation(plan.id, { operationType: 'profile', toolId: 'T10', depth: 1, feedRate: 600, spindleRpm: 6000, retractHeight: 5, pathLength: Number(model.baseLength) + Number(model.baseWidth) }, platform.token)
+      if (!platformScopeCurrent(scope)) return
       const hydratedPlan = await api.camPlanById(plan.id, platform.token).catch(() => ({ ...plan, operations: [...(plan.operations || []), operation], revision: (plan.revision || 1) + 1 }))
+      if (!platformScopeCurrent(scope)) return
       rememberPlatformWorkflow(platform.project?.id || '', hydratedPlan.id)
-      setPlatform((current) => ({ ...current, camPlan: hydratedPlan, approval: null, simulation: null, gate: null, nc: null, busy: false }))
+      updateScopedPlatform(scope, { camPlan: hydratedPlan, approval: null, simulation: null, gate: null, nc: null, busy: false })
       showToast('CAM 草案已创建（尚未放行 NC）')
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) })
       showToast(`CAM 计划失败：${error.message}`)
     }
   }
 
   const simulateCamPlan = async () => {
     if (!platform.token || !platform.camPlan) return showToast('请先创建 CAM 草案')
+    const scope = capturePlatformScope()
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
       const simulation = await api.camSimulate(platform.camPlan.id, {}, platform.token)
+      if (!platformScopeCurrent(scope)) return
       const camPlan = await api.camPlanById(platform.camPlan.id, platform.token).catch(() => platform.camPlan)
       const gate = await api.camGate(platform.camPlan.id, platform.token).catch(() => null)
-      setPlatform((current) => ({ ...current, camPlan, simulation, gate, busy: false }))
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { camPlan, simulation, gate, busy: false })
       showToast(simulation.passed ? 'CAM 确定性预仿真通过 · 等待审核者审批' : 'CAM 仿真发现风险，NC 已阻断')
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) })
       showToast(`CAM 仿真失败：${error.message}`)
     }
   }
   const approveCamPlan = async () => {
     if (!platform.token || !platform.camPlan) return showToast('请先创建 CAM 草案')
+    const scope = capturePlatformScope()
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
       const result = await api.camApprove(platform.camPlan.id, { role: 'reviewer', simulationId: platform.simulation?.id, comment: '界面审核通过' }, platform.token)
+      if (!platformScopeCurrent(scope)) return
       const camPlan = await api.camPlanById(platform.camPlan.id, platform.token).catch(() => ({ ...platform.camPlan, status: 'approved', approvals: [...(platform.camPlan?.approvals || []), result] }))
       const gate = await api.camGate(platform.camPlan.id, platform.token).catch(() => null)
       // The approval endpoint returns an Approval record, not a CAMPlan. Keep
       // the immutable plan/id so the subsequent manufacturing release cannot
       // accidentally target `/cam/plans/undefined`.
-      setPlatform((current) => ({ ...current, approval: result, camPlan, gate, busy: false }))
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { approval: result, camPlan, gate, busy: false })
       showToast('审核记录已写入；等待制造角色放行 NC')
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) })
       showToast(`CAM 审核失败：${error.message}`)
     }
   }
   const releaseCamPlan = async () => {
     if (!platform.token || !platform.camPlan) return showToast('请先创建 CAM 草案')
+    const scope = capturePlatformScope()
     setPlatform((current) => ({ ...current, busy: true, error: '' }))
     try {
       const result = await api.camRelease(platform.camPlan.id, { postprocessor: 'generic-3axis', includeText: true }, platform.token)
+      if (!platformScopeCurrent(scope)) return
       const camPlan = await api.camPlanById(platform.camPlan.id, platform.token).catch(() => ({ ...platform.camPlan, status: 'released', releasedNcId: result.id }))
       const gate = await api.camGate(platform.camPlan.id, platform.token).catch(() => ({ ...(platform.gate || {}), passed: true }))
+      if (!platformScopeCurrent(scope)) return
       rememberPlatformWorkflow(platform.project?.id || '', camPlan.id)
-      setPlatform((current) => ({ ...current, camPlan, nc: result, busy: false, gate }))
+      updateScopedPlatform(scope, { camPlan, nc: result, busy: false, gate })
       showToast('NC 已放行并生成；请在机床侧做最终验证')
     } catch (error) {
-      setPlatform((current) => ({ ...current, busy: false, error: error.message }))
+      if (!platformScopeCurrent(scope)) return
+      updateScopedPlatform(scope, { busy: false, error: readableError(error) })
       showToast(`NC 放行失败：${error.message}`)
     }
   }
   const downloadNcProgram = async () => {
     if (!platform.token || !platform.nc?.id) return showToast('当前账号没有可下载的 NC 程序')
+    const scope = capturePlatformScope()
     try {
       const text = platform.nc.text || await api.camNcText(platform.nc.id, platform.token)
+      if (!platformScopeCurrent(scope)) return
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -2644,9 +3070,10 @@ function App() {
       anchor.download = `${platform.nc.id}.nc`
       anchor.click()
       URL.revokeObjectURL(url)
-      setPlatform((current) => ({ ...current, nc: { ...current.nc, text } }))
+      updateScopedPlatform(scope, { nc: { ...platform.nc, text } })
       showToast('NC 程序已按当前制造权限下载')
     } catch (error) {
+      if (!platformScopeCurrent(scope)) return
       showToast(`NC 下载失败：${error.message}`)
     }
   }
@@ -3024,8 +3451,8 @@ function App() {
     setIsGenerating(false)
     showToast(generated.validation?.productionReady ? '实体与 STEP 已生成并通过 OCCT 校验' : '已生成参数预览；启动后端后可生成生产 STEP')
   }
-  const attachDrawingToConversation = (fileInput) => {
-    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask?.runId) return showToast('当前模型仍在处理，请完成后再更换图纸。', 'info')
+  const attachDrawingToConversation = (fileInput, description) => {
+    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask) return showToast('当前模型仍在处理，请完成后再更换图纸。', 'info')
     const selectedFiles = normalizeFilesInput(fileInput)
     if (!selectedFiles.length) return
     if (selectedFiles.length > 4) return showToast('一次最多上传 4 个图纸文件', 'error')
@@ -3044,15 +3471,17 @@ function App() {
     // (for example "只识别主视图") before pressing the single primary action.
     // New uploads run through the CAD agent; existing recipe-only models
     // keep their original editing path until a new drawing is submitted.
+    setShowOriginalModel(true)
     setActiveMode('3D 建模')
     setChatAttachments(selectedFiles)
+    if (typeof description === 'string') setPrompt(description)
     // Merely selecting an attachment must not invalidate the current CAD
     // entity or confirmed evidence.  A new drawing context begins only when
     // the customer actually sends this chat turn.
     showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已附加到下一条消息`)
   }
   const remodelLegacyDrawing = async (fileInput) => {
-    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask?.runId) return false
+    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask) return false
     if (!isLegacyDrawingDraft(modelRef.current, drawingJobRef.current)) return false
     const files = fileInput ? normalizeFilesInput(fileInput) : cadLegacySourceFiles(drawingJobRef.current)
     if (files.length !== 1 || !(files[0] instanceof File)) { showToast('旧项目仅保存了文件信息，请重新选择原图。', 'info'); return false }
@@ -3069,7 +3498,7 @@ function App() {
     // recovery request and accidentally persist it as a user-paused task.
     const timer = setTimeout(() => {
       const task = drawingJobRef.current?.cadTask
-      if (task?.runId && task.status === 'running' && !task.paused && !chatAbortRef.current && !cadConfirmRef.current) {
+      if ((task?.runId || task?.requestId) && ['submitted', 'queued', 'running', 'cancel_requested'].includes(task.status) && !task.paused && !chatAbortRef.current && !cadConfirmRef.current) {
         void sendCadConversation(task.prompt || '继续检查本轮建模结果', [], { resumeTask: task })
       }
     }, 0)
@@ -3081,7 +3510,7 @@ function App() {
     if (platform.token) hydratePlatformWorkspace(platform.token)
   }, [workspaceStore.activeProjectId, workspaceStore.activeFileId, platform.token, generation?.requestId, generation?.stale])
   const recentFiles = workspaceStore.projects.flatMap((project) => project.files.filter((file) => !file.contentUnavailable).map((file) => ({ ...file, projectName: project.name }))).sort((a, b) => String(b.lastOpenedAt || b.updatedAt).localeCompare(String(a.lastOpenedAt || a.updatedAt))).slice(0, 12)
-  const exportBackup = () => downloadBlob(JSON.stringify(flushWorkspace(), null, 2), 'JoyNiu-项目备份.json')
+  const exportBackup = () => { downloadBlob(JSON.stringify(ProjectStore.exportProjectBackup(flushWorkspace()), null, 2), 'JoyNiu-项目备份.json'); showToast('项目备份已准备下载') }
   const refreshServices = async () => {
     setBackend((current) => ({ ...current, status: 'checking' }))
     const [healthResult, aiResult] = await Promise.allSettled([api.health(), api.aiStatus()])
@@ -3095,49 +3524,53 @@ function App() {
   const exportDiagnostics = () => downloadBlob(JSON.stringify({ exportedAt: new Date().toISOString(), backend: { status: backend.status, engine: backend.engine, error: backend.error }, fileType: activeFile?.type, modelKind: model.kind, parameterErrors: parameterValidation.errors, storageError }, null, 2), 'JoyNiu-诊断信息.json')
   const startTextDesign = (text = '') => {
     if (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) createFile({ name: '新零件', type: '零件', source: 'blank' })
+    setShowOriginalModel(true)
     setPrompt(text); setActiveMode('3D 建模')
   }
+  // Keep unfinished tool drafts alive while the account visits administration.
+  // Inactive tools pause keyboard handlers and canvas rendering.
   return (
-    <div className={`app-shell text-size-${settings.textSize}`}>
-      <header className="topbar">
-        <button className="mobile-menu-button" aria-label="打开导航菜单" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((value) => !value)}>☰</button><div className="brand"><div className="brand-mark" aria-hidden="true"><span>J</span><i /></div><div><strong>JoyNiu <em>CAD</em></strong><span>创模 AI · ENGINEERING</span></div></div>
-        <nav className="topbar-center" aria-label="主要工作台">
-          {mainModes.map((mode) => <button key={mode} className={`mode-tab ${activeMode === mode ? 'active' : ''}`} onClick={() => setActiveMode(mode)}>{mode === '3D 建模' && <Icon>✦</Icon>}{mode}</button>)}
-        </nav>
-        <div className="topbar-actions"><span className="credits">{platform.user?.displayName || platform.user?.display_name || '本地工作区'}</span><button className="icon-button" aria-label="打开快捷命令" onClick={() => setDialog('commands')}>⌘K</button><button className="avatar" aria-label="打开账号" onClick={() => setActiveMode('平台服务')}>{(platform.user?.displayName || platform.user?.display_name)?.slice(0, 1) || 'J'}</button></div>
-      </header>
+    <div className={`app-shell studio-shell text-size-${settings.textSize} ${navCollapsed ? 'studio--collapsed' : ''} ${activeMode === '特征编辑' ? 'studio--cad' : ''}`} hidden={suspended}>
+      {activeMode !== '特征编辑' && <StudioNavigation activeMode={activeMode} context={context} projectName={selectedProject} fileName={activeFile?.name}
+        saveLabel={storageError ? '草稿尚未保存' : ({ saved: '已保存', saving: '保存中…', error: '云保存失败', conflict: '版本有更新', local: '本地已保存' }[workspace.saveState.status] || '')}
+        user={platform.user} creditBalance={creditBalance} backend={backend} projects={projects}
+        adminAvailable={adminSections.some(item => canAdmin(platform.user, item.permission))}
+        onNavigate={setActiveMode} onNewProject={createProject} onRecent={() => setDialog('recent')} onCommands={() => setDialog('commands')}
+        onSelectProject={selectLocalProject} onAdmin={() => { setDialog(''); setMobileMenuOpen(false); navigateApplication(adminPath()) }}
+        collapsed={navCollapsed} onToggleSidebar={() => setNavCollapsed(value => !value)} menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen} />}
+      <main className={`main-area studio-main ${activeMode === '首页' ? 'studio-main--home' : ''}`}>
+          {['error', 'conflict'].includes(workspace.saveState.status) && <div className="storage-warning" role="alert">{workspace.saveState.status === 'conflict' ? '其他设备更新了项目，本地修改已保留。可导出备份，或先备份再读取云端版本。' : `云端保存失败：${workspace.saveState.error}`}<button onClick={workspace.exportLocal}>导出本地备份</button>{workspace.saveState.status === 'conflict' ? <button onClick={workspace.reloadCloud}>备份并读取云端</button> : <button onClick={workspace.retry}>重新同步</button>}</div>}
+          {workspace.canImportLegacy && activeMode === '项目管理' && <div className="customer-notice legacy-import">此浏览器保存着旧版项目。若这些项目属于你，可导入当前账号。<button className="secondary-button" onClick={workspace.importLegacy}>导入旧版项目</button></div>}
+          {activeMode === '积分与订单' && <><CommercialTermsWorkspace account={account} compact onLogin={() => setActiveMode('账号')} /><BillingWorkspace account={account} onLogin={() => setActiveMode('账号')} onWalletChange={value => setCreditBalance(value?.creditUnits ?? null)} /></>}
+          {activeMode === '我的任务' && <TaskWorkspace account={account} onLogin={() => setActiveMode('账号')} onOpen={openTask} />}
 
-      <div className="workspace">
-        {mobileMenuOpen && <button className="menu-backdrop" aria-label="关闭导航菜单" onClick={() => setMobileMenuOpen(false)} />}
-        <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`} onClick={(event) => { if (event.target.closest('button')) setMobileMenuOpen(false) }}>
-          <button className="new-project" onClick={createProject}><span>＋</span><span className="new-project-label">新建项目</span><kbd>⌘N</kbd></button>
-          <div className="side-section"><div className="side-label">设计</div>
-            <button title="项目" className={`side-link ${activeMode === '项目管理' ? 'active' : ''}`} onClick={() => setActiveMode('项目管理')}><Icon>▦</Icon><span className="side-link-label">我的项目</span><span className="count">{projects.length}</span></button>
-            <button title="最近打开" className="side-link" onClick={() => { setDialog('recent'); setMobileMenuOpen(false) }}><Icon>◷</Icon><span className="side-link-label">最近打开</span></button>
-            <button title="标准件库" className={`side-link ${activeMode === '标准件库' ? 'active' : ''}`} onClick={() => setActiveMode('标准件库')}><Icon>⬡</Icon><span className="side-link-label">标准件库</span></button>
-            <button title="设计工作台 · 图纸导入" className={`side-link ${activeMode === '3D 建模' ? 'active' : ''}`} onClick={() => { setActiveMode('3D 建模'); showToast('已打开设计工作台 · 上传后按 AI 分析 → 确认数据 → 生成 3D') }}><Icon>⌁</Icon><span className="side-link-label">设计工作台 / 图纸导入</span><span className="new-badge">推荐</span></button>
-          </div>
-          <div className="side-section project-list"><div className="side-label">当前项目</div>{projects.map((project) => <button title={project.name} key={project.id} className={`project-link ${activeProject?.id === project.id ? 'selected' : ''}`} onClick={() => selectLocalProject(project.id)}><span className={`project-dot ${project.color}`} /><span className="project-link-label">{project.name}</span><span className="project-files">{project.files}</span></button>)}</div>
-          <div className="sidebar-bottom"><div className="side-label">高级</div><button title="PDM / 账号" className={`side-link ${activeMode === '平台服务' ? 'active' : ''}`} onClick={() => setActiveMode('平台服务')}><Icon>◈</Icon><span className="side-link-label">PDM / 账号</span></button><button title="CAM / NC" className={`side-link ${activeMode === 'CAM / NC' ? 'active' : ''}`} onClick={() => setActiveMode('CAM / NC')}><Icon>⌁</Icon><span className="side-link-label">CAM / NC</span></button><button title="设置" className="side-link" onClick={() => setActiveMode('设置')}><Icon>⚙</Icon><span className="side-link-label">设置</span></button><button title="帮助与反馈" className="side-link" onClick={() => setActiveMode('帮助与反馈')}><Icon>?</Icon><span className="side-link-label">帮助与反馈</span></button><div className={`engine-status ${backend.status}`} title={`${API_BASE} · ${backend.error || '服务正常'}`}><span className="status-dot" /><div><b>{backend.status === 'checking' ? '连接 FastAPI…' : backend.productionReady ? 'CadQuery / OCCT' : backend.status === 'degraded' ? '降级几何内核' : '浏览器预览'}</b><small>{backend.status === 'connected' ? 'B-Rep 与 STEP 可用' : backend.status === 'degraded' ? '仅审计预览，不可生产' : backend.status === 'offline' ? 'API 离线 · 不可导出 STEP' : API_BASE}</small></div></div></div>
-        </aside>
 
-        <main className="main-area">
-          <div className="breadcrumb"><span>{selectedProject}</span><Icon>›</Icon><b>{activeMode === '首页' ? '项目概览' : activeMode}</b>{activeFile && <span> · {activeFile.name}</span>}<span className="save-status"><span className="status-dot" /> {storageError ? '草稿尚未保存' : '本地自动保存'}</span></div>
+
+          {activeMode === '服务与积分规则' && <CommercialTermsWorkspace account={account} onLogin={() => setActiveMode('账号')} />}
+          {activeMode === '支持与工单' && <SupportWorkspace account={account} onLogin={() => setActiveMode('账号')} />}
+          {(activeMode === '账号' || (!platform.token && ['平台服务', 'CAM / NC'].includes(activeMode))) && <AccountWorkspace account={account} onOpenProjects={() => setActiveMode('项目管理')} />}
           {storageError && <div className="storage-warning" role="alert">{storageError}<button onClick={exportBackup}>导出备份</button></div>}
-          {normalizeCadWorkspaceMode(activeMode) === '3D 建模' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <ModelWorkspace key={activeFile.id} {...{ activePanel, setActivePanel, model, hasModel, modelValid, updateModel, resetModel, createBasicShaft, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, isAccepting, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, remodelLegacyDrawing, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData, parameterValidation, checkResult, isChecking, runModelChecks, retryAi, saveCurrentVersion: () => saveVersionForFile(activeFile.id) }} />}
-          {activeMode === '2D 工程图' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && (hasModel ? isFeatureModel(model) ? <CadAgentDrawing model={model} generation={generation} busy={isGenerating || isAccepting || drawingJob?.cadTask?.status === 'running'} onBack={() => setActiveMode('3D 建模')} onExport={exportFile} /> : <DrawingWorkspace key={activeFile.id} model={model} generation={generation} drawingJob={drawingJob} drawingScale={drawingScale} setDrawingScale={setDrawingScale} drawingPreferences={drawingPreferences} setDrawingPreferences={setDrawingPreferences} onExport={exportFile} onSaveVersion={() => saveVersionForFile(activeFile.id)} onEditParameters={() => { setActiveMode('3D 建模'); setActivePanel('参数') }} showToast={showToast} /> : <section className="secondary-workspace"><h1>还没有可生成工程图的模型</h1><p>先创建零件，工程图将随模型尺寸生成。</p><button className="primary-button" onClick={() => setActiveMode('3D 建模')}>开始建模</button></section>)}
-          {activeMode === '装配' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <AssemblyWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onBackToModel={() => setActiveMode('3D 建模')} onOpenLibrary={() => setActiveMode('标准件库')} showToast={showToast} />}
-          {activeMode === '标准件库' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <LibraryWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onOpenAssembly={() => setActiveMode('装配')} onBackToModel={() => setActiveMode('3D 建模')} showToast={showToast} />}
-          {['3D 建模', '2D 工程图', '装配', '标准件库'].includes(activeMode) && (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) && <section className="secondary-workspace"><h1>先打开一个设计文件</h1><p>当前内容是文档或尚未创建模型。可在项目中打开零件、工程图或装配文件。</p><button className="primary-button" onClick={() => setActiveMode('项目管理')}>打开项目文件</button><button className="secondary-button" onClick={() => createFile({ name: '新零件', type: '零件', source: 'blank' })}>新建零件</button></section>}
-          {activeMode === '项目管理' && <ProjectFilesWorkspace store={workspaceStore} storageError={storageError} onSelectProject={selectLocalProject} onCreateProject={createProject} onRenameProject={renameLocalProject} onCreateFile={createFile} onRenameFile={renameLocalFile} onOpenFile={openProjectFile} onDownloadFile={downloadProjectFile} onSaveVersion={saveVersionForFile} onRestoreVersion={restoreVersion} onUpdateDocument={updateDocument} />}
-          {activeMode === '设置' && <SettingsWorkspace settings={settings} onChange={setSettings} onExportBackup={exportBackup} />}
+          {normalizeCadWorkspaceMode(activeMode) === '3D 建模' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && (!manualFeatureReference || showOriginalModel) && <ModelWorkspace key={activeFile.id} modelEditing={modelEditing} onEditModel={() => openModelEditor()} manualFeatureReference={manualFeatureReference} onShowManual={() => setShowOriginalModel(false)} inspectorRequest={inspectorRequest} onInspectorHandled={() => setInspectorRequest(false)} chatRequest={chatRequest} onChatHandled={() => setChatRequest(false)} {...{ activePanel, setActivePanel, model, hasModel, modelValid, updateModel, resetModel, createBasicShaft, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, isAccepting, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, remodelLegacyDrawing, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData, parameterValidation, checkResult, isChecking, runModelChecks, retryAi, saveCurrentVersion: () => saveVersionForFile(activeFile.id) }} />}
+          {normalizeCadWorkspaceMode(activeMode) === '3D 建模' && manualFeatureReference && !showOriginalModel && <ManualFeatureResult reference={manualFeatureReference} accountKey={accountKey} token={platform.token} active={!suspended} onEdit={openModelEditor} onShowOriginal={() => setShowOriginalModel(true)} showToast={showToast} />}
+          {activeMode === '图纸核对' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <DrawingReviewWorkspace key={activeFile.id} model={model} drawingJob={drawingJob} token={platform?.token} legacyLabels={parameterLabelsForKind(model.kind)} legacyKeys={parameterKeysForKind(model.kind)} onBack={() => { setInspectorRequest(true); setActiveMode('3D 建模'); setActivePanel('参数') }} />}
+          {activeMode === '基础工程图' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && (hasModel ? isFeatureModel(model) ? <CadAgentDrawing key={activeFile.id} token={platform.token} model={model} generation={generation} busy={isGenerating || isAccepting || Boolean(drawingJob?.cadTask)} onBack={() => setActiveMode('3D 建模')} onExport={exportFile} /> : <DrawingWorkspace key={activeFile.id} model={model} generation={generation} drawingJob={drawingJob} drawingScale={drawingScale} setDrawingScale={setDrawingScale} drawingPreferences={drawingPreferences} setDrawingPreferences={setDrawingPreferences} onExport={exportFile} onSaveVersion={() => saveVersionForFile(activeFile.id)} onEditParameters={() => { setInspectorRequest(true); setActiveMode('3D 建模'); setActivePanel('参数') }} showToast={showToast} /> : <section className="secondary-workspace"><h1>还没有可生成工程图的模型</h1><p>先创建零件，工程图将随模型尺寸生成。</p><button className="primary-button" onClick={() => setActiveMode('3D 建模')}>开始建模</button></section>)}
+          {activeMode === '装配草稿' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <AssemblyWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onBackToModel={() => setActiveMode('3D 建模')} onOpenLibrary={() => setActiveMode('标准件库')} showToast={showToast} />}
+          {activeMode === '标准件库' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <LibraryWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onOpenAssembly={() => setActiveMode(standardLibraryAssemblyMode)} onBackToModel={() => setActiveMode('3D 建模')} showToast={showToast} />}
+          {['3D 建模', '图纸核对', '基础工程图', '装配草稿', '标准件库'].includes(activeMode) && (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) && <section className="secondary-workspace"><h1>先打开一个设计文件</h1><p>当前内容是文档或尚未创建模型。可在项目中打开零件、工程图或装配文件。</p><button className="primary-button" onClick={() => setActiveMode('项目管理')}>打开项目文件</button><button className="secondary-button" onClick={() => createFile({ name: '新零件', type: '零件', source: 'blank' })}>新建零件</button></section>}
+          <RetainedWorkspace key={`feature:${accountKey}`} active={!suspended && activeMode === '特征编辑'}><DirectFeatureWorkspace accountKey={accountKey} active={!suspended && activeMode === '特征编辑'} token={platform.token} model={editingTarget?.model || model} generation={editingTarget?.generation || generation} initialPlan={editingTarget?.initialPlan || activeCase?.plan} initialDraft={editingTarget?.initialDraft} initialPlanKey={editingTarget?.initialPlanKey || activeCase?.id} initialReference={editingTarget?.reference} sourceFileId={editingTarget?.fileId} sourceProjectId={editingTarget?.projectId} documents={cadDocuments} onOpenDocument={openCadDocument} sourceLabel={editingTarget ? `${editingTarget.name} · 编辑模型` : undefined} onBack={returnFromModelEditor} onNavigate={setActiveMode} accountName={platform.user?.displayName || platform.user?.name} creditBalance={creditBalance} onNewDocument={createCadDocument} onOpenPdm={openPdmVersion} onOpenCommunity={openCommunityResource} onSaved={value => saveEditedModel(value, editingTarget)} showToast={showToast} onCreate={() => showToast(editingTarget ? '修改后的实体已保存到来源文件' : '模型已生成并保存')} /></RetainedWorkspace>
+          <RetainedWorkspace key={`photo:${accountKey}`} active={!suspended && activeMode === '照片建模'}><PhotoModelingWorkspace busy={isGenerating || isAccepting} onPrepare={(files,text) => { attachDrawingToConversation(files); setPrompt(text) }} /></RetainedWorkspace>
+          {activeMode === '案例与教程' && <MechanicalCaseGallery onNavigate={setActiveMode} onOpenCase={item=>{setEditingTarget(null);setActiveCase(item);setActiveMode('特征编辑')}} />}
+          <RetainedWorkspace key={`engineering:${accountKey}`} active={!suspended && Boolean(engineeringTabs[activeMode])}><EngineeringWorkspace accountKey={accountKey} active={!suspended && Boolean(engineeringTabs[activeMode])} initialTab={engineeringTab} token={platform.token} model={model} generation={generation} fileId={activeFile?.id} showToast={showToast} /></RetainedWorkspace>
+          <RetainedWorkspace key={`native:${accountKey}`} active={!suspended && activeMode === '原生二维'}><NativeDrawingWorkspace accountKey={accountKey} active={!suspended && activeMode === '原生二维'} token={platform.token} showToast={showToast} /></RetainedWorkspace>
+          <RetainedWorkspace key={`delivery:${accountKey}`} active={!suspended && activeMode === '交付中心'}><DeliveryWorkspace accountKey={accountKey} active={!suspended && activeMode === '交付中心'} token={platform.token} showToast={showToast} /></RetainedWorkspace>
+          {activeMode === '项目管理' && <ProjectFilesWorkspace store={workspaceStore} storageError={storageError} onSelectProject={selectLocalProject} onCreateProject={createProject} onRenameProject={renameLocalProject} onCreateFile={createFile} onRenameFile={renameLocalFile} onOpenFile={openProjectFile} onDownloadFile={downloadProjectFile} onSaveVersion={saveVersionForFile} onRestoreVersion={restoreVersion} onUpdateDocument={updateDocument} onDuplicateFile={duplicateLocalFile} onDeleteFile={deleteLocalFile} onDeleteProject={deleteLocalProject} onRestoreTrash={restoreLocalTrash} onExportBackup={exportBackup} onImportBackup={importBackup} />}
+          {activeMode === '设置' && <SettingsWorkspace settings={settings} onChange={setSettings} onExportBackup={exportBackup} backupImport={<BackupImportButton onImport={importBackup} className="secondary-button" />} />}
           {activeMode === '帮助与反馈' && <HelpWorkspace onNavigate={setActiveMode} onDiagnostics={exportDiagnostics} />}
-          {(activeMode === '平台服务' || activeMode === 'CAM / NC') && <PlatformWorkspace onRefreshServices={refreshServices} mode={activeMode} backend={backend} platform={platform} platformLogin={platformLogin} platformLogout={platformLogout} refreshPlatformUsers={refreshPlatformUsers} createPlatformUser={createPlatformUser} createPlatformProject={createPlatformProject} shareProjectTeam={shareProjectTeam} syncDrawingToPdm={syncDrawingToPdm} createCamPlan={createCamPlan} simulateCamPlan={simulateCamPlan} approveCamPlan={approveCamPlan} releaseCamPlan={releaseCamPlan} downloadNcProgram={downloadNcProgram} generation={generation} showToast={showToast} />}
-          {activeMode === '首页' && <HomeWorkspace projects={projects} onSelectProject={selectLocalProject} onStartText={startTextDesign} createProject={createProject} setActiveMode={setActiveMode} showToast={showToast} attachDrawingToConversation={attachDrawingToConversation} />}
-        </main>
-      </div>
+          {platform.token && (activeMode === '平台服务' || activeMode === 'CAM / NC') && <PlatformWorkspace model={model} onRefreshServices={refreshServices} mode={activeMode} backend={backend} platform={platform} platformLogin={platformLogin} platformLogout={platformLogout} refreshPlatformUsers={refreshPlatformUsers} createPlatformUser={createPlatformUser} createPlatformProject={createPlatformProject} shareProjectTeam={shareProjectTeam} syncDrawingToPdm={syncDrawingToPdm} createCamPlan={createCamPlan} simulateCamPlan={simulateCamPlan} approveCamPlan={approveCamPlan} releaseCamPlan={releaseCamPlan} downloadNcProgram={downloadNcProgram} generation={generation} showToast={showToast} />}
+          {activeMode === '首页' && <HomeWorkspace description={homePrompt} setDescription={setHomePrompt} projects={projects} onSelectProject={selectLocalProject} onStartText={startTextDesign} createProject={createProject} setActiveMode={setActiveMode} showToast={showToast} attachDrawingToConversation={attachDrawingToConversation} />}
+      </main>
       {dialog === 'project' && <NewProjectDialog suggestedName={`新建项目 ${projects.length + 1}`} onSubmit={createProject} onClose={() => setDialog('')} />}
-      {dialog === 'commands' && <CommandDialog onClose={() => setDialog('')} commands={[...['首页', '3D 建模', '2D 工程图', '装配', '标准件库', '项目管理', '平台服务', 'CAM / NC', '设置', '帮助与反馈'].map((mode) => ({ label: `打开${mode}`, action: () => setActiveMode(mode) })), { label: '新建项目', action: () => setDialog('project'), shortcut: '⌘ / Ctrl + N' }, { label: '保存当前文件版本', action: () => saveVersionForFile(activeFile?.id), shortcut: '⌘ / Ctrl + S' }, { label: '最近打开', action: () => setDialog('recent') }]} />}
+      {dialog === 'commands' && <CommandDialog onClose={() => setDialog('')} commands={[...['首页', '3D 建模', '图纸核对', '原生二维', '工程设计', '特征编辑', '照片建模', '案例与教程', '交付中心', '2D 工程图', '装配', '基础工程图', '装配草稿', '标准件库', '项目管理', '我的任务', '账号', '积分与订单', '平台服务', 'CAM / NC', '设置', '帮助与反馈'].map((mode) => ({ label: `打开${mode}`, action: () => setActiveMode(mode) })), { label: '新建项目', action: () => setDialog('project'), shortcut: '⌘ / Ctrl + N' }, ...(context === 'project' ? [{ label: '保存当前文件版本', action: () => saveVersionForFile(activeFile?.id), shortcut: '⌘ / Ctrl + S' }] : []), { label: '最近打开', action: () => setDialog('recent') }]} />}
       {dialog === 'recent' && <WorkspaceDialog title="最近打开的文件" onClose={() => setDialog('')}><div className="command-list">{recentFiles.map((file) => <button key={file.id} onClick={() => { openProjectFile(file); setDialog('') }}><span>{file.name}<small>{file.projectName} · {file.type}</small></span><small>{new Date(file.lastOpenedAt || file.updatedAt).toLocaleString('zh-CN')}</small></button>)}</div></WorkspaceDialog>}
       {toast && <div className={`toast ${toast.type}`} role={toast.type === 'error' ? 'alert' : 'status'}><span className="toast-icon">{toast.type === 'error' ? '!' : toast.type === 'info' ? 'i' : '✓'}</span><span>{toast.message}</span><button className="toast-dismiss" aria-label="关闭提示" onClick={() => setToast(null)}>×</button></div>}
     </div>
@@ -3162,6 +3595,7 @@ function workflowSnapshot({ drawingJob, generation, chatAttachments, isGeneratin
   if (isLegacyDrawingDraft(model, drawingJob)) return { current: 'recognize', label: '旧版图纸草稿，待按原图重建' }
   if (reviewRequired) return { current: 'review', label: '确认候选数据' }
   if (pendingConfirmedDrawing) return { current: 'generate', label: '数据已确认，准备生成' }
+  if (model?.kind && !modelValid) return { current: 'review', label: '参数需要修正，请检查右侧提示' }
   if (generated && generation?.stale) return { current: 'edit', label: '参数已修改，等待重建' }
   if (generated) return { current: 'edit', label: '实体已生成，可继续修改' }
   if (evidence) return { current: 'generate', label: '数据已确认，准备生成' }
@@ -3198,11 +3632,11 @@ function ChatMessageList({ messages, onOpenCandidate }) {
             {message.attachments?.length > 0 && <div className="message-attachments">{message.attachments.map((name, attachmentIndex) => <span className="message-attachment" key={`${name}-${attachmentIndex}`}><span>{name}</span></span>)}</div>}
           </div>
           {message.statusText && <span className="message-status">{message.statusText}</span>}
-          {candidate.length > 0 && message.status === 'complete' && <div className="chat-candidate-card">
-            <div><b>CAD 修改建议</b><span>{candidate.length} 项参数</span></div>
-            {candidate.slice(0, 4).map((item) => <span key={item.field}><b>{item.label}</b><em>{item.from ?? '—'} → {item.to}</em></span>)}
-            <button type="button" onClick={onOpenCandidate}>查看参数与确认状态</button>
-          </div>}
+          {candidate.length > 0 && message.status === 'complete' && <details className="chat-candidate-card">
+            <summary>本条修改建议 · {candidate.length} 项参数</summary>
+            {candidate.map((item) => <span key={item.field}><b>{item.label}</b><em>{item.from ?? '—'} → {item.to}</em></span>)}
+            <button type="button" onClick={onOpenCandidate}>查看当前参数与确认状态</button>
+          </details>}
         </div>
       </div>
     })}
@@ -3215,19 +3649,79 @@ function ModelWorkspace(props) {
   const drawingInputRef = useRef(null)
   const legacyDrawingInputRef = useRef(null)
   const [viewResetNonce, setViewResetNonce] = useState(0)
+  const [cameraViewNonce, setCameraViewNonce] = useState(0)
+  const [previewExpanded, setPreviewExpanded] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [mobilePane, setMobilePane] = useState('chat')
+  const inspectorRef = useRef(null)
+  const previewToggleRef = useRef(null)
+  const previewScrollRef = useRef({ top: 0, left: 0 })
+  const togglePreview = () => {
+    if (!previewExpanded) previewScrollRef.current = { top: window.scrollY, left: window.scrollX }
+    setPreviewExpanded((value) => !value)
+  }
+  const showInspector = (tab = activePanel) => {
+    setActivePanel(tab)
+    setInspectorOpen(true)
+    setMobilePane('inspector')
+    requestAnimationFrame(() => {
+      inspectorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' })
+      inspectorRef.current?.focus({ preventScroll: true })
+    })
+  }
+  const showChat = (text) => {
+    if (typeof text === 'string') setPrompt(text)
+    setMobilePane('chat')
+    requestAnimationFrame(() => document.querySelector('[aria-label="给 AI 发送消息"]')?.focus())
+  }
+  useEffect(() => {
+    if (!props.inspectorRequest) return
+    showInspector('参数')
+    props.onInspectorHandled?.()
+  }, [props.inspectorRequest])
+  useEffect(() => {
+    if (!props.chatRequest) return
+    showChat()
+    props.onChatHandled?.()
+  }, [props.chatRequest])
+  useEffect(() => {
+    if (!previewExpanded) return
+    const scrollPosition = previewScrollRef.current
+    const onEscape = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); setPreviewExpanded(false) }
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+    previewToggleRef.current?.focus({ preventScroll: true })
+    document.addEventListener('keydown', onEscape)
+    return () => {
+      document.removeEventListener('keydown', onEscape)
+      window.scrollTo({ ...scrollPosition, behavior: 'instant' })
+      previewToggleRef.current?.focus({ preventScroll: true })
+    }
+  }, [previewExpanded])
+  const exportMenuRef = useRef(null)
   const [exportOpen, setExportOpen] = useState(false)
-  const pendingCadTask = drawingJob?.cadTask?.status === 'running'
+  useEffect(() => {
+    if (!exportOpen) return
+    const closeOutside = (event) => { if (!exportMenuRef.current?.contains(event.target)) setExportOpen(false) }
+    const closeKey = (event) => { if (event.key === 'Escape') { setExportOpen(false); exportMenuRef.current?.querySelector('summary')?.focus() } }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeKey)
+    return () => { document.removeEventListener('pointerdown', closeOutside); document.removeEventListener('keydown', closeKey) }
+  }, [exportOpen])
+  const pendingCadTask = ['submitted', 'queued', 'running', 'cancel_requested'].includes(drawingJob?.cadTask?.status)
   const interactionBusy = isGenerating || isAccepting || pendingCadTask
   const productionReady = !pendingCadTask && productionArtifactsAvailable(generation) && (!isFeatureModel(model) || cadGenerationIsCurrent(model, generation))
   const modelKind = canonicalPartKind(model.kind)
   const modelDefinition = partDefinition(modelKind)
   const featureModel = isFeatureModel(model)
+  const reviewIncompleteDraft = featureModel && generation?.reviewIncomplete && cadGenerationIsCurrent(model, generation)
   const agentStatus = model.agentRun?.status
   const topology = modelValid && !generation?.stale ? generation?.validation?.metrics || {} : {}
   const aiStatus = workspaceAiProvider(model, chatAttachments, aiConversation)
   const usesCadProvider = shouldUseCadAgent(model, chatAttachments)
   const providerError = !aiConversation?.providerRoute || aiConversation.providerRoute === (usesCadProvider ? 'cad' : 'legacy') ? aiConversation?.error : ''
-  const providerDisplay = aiProviderPresentation(aiStatus, { error: providerError, failureCode: usesCadProvider ? '' : drawingJob?.analysis?.failureCode, attempts: usesCadProvider ? 0 : drawingJob?.analysis?.attempts })
+  const providerDisplay = aiProviderPresentation(aiStatus, { error: providerError, route: usesCadProvider ? 'cad' : 'legacy', failureCode: usesCadProvider ? '' : drawingJob?.analysis?.failureCode, attempts: usesCadProvider ? 0 : drawingJob?.analysis?.attempts })
   const { ready: providerReady, degraded: providerDegraded, isCodex: providerIsCodex, failed: providerFailed, label: providerLabel, failureCode: providerFailureCode, attempts: providerFailureAttempts, failureText: providerFailureText } = providerDisplay
   const evidence = drawingJob?.evidence
   const legacyDrawing = isLegacyDrawingDraft(model, drawingJob)
@@ -3242,8 +3736,10 @@ function ModelWorkspace(props) {
   const workflow = pendingCadTask && !isGenerating ? { current: cadProgressFromEvent(drawingJob.cadTask.progress).phase, label: '运行记录已保存 · 可检查后台结果' }
     : agentWorkflow ? cadWorkflowSnapshot({ model, progress: aiConversation?.cadProgress, busy: isGenerating, error: aiConversation?.error || generation?.lastTurnError }) : workflowSnapshot({ drawingJob, generation, chatAttachments, isGenerating, model, modelValid })
   // Generic CAD builds a real candidate before the user confirms delivery.
-  const displayedWorkflowSteps = agentWorkflow ? [workflowSteps[0], workflowSteps[1], workflowSteps[3], workflowSteps[2], ...workflowSteps.slice(4)] : workflowSteps
   const hasSource = Boolean(drawingJob?.file || drawingJob?.fileMeta?.name || chatAttachments.length)
+  const displayedWorkflowSteps = agentWorkflow ? [workflowSteps[0], workflowSteps[1], workflowSteps[3], workflowSteps[2], ...workflowSteps.slice(4)]
+    : hasModel && !hasSource && !evidence ? [{ ...workflowSteps[0], label: '创建草稿' }, { ...workflowSteps[2], label: '设置尺寸' }, ...workflowSteps.slice(3)] : workflowSteps
+  const hasReviewSource = Boolean(drawingJob?.file || drawingJob?.fileMeta?.name || model.agentRun?.sourceFiles?.length || model.agentRun?.sourceDocuments?.length)
   const canBuildParameterDraft = hasModel && modelValid && !evidence && !generation && !chatAttachments.length && drawingJob?.status === 'idle' && !drawingJob.requiresFileReselection && !drawingJob.interrupted
   const migrateLegacyDrawing = () => {
     if (interactionBusy) return
@@ -3252,7 +3748,7 @@ function ModelWorkspace(props) {
     showToast('旧项目仅保存了文件信息，请重新选择原图；选择后将重新建模并保留旧版本。', 'info')
     legacyDrawingInputRef.current?.click()
   }
-  const primaryLabel = chatAttachments.length ? '开始 AI 分析' : featureModel ? cadPrimaryAction(model).kind === 'ready' ? generation?.artifactStatus === 'unavailable' ? '重建实体' : '导出交付' : cadPrimaryAction(model).label : legacyDrawing && !chatAttachments.length ? '按原图重新建模' : drawingJob?.requiresFileReselection ? '重新选择原图' : remoteAnalysisFailed
+  const primaryLabel = chatAttachments.length ? '开始 AI 分析' : hasModel && !modelValid && !featureModel ? '修正参数' : featureModel ? cadPrimaryAction(model).kind === 'ready' ? generation?.artifactStatus === 'unavailable' ? '重建实体' : '导出交付' : cadPrimaryAction(model).label : legacyDrawing && !chatAttachments.length ? '按原图重新建模' : drawingJob?.requiresFileReselection ? '重新选择原图' : remoteAnalysisFailed
     ? chatAttachments.length ? '重新尝试 AI 分析' : '重新选择原图'
     : canBuildParameterDraft ? '生成 3D'
     : !hasSource && !generation
@@ -3271,9 +3767,11 @@ function ModelWorkspace(props) {
   const primaryAction = () => {
     if (chatAttachments.length) return runGenerate()
     if (featureModel && !chatAttachments.length) {
+      if (cadPrimaryAction(model).kind === 'answer') { showChat(); showToast(cadPrimaryAction(model).hint || '请补充设计信息'); return }
       if (agentStatus === 'ready' && productionReady) return exportFile('step')
       return acceptDrawingData()
     }
+    if (hasModel && !modelValid) { showInspector('参数'); return }
     if (canBuildParameterDraft) return rebuildCurrentModel?.()
     if (legacyDrawing && !chatAttachments.length) return migrateLegacyDrawing()
     if (drawingJob?.requiresFileReselection) return drawingInputRef.current?.click()
@@ -3283,7 +3781,7 @@ function ModelWorkspace(props) {
       // Confirmation is the next customer action, not a terminal reviewer
       // screen. Keep the editable parameter panel available and invoke the
       // same explicit acceptance handler used by the evidence card.
-      setActivePanel('参数')
+      showInspector('参数')
       if (acceptDrawingData) return acceptDrawingData()
       window.requestAnimationFrame(() => {
         const reviewCard = document.querySelector('[data-testid="workbench-review"]')
@@ -3355,12 +3853,22 @@ function ModelWorkspace(props) {
     ['鞍槽 / 浅槽', `R${compare(sourceParameters.notchRadius, model.notchRadius)} · ${compare(sourceParameters.slotWidth, model.slotWidth)} × ${compare(sourceParameters.slotLength, model.slotLength)} × ${compare(sourceParameters.pocketDepth, model.pocketDepth)}`],
     ['贯穿孔', `2 × Ø${compare(sourceParameters.bossDiameter, model.bossDiameter)} · 中心距 ${compare(sourceParameters.bossCenterDistance, model.bossCenterDistance)} mm`],
   ]
-  return <div className="model-workspace">
+  return <div className={`model-workspace studio-model ${!hasModel ? 'is-empty' : ''} ${inspectorOpen ? 'inspector-open' : ''} ${previewExpanded ? 'is-preview-expanded' : ''}`} data-mobile-pane={mobilePane}>
     <div className="workbench-header">
-      <div className="workbench-title"><span className="eyebrow">DESIGN WORKBENCH</span><h1>3D 设计工作台</h1><p>{model.name} · 从一张图纸到可编辑实体，所有步骤在同一页完成</p></div>
-      <div className="workbench-header-actions"><button className="secondary-button" onClick={saveCurrentVersion}>保存版本</button><button className="secondary-button" onClick={() => exportFile('json')}>导出草稿</button><span className={`workbench-status ${productionReady ? 'ready' : reviewRequired ? 'review' : ''}`}><i />{isAccepting ? '正在确认数据' : workflow.label}</span><button type="button" className={`secondary-button header-text-action ${productionReady ? 'header-upload-action' : ''}`} disabled={interactionBusy} onClick={() => { if (productionReady) { setChatAttachments?.([]); drawingInputRef.current?.click(); showToast('新图发送前会自动保存当前版本，可在项目历史版本中恢复') } else { setPrompt((current) => current || '创建一个可编辑的参数化零件'); showToast('已切换到文字设计') } }}>{productionReady ? '上传新图纸' : '从文字开始'}</button>{showExportAction ? <details className="export-menu" open={exportOpen} onToggle={(event) => setExportOpen(event.currentTarget.open)}><summary className="primary-button" aria-label="导出交付">导出交付 <Icon>⌄</Icon></summary><div className="export-menu-popover"><b>选择交付格式</b><button onClick={() => exportFile('step')}>STEP · 生产实体</button><button onClick={() => exportFile('glb')}>GLB · 三维预览</button>{!featureModel && <button onClick={() => exportFile('dxf')}>DXF · 工程图</button>}<button onClick={() => exportFile('json')}>JSON · 参数与审计</button></div></details> : <button type="button" data-testid="workbench-primary-action" className="primary-button workbench-primary" disabled={interactionBusy} onClick={primaryAction}>{isGenerating || isAccepting ? '处理中…' : primaryLabel} <Icon>{primaryLabel === '上传图纸' ? '＋' : '↗'}</Icon></button>}</div>
+      <div className="workbench-title"><h1>{model.name || '新建零件'}</h1><span className={`workbench-status ${productionReady ? 'ready' : reviewRequired ? 'review' : ''}`}><i />{isAccepting ? '正在确认数据' : workflow.label}</span></div>
+      <div className="workbench-header-actions">
+        {props.manualFeatureReference && <button type="button" onClick={props.onShowManual}>查看手工修改版</button>}
+        {hasModel && <button type="button" className="secondary-button" disabled={interactionBusy} title={props.modelEditing?.reason} onClick={() => props.modelEditing?.editable ? props.onEditModel?.() : showInspector('参数')}>{props.modelEditing?.editable ? '编辑模型' : '编辑参数'}</button>}
+        <details className="workbench-more"><summary aria-label="更多文件操作">更多 ···</summary><div onClick={event => { if (event.target.closest('button')) event.currentTarget.closest('details').open = false }}>
+          <button type="button" onClick={saveCurrentVersion}>保存版本</button><button type="button" onClick={() => exportFile('json')}>导出草稿</button>
+          {hasReviewSource && <button type="button" onClick={() => setActiveMode('图纸核对')}>图纸核对</button>}
+          <button type="button" disabled={interactionBusy} onClick={() => drawingInputRef.current?.click()}>添加新图纸</button>
+          {!hasModel && <button type="button" disabled={interactionBusy} onClick={createBasicShaft}>创建基础轴</button>}
+        </div></details>
+        {(hasModel || hasSource) && (showExportAction ? <details ref={exportMenuRef} className="export-menu" open={exportOpen} onToggle={event => setExportOpen(event.currentTarget.open)}><summary className="primary-button" aria-label="导出交付">导出交付 <Icon>⌄</Icon></summary><div className="export-menu-popover" onClick={event => { if (event.target.closest('button')) setExportOpen(false) }}><b>选择交付格式</b><button onClick={() => exportFile('step')}>STEP · 实体模型</button><button onClick={() => exportFile('glb')}>GLB · 三维预览</button>{featureModel && <button onClick={() => exportFile('report')}>HTML · 核对报告</button>}{!featureModel && <button onClick={() => exportFile('dxf')}>DXF · 工程图</button>}<button onClick={() => exportFile('json')}>JSON · 建模参数</button></div></details> : <button type="button" data-testid="workbench-primary-action" className="primary-button workbench-primary" disabled={interactionBusy} onClick={primaryAction}>{isGenerating || isAccepting ? '处理中…' : primaryLabel} <Icon>↗</Icon></button>)}
+      </div>
     </div>
-    <nav className="workflow-rail" aria-label="建模流程">{displayedWorkflowSteps.map((step, index) => <div key={step.id} className={`workflow-step ${statusForStep(step.id)}`}><span className="workflow-step-index">{statusForStep(step.id) === 'done' ? '✓' : index + 1}</span><span><b>{step.label}</b><small>{step.id === workflow.current ? '当前' : statusForStep(step.id) === 'done' ? '已完成' : '待处理'}</small></span>{index < displayedWorkflowSteps.length - 1 && <i className="workflow-connector" />}</div>)}</nav>
+    <details className="workbench-progress"><summary>查看建模流程</summary><nav className="workflow-rail" aria-label="建模流程">{displayedWorkflowSteps.map((step, index) => <div key={step.id} className={`workflow-step ${statusForStep(step.id)}`}><span className="workflow-step-index">{statusForStep(step.id) === 'done' ? '✓' : index + 1}</span><span><b>{step.label}</b></span>{index < displayedWorkflowSteps.length - 1 && <i className="workflow-connector" />}</div>)}</nav></details>
     {remoteAnalysisFailed && <section className="review-banner needs-review" data-testid="workbench-ai-failure">
       <div className="review-banner-icon">!</div>
       <div className="review-banner-copy">
@@ -3373,7 +3881,7 @@ function ModelWorkspace(props) {
       </div>
       <button type="button" className="primary-button" disabled={interactionBusy} onClick={() => { if (chatAttachments.length) runGenerate(); else drawingInputRef.current?.click() }}>{chatAttachments.length ? '重新尝试 AI 分析' : '重新选择原图'}</button>
     </section>}
-    {featureModel && <CadAgentSummary model={model} busy={interactionBusy} onConfirm={acceptDrawingData} onAnswer={() => document.querySelector('[aria-label="给 AI 发送消息"]')?.focus()} />}
+    {featureModel && <CadAgentSummary compact showAction={false} model={model} busy={interactionBusy} onConfirm={acceptDrawingData} onAnswer={() => showChat()} />}
     {!featureModel && evidence && <section className="review-banner needs-review" data-testid="workbench-review">
       <div className="review-banner-icon">!</div>
       <div className="review-banner-copy">
@@ -3399,52 +3907,56 @@ function ModelWorkspace(props) {
       <input ref={legacyDrawingInputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="重新选择原图并重新建模" disabled={interactionBusy} onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; if (files.length) remodelLegacyDrawing?.(files) }} />
     </section>}
 
-    <section className="ai-column panel-card">
-      <div className="panel-heading"><div><span className="eyebrow">AI COPILOT</span><h2>AI 设计助手</h2><p className="panel-subtitle">像聊天一样分析图纸、追问并修改模型</p></div><button type="button" className="chat-new-button" aria-label="开始新对话" title="保留当前模型并清空聊天上下文" disabled={interactionBusy} onClick={startNewConversation}>＋ 新对话</button></div>
-      <div className="ai-mode-pill"><span className="sparkle">✦</span><b>连续对话 · 参数化 CAD</b><span className="chat-memory-indicator">记忆当前会话</span></div>
-      <div className={`ai-provider-status ${providerReady ? 'ready' : providerFailed ? 'error' : ''}`} data-status={providerReady ? 'ready' : providerFailed ? 'error' : 'checking'}><span>{providerIsCodex ? 'Codex' : 'AI'}</span><b>{aiStatus?.model || '正在读取引擎配置'}{aiStatus?.reasoningEffort ? ` · reasoning ${aiStatus.reasoningEffort}` : ''}</b><small>{isGenerating ? (aiConversation?.statusMessage || 'AI 正在回复…') : providerLabel}</small></div>
+    <nav className="workbench-mobile-tabs" aria-label="设计视图">{[['chat','对话'],['preview','模型'],['inspector','参数与检查']].map(([pane,label]) => <button type="button" key={pane} aria-pressed={mobilePane === pane} onClick={() => { setMobilePane(pane); if (pane === 'inspector') setInspectorOpen(true) }}>{label}</button>)}</nav>
+    <div className="workbench-panels">
+    <section className="ai-column panel-card" aria-label="AI 设计对话">
+      <div className="panel-heading"><h2>AI 对话</h2><button type="button" className="chat-new-button" aria-label="开始新对话" title="保留当前模型并清空聊天上下文" disabled={interactionBusy} onClick={startNewConversation}>＋ 新对话</button></div>
+      {(!providerReady || isGenerating) && <div className={`ai-provider-status ${providerFailed ? 'error' : ''}`} role="status"><small>{isGenerating ? (aiConversation?.statusMessage || 'AI 正在处理…') : providerFailed ? '建模服务暂不可用，请稍后重试' : '正在连接建模服务…'}</small></div>}
+      {platform?.user?.roles?.includes('admin') && <details className="workbench-provider-details"><summary>引擎信息</summary><p>{aiStatus?.model || '正在读取配置'} · {providerLabel}</p></details>}
       {providerDisplay.configurationHint && (providerIsCodex || !platform?.token) && <div className="ai-auth-hint">{providerDisplay.configurationHint}</div>}
       {providerDegraded && <div className="chat-turn-notice">上一轮没有取得远程模型候选；你可以继续说明要求，或用已保留的原图重新发送。</div>}
-      {aiConversation?.error && <div className="ai-error-banner" role="alert"><p>{readableError(aiConversation.error)}</p>{!providerIsCodex && !platform?.token && /登录|认证|token/i.test(aiConversation.error) && <button className="secondary-button" onClick={() => setActiveMode('平台服务')}>前往登录</button>}<button className="secondary-button" disabled={isGenerating} onClick={retryAi}>重试上一条</button></div>}
-      {pendingCadTask && !isGenerating && <div className="chat-turn-notice" role="status">本轮运行记录已保存，检查结果会更新回当前项目。<button type="button" disabled={isAccepting} onClick={retryAi}>检查后台结果</button></div>}
+      {aiConversation?.error && <div className="ai-error-banner" role="alert"><p>{aiConversation.providerRoute === 'cad' ? aiConversation.error : readableError(aiConversation.error)}</p>{!providerIsCodex && !platform?.token && /登录|认证|token/i.test(aiConversation.error) && <button className="secondary-button" onClick={() => setActiveMode('平台服务')}>前往登录</button>}<button className="secondary-button" disabled={isGenerating} onClick={retryAi}>重试上一条</button></div>}
+      {pendingCadTask && !isGenerating && <div className="chat-turn-notice" role="status">本轮运行记录已保存，检查结果会更新回当前项目。<button type="button" disabled={isAccepting} onClick={retryAi}>检查后台结果</button><button type="button" disabled={isAccepting} onClick={stopAiConversation}>取消本次任务</button></div>}
       {drawingJob?.requiresFileReselection && !chatAttachments.length && <div className="chat-turn-notice">上次处理已中断，尺寸和对话已恢复；请重新选择原文件继续。<button onClick={() => drawingInputRef.current?.click()}>重新选择原图</button></div>}
-      {!hasSource && !generation && <div className="quick-start-card"><div className="quick-start-icon">▱</div><div><b>从一张图纸开始</b><span>支持图片、PDF、DWG、DXF；读取原图并生成实体，核对差异后再确认交付。</span></div><button type="button" className="primary-button" onClick={() => drawingInputRef.current?.click()}>上传图纸</button></div>}
-      <ChatMessageList messages={messages} onOpenCandidate={() => setActivePanel('参数')} />
+
+      <ChatMessageList messages={messages} onOpenCandidate={() => showInspector('参数')} />
       {chatAttachments.length > 0 && <div className="queued-drawing"><div><b>随下一条消息发送</b><span>可以先补充你希望 AI 重点检查的内容</span></div><div className="ai-attachment-list">{chatAttachments.map((file, fileIndex) => <div className="ai-attachment-chip" key={`${file.name}-${file.size}-${file.lastModified || 0}-${fileIndex}`} data-status="ready"><span className="attachment-type">{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</span><span className="attachment-name">{file.name}</span><button type="button" className="attachment-remove" aria-label={`移除 ${file.name}`} onClick={() => setChatAttachments?.((current) => current.filter((_, index) => index !== fileIndex))}>×</button></div>)}</div></div>}
-      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="给 AI 发消息，继续追问或修改尺寸…" aria-label="给 AI 发送消息" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!interactionBusy) runGenerate(); else showToast('当前操作尚未完成，请等待或检查后台结果') } }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" disabled={interactionBusy} onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="给本条消息添加图纸" title="添加图纸" disabled={interactionBusy} onClick={() => drawingInputRef.current?.click()}><Icon>📎</Icon><span>添加图纸</span></button><span>Enter 发送 · Shift+Enter 换行</span>{isGenerating ? <button type="button" className="run-button stop-button" aria-label="停止等待 AI 回复" title="停止等待后，后台建模会继续，可稍后检查结果" onClick={stopAiConversation}><Icon>■</Icon> 停止等待</button> : <button type="button" className="run-button" aria-label="发送给 AI" disabled={interactionBusy || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>发送 <Icon>↑</Icon></button>}</div></div>
+      <div className="prompt-box"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="给 AI 发消息，继续追问或修改尺寸…" aria-label="给 AI 发送消息" onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!interactionBusy) runGenerate(); else showToast('当前操作尚未完成，请等待或检查后台结果') } }} /><input ref={drawingInputRef} className="file-input" type="file" multiple accept="image/*,.pdf,.dxf,.dwg" aria-label="上传工程图到 AI 对话" disabled={interactionBusy} onChange={(e) => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; attachDrawingToConversation?.(files) }} /><div className="prompt-actions"><button type="button" className="attach attach-labeled" aria-label="给本条消息添加图纸" title="添加图纸" disabled={interactionBusy} onClick={() => drawingInputRef.current?.click()}><Icon>＋</Icon><span>添加图纸</span></button><span>Enter 发送 · Shift+Enter 换行</span>{isGenerating ? <button type="button" className="run-button stop-button" aria-label={drawingJob?.cadTask ? "取消建模任务" : "停止等待 AI 回复"} title={drawingJob?.cadTask ? "请求停止后台任务，保留已保存的图纸与草稿" : "停止等待本轮回复"} onClick={stopAiConversation}><Icon>■</Icon> {drawingJob?.cadTask ? "取消任务" : "停止等待"}</button> : <button type="button" className="run-button" aria-label="发送给 AI" disabled={interactionBusy || (!prompt.trim() && !chatAttachments.length)} onClick={runGenerate}>发送 <Icon>↑</Icon></button>}</div></div>
       <div className="suggestions"><span>快速开始：</span><button onClick={() => setPrompt('创建一个带法兰和 4 个安装孔的支架')}>带法兰的支架</button>{hasModel && <button onClick={() => setPrompt('将当前模型材质改为 AL6061 铝合金')}>更换材质</button>}</div>
     </section>
 
-    <section className="viewport-column">
-      <div className="viewport-toolbar"><div className="toolbar-group"><button disabled={!hasModel} className={view === 'isometric' ? 'selected' : ''} onClick={() => setView('isometric')}>等轴测</button><button disabled={!hasModel} className={view === 'front' ? 'selected' : ''} onClick={() => setView('front')}>前视</button><button disabled={!hasModel} className={view === 'top' ? 'selected' : ''} onClick={() => setView('top')}>俯视</button></div><div className="toolbar-group"><button disabled={!hasModel} onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button disabled={!hasModel} onClick={() => { setZoom(1); setView('isometric'); setViewResetNonce((value) => value + 1); showToast('视图已重置') }}>重置视图</button></div></div>
+    <section className="viewport-column" aria-label="3D 模型预览">
+      <div className="model-preview-heading"><h2>{previewExpanded ? `${model.name || '当前模型'} · 3D 预览` : '3D 模型'}</h2><div>{previewExpanded ? <span className="preview-escape-hint">Esc 返回</span> : <button type="button" className="secondary-button inspector-jump" aria-expanded={inspectorOpen} onClick={() => { if (inspectorOpen) setInspectorOpen(false); else showInspector() }}>参数与检查</button>}<button ref={previewToggleRef} type="button" className="secondary-button preview-expand-button" disabled={!hasModel || (!modelValid && !featureModel)} aria-pressed={previewExpanded} onClick={togglePreview}>{previewExpanded ? '收起预览' : '放大预览'}</button></div></div>
+      <div className="viewport-toolbar"><div className="toolbar-group"><button disabled={!hasModel} className={view === 'isometric' ? 'selected' : ''} onClick={() => { setView('isometric'); setCameraViewNonce((value) => value + 1) }}>等轴测</button><button disabled={!hasModel} className={view === 'front' ? 'selected' : ''} onClick={() => { setView('front'); setCameraViewNonce((value) => value + 1) }}>前视</button><button disabled={!hasModel} className={view === 'top' ? 'selected' : ''} onClick={() => { setView('top'); setCameraViewNonce((value) => value + 1) }}>俯视</button></div><div className="toolbar-group"><button disabled={!hasModel} onClick={() => setSection((value) => !value)} className={section ? 'selected' : ''}><Icon>◐</Icon> 剖切</button><button disabled={!hasModel} onClick={() => { setZoom(1); setView('isometric'); setViewResetNonce((value) => value + 1); showToast('视图已重置') }}>重置视图</button></div></div>
       <div className={`viewport ${!hasModel ? 'viewport-empty' : ''}`}>
         <div className="viewport-grid" />
         {!hasModel ? <div className="model-empty-state" data-testid="empty-model-preview" role="status">
           <span className="model-empty-symbol" aria-hidden="true">◇</span>
           <h2>{isGenerating ? '正在准备你的模型' : '当前文件还没有模型'}</h2>
           <p>{isGenerating ? 'AI 返回零件类型和尺寸后，预览会显示在这里。' : '描述想要的零件，或导入图纸开始建模。'}</p>
-          <div className="model-empty-actions"><button className="primary-button" disabled={interactionBusy} onClick={() => document.querySelector('[aria-label="给 AI 发送消息"]')?.focus()}>描述零件</button><button className="secondary-button" disabled={interactionBusy} onClick={() => drawingInputRef.current?.click()}>导入图纸</button></div>
-          {!hasSource && !evidence && <button className="model-empty-template" disabled={interactionBusy} onClick={createBasicShaft}>或创建基础轴，手动设置尺寸 →</button>}
+
         </div> : <>
           <div className="axis axis-x">X</div><div className="axis axis-y">Y</div><div className="axis axis-z">Z</div>
-          {modelValid || featureModel ? <ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} onProductionGlbLoadError={recoverExpiredProductionGlb} resetNonce={viewResetNonce} /> : <div className="invalid-preview" role="status"><b>参数需要修正，已暂停模型预览</b><ul>{parameterValidation.errors.map((error) => <li key={error.field + error.message}>{error.message}</li>)}</ul><button onClick={() => setActivePanel('参数')}>查看参数</button></div>}
-          <div className={`model-context-badge ${productionReady ? 'production' : reviewRequired ? 'review' : ''}`}><span className={`status-dot ${generation || reviewRequired ? 'ready' : ''}`} />{pendingCadTask ? (generation ? '上一版本实体 · 本轮仍在处理' : '本轮仍在处理 · 尚无完成实体') : featureModel && generation?.lastTurnError ? '上一版本实体 · 本轮修改未完成' : featureModel && !generation ? (agentStatus === 'needs_input' ? '等待补充信息 · 尚无实体' : agentStatus === 'failed' ? '本轮未完成 · 尚无实体' : '等待重新构建实体') : !modelValid ? '参数无效 · 预览暂停' : remoteAnalysisFailed ? '上一版本预览 · AI 未返回候选' : pendingDrawing ? '上一版本预览 · 新图纸处理中' : legacyDrawing ? '旧版图纸草稿 · 尚未重新识别' : reviewRequired ? (featureModel ? '实际 CAD 候选 · 待核对' : 'AI 候选 · 参数化 3D 草稿') : generation ? (generation.artifactStatus === 'recovering' ? '旧文件已失效 · 正在恢复生产实体' : productionReady ? '已生成实体 · OCCT 校验通过' : '已生成可交互 3D 预览') : '当前参数草稿 · 尚未生成生产实体'}</div>
-          <div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div><div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div><div className="zoom-control"><button aria-label="放大" onClick={() => setZoom((value) => Math.min(1.8, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button aria-label="缩小" onClick={() => setZoom((value) => Math.max(.55, value - .1))}>−</button></div>
+          {modelValid || featureModel ? <ThreeDViewer model={model} generation={generation} view={view} section={section} zoom={zoom} onZoomChange={setZoom} onProductionGlbLoadError={recoverExpiredProductionGlb} resetNonce={viewResetNonce} viewResetNonce={cameraViewNonce} /> : <div className="invalid-preview" role="status"><b>参数需要修正，已暂停模型预览</b><ul>{parameterValidation.errors.map((error) => <li key={error.field + error.message}>{error.message}</li>)}</ul><button onClick={() => showInspector('参数')}>查看参数</button></div>}
+          <div className={`model-context-badge ${productionReady ? 'production' : reviewRequired ? 'review' : ''}`}><span className={`status-dot ${generation || reviewRequired ? 'ready' : ''}`} />{pendingCadTask ? (generation ? '上一版本实体 · 本轮仍在处理' : '本轮仍在处理 · 尚无完成实体') : featureModel && generation?.lastTurnError ? '上一版本实体 · 本轮修改未完成' : reviewIncompleteDraft ? '实体草稿 · 图纸复核未完成' : featureModel && !generation ? (agentStatus === 'needs_input' ? '等待补充信息 · 尚无实体' : agentStatus === 'failed' ? '本轮未完成 · 尚无实体' : '等待重新构建实体') : !modelValid ? '参数无效 · 预览暂停' : remoteAnalysisFailed ? '上一版本预览 · AI 未返回候选' : pendingDrawing ? '上一版本预览 · 新图纸处理中' : legacyDrawing ? '旧版图纸草稿 · 尚未重新识别' : reviewRequired ? (featureModel ? '实际 CAD 候选 · 待核对' : 'AI 候选 · 参数化 3D 草稿') : generation ? (generation.artifactStatus === 'recovering' ? '旧文件已失效 · 正在恢复生产实体' : productionReady ? '已生成实体 · OCCT 校验通过' : '已生成可交互 3D 预览') : '当前参数草稿 · 尚未生成生产实体'}</div>
+          <div className="view-cube"><span>TOP</span><b>FRONT</b><span>RIGHT</span></div><div className="viewport-hint"><Icon>✥</Icon> 拖拽旋转 · 滚轮缩放</div><div className="zoom-control"><button aria-label="放大" disabled={zoom >= VIEWER_MAX_ZOOM} onClick={() => setZoom((value) => Math.min(VIEWER_MAX_ZOOM, value + .1))}>＋</button><span>{Math.round(zoom * 100)}%</span><button aria-label="缩小" disabled={zoom <= VIEWER_MIN_ZOOM} onClick={() => setZoom((value) => Math.max(VIEWER_MIN_ZOOM, value - .1))}>−</button></div>
         </>}
       </div>
-      <div className="viewport-footer">{hasModel ? <><span><i className="live-dot" /> {legacyDrawing ? '旧版图纸草稿已恢复' : featureModel && generation?.lastTurnError ? '保留上次完成的版本' : featureModel && !generation ? (model.cadPlan ? '尺寸与建模计划已保存' : '原图与任务状态已保存') : remoteAnalysisFailed ? '上一版本未被覆盖' : reviewRequired ? '候选模型已同步' : generation ? '模型版本已更新' : '当前参数已保存'} · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : featureModel && !generation ? '待生成' : remoteAnalysisFailed ? '上一版本' : reviewRequired ? '候选预览' : generation?.stale ? '参数已变更' : '参数草稿'}</span><span>单位 <b>mm</b></span><span>材质 <b>{featureModel ? cadExplicitMaterial(model) || '未指定' : model.material}</b></span></> : <span>空白文件 · 尚未创建模型</span>}</div>
+      <div className="viewport-footer">{hasModel ? <><span><i className="live-dot" /> {legacyDrawing ? '旧版图纸草稿已恢复' : featureModel && generation?.lastTurnError ? '保留上次完成的版本' : reviewIncompleteDraft ? '实体草稿已保存 · 图纸复核未完成' : featureModel && !generation ? (model.cadPlan ? '尺寸与建模计划已保存' : '原图与任务状态已保存') : remoteAnalysisFailed ? '上一版本未被覆盖' : reviewRequired ? '候选模型已同步' : generation ? '模型版本已更新' : '当前参数已保存'} · {model.updatedAt}</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? 'OCCT 已验证' : reviewIncompleteDraft ? '复核未完成' : featureModel && !generation ? '待生成' : remoteAnalysisFailed ? '上一版本' : reviewRequired ? '候选预览' : generation?.stale ? '参数已变更' : '参数草稿'}</span><span>单位 <b>mm</b></span><span>材质 <b>{featureModel ? cadExplicitMaterial(model) || '未指定' : model.material}</b></span></> : <span>空白文件 · 尚未创建模型</span>}</div>
     </section>
 
-    <aside className="inspector-column">
+    <aside className="inspector-column" aria-label="模型参数与检查" ref={inspectorRef} tabIndex={-1} hidden={!inspectorOpen}>
+      <div className="inspector-heading"><b>参数与检查</b><button type="button" aria-label="关闭参数与检查" onClick={() => { setInspectorOpen(false); setMobilePane('preview') }}>×</button></div>
       <div className="inspector-tabs"><button className={activePanel === '参数' ? 'active' : ''} onClick={() => setActivePanel('参数')}>参数</button><button className={activePanel === '特征' ? 'active' : ''} onClick={() => setActivePanel('特征')}>特征树</button><button className={activePanel === '检查' ? 'active' : ''} onClick={() => setActivePanel('检查')}>检查</button></div>
       {!hasModel && <div className="inspector-empty-state" role="status"><b>{activePanel === '特征' ? '尚无模型特征' : activePanel === '检查' ? '尚无模型可检查' : '尚无模型参数'}</b><p>创建模型后，可在这里查看和编辑{activePanel === '特征' ? '特征' : activePanel === '检查' ? '检查结果' : '尺寸与材料'}。</p></div>}
-      {featureModel && <CadAgentPanel model={model} tab={activePanel} busy={interactionBusy} onParameterChange={updateModel} onConfirm={acceptDrawingData} generation={generation} onAsk={(text) => { setPrompt(text); document.querySelector('[aria-label="给 AI 发送消息"]')?.focus() }} />}
+      {featureModel && <CadAgentPanel model={model} tab={activePanel} busy={interactionBusy} onParameterChange={updateModel} onConfirm={acceptDrawingData} generation={generation} onAsk={showChat} />}
       {hasModel && !featureModel && activePanel === '参数' && <ParameterErrors.Provider value={parameterValidation.errors}><ParameterPanel model={model} modelValid={modelValid} updateModel={updateModel} resetModel={resetModel} drawingJob={drawingJob} disabled={interactionBusy} />{parameterValidation.errors.length > 0 && <div className="parameter-errors" role="status">{parameterValidation.errors.map((error) => <p className="parameter-error" key={error.field + error.message}>{error.message}</p>)}</div>}</ParameterErrors.Provider>}
-      {hasModel && !featureModel && activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} onAddFeature={() => { setPrompt('请说明当前配方支持的特征修改，并帮我调整'); document.querySelector('[aria-label="给 AI 发送消息"]')?.focus() }} />}
+      {hasModel && !featureModel && activePanel === '特征' && <FeaturePanel features={features} selectedFeature={selectedFeature} setSelectedFeature={setSelectedFeature} onAddFeature={() => showChat('请说明当前配方支持的特征修改，并帮我调整')} />}
       {hasModel && !featureModel && activePanel === '检查' && <CheckPanel model={model} modelValid={modelValid} showToast={showToast} backend={backend} generation={generation} drawingJob={drawingJob} generateFromDrawing={generateFromDrawing} acceptDrawingData={acceptDrawingData} setActiveMode={setActiveMode} busy={isGenerating || isAccepting || isChecking} checkResult={checkResult} onRunChecks={runModelChecks} parameterErrors={parameterValidation.errors} />}
       {productionPartKinds.includes(modelKind) && generation && <div className="artifact-meta-panel"><div className="artifact-meta-heading"><span className="eyebrow">SOLID KERNEL</span><span className={`production-badge ${productionReady ? 'ready' : 'preview'}`}>{productionReady ? '生产实体' : '仅预览'}</span></div><div className="artifact-meta-grid"><span>引擎</span><b>{generation.engine}</b><span>包络</span><b>{modelBoundsText(model, topology)}</b><span>实体 / 面</span><b>{topology.solidCount ?? '—'} / {topology.faceCount ?? '—'}</b></div></div>}
-      <div className="export-card"><div><span className="eyebrow">交付状态</span><h3>{!hasModel ? '创建模型后可导出' : productionReady ? '可导出交付文件' : featureModel && cadPrimaryAction(model).kind === 'retry' ? '完成建模后可导出' : reviewRequired ? '先确认数据才能导出' : '先生成实体再导出'}</h3><p>{!hasModel ? '空白文件可以保存；创建模型后再生成工程图与交付文件。' : productionReady ? (featureModel ? 'STEP、GLB 与建模 JSON 已集中到右上角“导出交付”。' : 'STEP、GLB、DXF 与参数 JSON 已集中到右上角“导出交付”。') : featureModel ? cadPrimaryAction(model).hint || '确认尺寸与检查结果后，再生成交付文件。' : '当前只显示可编辑预览，避免把未校验模型误当成生产文件。'}</p></div>{productionReady ? <div className="export-card-hint">右上角 <b>导出交付</b> · 统一出口</div> : <button type="button" className="secondary-button full" disabled={interactionBusy} onClick={primaryAction}>{featureModel ? primaryLabel : reviewRequired ? '打开确认数据' : '继续当前流程'} <Icon>↗</Icon></button>}</div>
+      <div className="export-card"><div><span className="eyebrow">交付状态</span><h3>{!hasModel ? '创建模型后可导出' : productionReady ? '可导出交付文件' : reviewIncompleteDraft ? '完成图纸复核后可交付' : featureModel && cadPrimaryAction(model).kind === 'retry' ? '完成建模后可导出' : reviewRequired ? '先确认数据才能导出' : '先生成实体再导出'}</h3><p>{!hasModel ? '空白文件可以保存；创建模型后再生成工程图与交付文件。' : productionReady ? (featureModel ? 'STEP、GLB 与建模 JSON 已集中到右上角“导出交付”。' : 'STEP、GLB、DXF 与参数 JSON 已集中到右上角“导出交付”。') : featureModel ? cadPrimaryAction(model).hint || '确认尺寸与检查结果后，再生成交付文件。' : '当前只显示可编辑预览，避免把未校验模型误当成生产文件。'}</p></div>{productionReady ? <div className="export-card-hint">右上角 <b>导出交付</b> · 统一出口</div> : <button type="button" className="secondary-button full" disabled={interactionBusy} onClick={primaryAction}>{featureModel ? primaryLabel : reviewRequired ? '打开确认数据' : '继续当前流程'} <Icon>↗</Icon></button>}</div>
     </aside>
+    </div>
 
   </div>
 }
@@ -3543,20 +4055,36 @@ function DrawingImportWorkspace({ drawingJob, analyzeDrawing, generateFromDrawin
   </div>
 }
 
-function PlatformWorkspace({ onRefreshServices, mode, backend, platform, platformLogin, platformLogout, refreshPlatformUsers, createPlatformUser, createPlatformProject, shareProjectTeam, syncDrawingToPdm, createCamPlan, simulateCamPlan, approveCamPlan, releaseCamPlan, downloadNcProgram, generation, showToast }) {
-  const [email, setEmail] = useState('admin@joyniu.local')
-  const [password, setPassword] = useState('ChangeMe123!')
+function PlatformWorkspace({ model, onRefreshServices, mode, backend, platform, platformLogin, platformLogout, refreshPlatformUsers, createPlatformUser, createPlatformProject, shareProjectTeam, syncDrawingToPdm, createCamPlan, simulateCamPlan, approveCamPlan, releaseCamPlan, downloadNcProgram, generation, showToast }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [authStatus, setAuthStatus] = useState(null)
   const [displayName, setDisplayName] = useState('JoyNiu 管理员')
-  const [role, setRole] = useState('admin')
-  const [newEmail, setNewEmail] = useState('reviewer@joyniu.local')
-  const [newPassword, setNewPassword] = useState('Reviewer123!')
-  const [newDisplayName, setNewDisplayName] = useState('审核员')
+  const [newEmail, setNewEmail] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newDisplayName, setNewDisplayName] = useState('')
   const [newRole, setNewRole] = useState('reviewer')
   const [memberText, setMemberText] = useState('')
   const loggedIn = Boolean(platform?.user && platform?.token)
+  useEffect(() => {
+    if (loggedIn) { setPassword(''); return }
+    let current = true
+    setAuthStatus(null)
+    api.authStatus().then((status) => { if (current) setAuthStatus(status) }).catch(() => {
+      if (current) setAuthStatus({ unavailable: true })
+    })
+    return () => { current = false }
+  }, [loggedIn, backend?.status])
+  const bootstrapAllowed = authStatus?.initialized === false && authStatus?.bootstrapAllowed === true
+  const roleNames = { admin: '管理员', designer: '设计师', reviewer: '审核员', manufacturing: '制造人员', viewer: '只读成员' }
   const permissions = platform?.user?.permissions || []
   const userDisplayName = platform?.user?.displayName || platform?.user?.display_name || platform?.user?.email || 'JoyNiu'
   const hasPermission = (permission) => permissions.includes('*') || permissions.includes(permission)
+  const camCreateReason = !loggedIn ? '请先登录平台服务。'
+    : !hasPermission('cam:plan') ? '当前账号没有创建制造计划的权限。'
+      : !platform?.project ? '请先在 PDM 中创建或绑定当前项目。'
+        : canonicalPartKind(model?.kind) !== 'bracket' ? '当前三轴铣削流程支持安装支架，其他零件暂不提供此工艺。'
+          : !productionArtifactsAvailable(generation) ? '请先生成并校验当前安装支架的生产实体。' : ''
   const canManageMembers = hasPermission('user:manage') || Boolean(
     platform?.project && (
       String(platform.project.ownerId || platform.project.owner_id || '').toLowerCase() === String(platform?.user?.id || '').toLowerCase()
@@ -3572,26 +4100,25 @@ function PlatformWorkspace({ onRefreshServices, mode, backend, platform, platfor
   const geometry = backend?.health?.geometry || {}
   const dwg = backend?.health?.dwg || {}
   const ocr = backend?.health?.capabilities?.ocr || backend?.health?.ocr || {}
-  const submit = (bootstrap) => platformLogin({ email: email.trim(), password, displayName: displayName.trim(), roles: [role], bootstrap })
+  const submit = () => platformLogin({ email: email.trim(), password, displayName: displayName.trim(), roles: ['admin'], bootstrap: bootstrapAllowed })
 
   return <div className="secondary-workspace platform-workspace">
     <div className="secondary-heading">
       <div><span className="eyebrow">{mode === 'CAM / NC' ? 'MANUFACTURING CONTROL' : 'PLATFORM SERVICES'}</span><h1>{mode === 'CAM / NC' ? 'CAM / NC 制造门' : 'PDM、账号与审计'}</h1><p>{mode === 'CAM / NC' ? '确定性仿真、审核与 NC 放行均绑定到不可变模型版本。' : '账号权限、图纸证据、模型版本和交付物在同一条审计链中。'}</p></div>
       <div className="heading-actions"><span className={`backend-status compact ${backend?.status || 'checking'}`}><i />{backend?.productionReady ? 'OCCT 在线' : backend?.status === 'offline' ? 'API 离线' : '降级模式'}</span>{loggedIn && <button className="secondary-button" onClick={platformLogout}>退出登录</button>}</div>
     </div>
-    {platform?.error && <div className="backend-warning backend-error"><span>!</span><span>{platform.error}</span></div>}
+    {platform?.error && <div className="backend-warning backend-error" role="alert"><span>!</span><span>{platform.error}</span></div>}
     <div className="platform-grid">
       <section className="platform-card panel-card platform-auth-card">
         <div className="platform-card-heading"><div><span className="eyebrow">IDENTITY & RBAC</span><h2>账号权限</h2></div><span className={`production-badge ${loggedIn ? 'ready' : 'preview'}`}>{loggedIn ? '已认证' : '未登录'}</span></div>
-        {!loggedIn ? <form className="platform-form" onSubmit={(event) => { event.preventDefault(); submit(false) }}>
-          <label>邮箱<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" /></label>
-          <label>密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label>
-          <label>显示名称（首次注册）<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
-          <label>角色<select value={role} onChange={(event) => setRole(event.target.value)}><option value="admin">admin · 全流程演示</option><option value="designer">designer · 设计 / OCR / CAM 草案</option><option value="reviewer">reviewer · 证据与 CAM 审核</option><option value="manufacturing">manufacturing · NC 制造放行</option><option value="viewer">viewer · 只读</option></select></label>
-          <div className="platform-form-actions"><button type="button" className="secondary-button" disabled={platform?.busy} onClick={() => submit(true)}>注册并登录</button><button type="submit" className="primary-button" disabled={platform?.busy}>登录 <Icon>↗</Icon></button></div>
-          <small className="platform-help">本地首次运行可用“注册并登录”创建 bootstrap 账号；之后新增账号必须由 admin 管理。</small>
-        </form> : <div className="platform-identity"><div className="identity-avatar">{userDisplayName.slice(0, 1).toUpperCase()}</div><div className="identity-copy"><b>{userDisplayName}</b><small>{platform.user.email}</small><div className="role-pills">{(platform.user.roles || []).map((item) => <span key={item}>{item}</span>)}</div></div></div>}
-        {loggedIn && <><div className="permission-list"><div className="field-group-title">有效权限 <span>{permissions.includes('*') ? 'admin · 全部' : `${permissions.length} 项`}</span></div><div className="permission-cloud">{permissions.includes('*') ? <span>* 全部权限</span> : permissions.slice(0, 14).map((item) => <span key={item}>{item}</span>)}{!permissions.includes('*') && permissions.length > 14 && <span>+{permissions.length - 14}</span>}</div></div>{hasPermission('user:manage') && <div className="user-admin"><div className="field-group-title">账号目录 <button className="text-button" onClick={refreshPlatformUsers}>刷新</button></div>{(platform.users || []).map((item) => <div className="user-row" key={item.id}><span className="user-state" /><div><b>{item.displayName || item.display_name || item.email}</b><small>{item.email}</small></div><span className="role-text">{(item.roles || []).join(' / ')}</span></div>)}{createPlatformUser && <form className="admin-user-form" onSubmit={(event) => { event.preventDefault(); createPlatformUser({ email: newEmail.trim(), password: newPassword, displayName: newDisplayName.trim(), roles: [newRole] }) }}><div className="field-group-title">创建协作账号</div><div className="admin-user-fields"><input aria-label="新账号邮箱" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="邮箱" /><input aria-label="新账号密码" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 8 位密码" /><input aria-label="新账号名称" value={newDisplayName} onChange={(event) => setNewDisplayName(event.target.value)} placeholder="显示名称" /><select aria-label="新账号角色" value={newRole} onChange={(event) => setNewRole(event.target.value)}><option value="reviewer">reviewer · 审核</option><option value="manufacturing">manufacturing · 放行</option><option value="designer">designer · 设计</option><option value="viewer">viewer · 只读</option></select></div><button className="secondary-button" type="submit" disabled={platform?.busy}>＋ 创建账号</button></form>}</div>}</>}
+        {!loggedIn ? <form className="platform-form" onSubmit={(event) => { event.preventDefault(); submit() }}>
+          <label>邮箱<input type="email" name="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="请输入账号邮箱" autoComplete="username" required /></label>
+          <label>密码<input type="password" name="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入账号密码" autoComplete={bootstrapAllowed ? 'new-password' : 'current-password'} required /></label>
+          {bootstrapAllowed && <label>管理员名称<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /></label>}
+          <div className="platform-form-actions"><button type="submit" className="primary-button" disabled={platform?.busy}>{platform?.busy ? '正在登录…' : bootstrapAllowed ? '创建管理员并登录' : '登录'} <Icon>↗</Icon></button></div>
+          <small className="platform-help">{bootstrapAllowed ? '此服务尚未创建账号。首次初始化将创建管理员，之后由管理员添加协作账号。' : authStatus?.initialized === false ? '此服务尚未初始化，请联系网站管理员完成账号配置。' : '请使用管理员提供的邮箱和密码登录。忘记密码或需要新账号，请联系管理员。'}</small>
+        </form> : <div className="platform-identity"><div className="identity-avatar">{userDisplayName.slice(0, 1).toUpperCase()}</div><div className="identity-copy"><b>{userDisplayName}</b><small>{platform.user.email}</small><div className="role-pills">{(platform.user.roles || []).map((item) => <span key={item}>{roleNames[item] || item}</span>)}</div></div></div>}
+        {loggedIn && <><div className="permission-list"><div className="field-group-title">有效权限 <span>{permissions.includes('*') ? '管理员 · 全部' : `${permissions.length} 项`}</span></div><div className="permission-cloud">{permissions.includes('*') ? <span>* 全部权限</span> : permissions.slice(0, 14).map((item) => <span key={item}>{item}</span>)}{!permissions.includes('*') && permissions.length > 14 && <span>+{permissions.length - 14}</span>}</div></div>{hasPermission('user:manage') && <div className="user-admin"><div className="field-group-title">账号目录 <button className="text-button" onClick={refreshPlatformUsers}>刷新</button></div>{(platform.users || []).map((item) => <div className="user-row" key={item.id}><span className="user-state" /><div><b>{item.displayName || item.display_name || item.email}</b><small>{item.email}</small></div><span className="role-text">{(item.roles || []).map((role) => roleNames[role] || role).join(' / ')}</span></div>)}{createPlatformUser && <form className="admin-user-form" onSubmit={(event) => { event.preventDefault(); createPlatformUser({ email: newEmail.trim(), password: newPassword, displayName: newDisplayName.trim(), roles: [newRole] }) }}><div className="field-group-title">创建协作账号</div><div className="admin-user-fields"><input aria-label="新账号邮箱" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="邮箱" /><input aria-label="新账号密码" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 8 位密码" /><input aria-label="新账号名称" value={newDisplayName} onChange={(event) => setNewDisplayName(event.target.value)} placeholder="显示名称" /><select aria-label="新账号角色" value={newRole} onChange={(event) => setNewRole(event.target.value)}><option value="reviewer">审核员 · 图纸与加工审核</option><option value="manufacturing">制造人员 · 加工程序放行</option><option value="designer">设计师 · 设计与加工草案</option><option value="viewer">只读成员 · 查看项目</option></select></div><button className="secondary-button" type="submit" disabled={platform?.busy}>＋ 创建账号</button></form>}</div>}</>}
       </section>
 
       <section className="platform-card panel-card platform-health-card">
@@ -3603,14 +4130,15 @@ function PlatformWorkspace({ onRefreshServices, mode, backend, platform, platfor
 
       <section className="platform-card panel-card platform-pdm-card">
         <div className="platform-card-heading"><div><span className="eyebrow">PRODUCT DATA MANAGEMENT</span><h2>PDM 项目与版本</h2></div><span className="platform-count">{manifestDocuments.length} 文档 · {versionCount} 版本</span></div>
-        <div className="platform-action-row"><button className="secondary-button" disabled={!loggedIn || platform?.busy} onClick={createPlatformProject}>创建 / 刷新项目</button><button className="primary-button" disabled={!loggedIn || platform?.busy} onClick={syncDrawingToPdm}>同步当前文件</button></div>
-        {!loggedIn ? <div className="platform-empty">登录后可创建项目、保存原图 SHA-256、参数 JSON、STEP / GLB 版本。</div> : !platform?.project ? <div className="platform-empty">还没有绑定项目；点击“创建 / 刷新项目”开始 PDM 工作流。</div> : <><div className="project-binding"><span className="project-dot green" /><div><b>{platform.project.name}</b><small>{platform.project.id} · {platform.project.status}</small></div><span className="check-status pass">已绑定</span></div>{canManageMembers && <div className="project-members-editor"><div className="field-group-title">共享审核 / 制造成员 <span className="muted">只读项目权限</span></div><div className="member-editor-row"><input aria-label="项目成员邮箱或用户 ID" value={memberText} onChange={(event) => setMemberText(event.target.value)} placeholder="邮箱或用户 ID（逗号分隔；留空自动选账号目录）" /><button className="secondary-button" disabled={platform?.busy || !shareProjectTeam} onClick={() => shareProjectTeam(memberText)}>共享成员</button></div><small className="platform-help">成员可读取项目、查看 CAM；审核和 NC 放行仍由各自 RBAC 权限决定。</small></div>}<div className="pdm-document-list">{manifestDocuments.slice(0, 5).map((item) => <div className="pdm-document-row" key={item.document?.id || item.id}><span className="file-type-icon blue">{item.document?.kind === 'drawing' ? '▱' : '◉'}</span><div><b>{item.versions?.[0]?.metadata?.displayName || item.document?.metadata?.displayName || item.document?.name || item.name}</b><small>{item.document?.kind || 'document'} · {item.versions?.length || 0} 个不可变版本</small></div><span className="role-text">{item.versions?.[0]?.sha256?.slice(0, 8) || '—'}</span></div>)}</div>{manifestDocuments.length > 5 && <small className="platform-help">还有 {manifestDocuments.length - 5} 个文档，完整清单可通过 API manifest 查看。</small>}</>}
+        <div className="platform-action-row"><button className="secondary-button" disabled={!loggedIn || platform?.busy} onClick={createPlatformProject}>{hasPermission('project:write') ? '创建 / 刷新项目' : '刷新项目'}</button><button className="primary-button" disabled={!loggedIn || platform?.busy || !hasPermission('document:write') || !hasPermission('version:create')} title={hasPermission('document:write') ? '保存当前文件快照与可用交付物' : '当前账号为只读，无法同步文件'} onClick={syncDrawingToPdm}>同步当前文件</button></div>
+        {!loggedIn ? <div className="platform-empty">登录后可创建项目、保存原图 SHA-256、参数 JSON、STEP / GLB 版本。</div> : !platform?.project ? <div className="platform-empty">还没有绑定项目；点击“创建 / 刷新项目”开始 PDM 工作流。</div> : <><div className="project-binding"><span className="project-dot green" /><div><b>{platform.project.name}</b><small>{platform.project.id} · {platform.project.status}</small></div><span className="check-status pass">已绑定</span></div>{canManageMembers && <div className="project-members-editor"><div className="field-group-title">共享审核 / 制造成员 <span className="muted">只读项目权限</span></div><div className="member-editor-row"><input aria-label="项目成员邮箱或用户 ID" value={memberText} onChange={(event) => setMemberText(event.target.value)} placeholder="邮箱或用户 ID（逗号分隔；留空自动选账号目录）" /><button className="secondary-button" disabled={platform?.busy || !shareProjectTeam} onClick={() => shareProjectTeam(memberText)}>共享成员</button></div><small className="platform-help">成员可读取项目、查看 CAM；审核和 NC 放行仍由各自 RBAC 权限决定。</small></div>}<PlatformDocuments documents={manifestDocuments} token={platform.token} projectId={platform.project.id} canRead={hasPermission('document:read')} /></>}
       </section>
 
       {mode === 'CAM / NC' && <section className="platform-card panel-card platform-cam-card">
         <div className="platform-card-heading"><div><span className="eyebrow">CAM / NC RELEASE GATE</span><h2>制造计划与 NC</h2></div><span className={`production-badge ${nc ? 'ready' : simulation?.passed ? 'pending' : 'preview'}`}>{nc ? 'NC 已放行' : simulation?.passed ? '等待审核' : '未仿真'}</span></div>
         <div className="cam-source-row"><span>模型来源</span><b>{generation?.artifacts?.find((item) => item.format === 'step')?.sha256?.slice(0, 16) || generation?.requestId || '尚未生成 OCCT 实体'}</b></div>
-        <div className="platform-action-row"><button className="secondary-button" disabled={!loggedIn || platform?.busy || !platform?.project || !generation?.validation?.valid} onClick={createCamPlan}>创建 CAM 草案</button><button className="secondary-button" disabled={!loggedIn || platform?.busy || !camPlan} onClick={simulateCamPlan}>运行确定性仿真</button><button className="secondary-button" disabled={!loggedIn || platform?.busy || !camPlan || !simulation || !hasPermission('cam:approve')} onClick={approveCamPlan}>审核通过</button><button className="primary-button" disabled={!loggedIn || platform?.busy || !camPlan || !gate?.passed || !hasPermission('cam:release')} onClick={releaseCamPlan}>放行 NC</button></div>
+        <div className="platform-action-row"><button className="secondary-button" disabled={platform?.busy || Boolean(camCreateReason)} title={camCreateReason || '为当前实体创建制造计划'} onClick={createCamPlan}>创建 CAM 草案</button><button className="secondary-button" disabled={!loggedIn || platform?.busy || !camPlan || !hasPermission('cam:simulate')} title={hasPermission('cam:simulate') ? '检查当前制造计划' : '当前账号没有运行仿真的权限'} onClick={simulateCamPlan}>运行确定性仿真</button><button className="secondary-button" disabled={!loggedIn || platform?.busy || !camPlan || !simulation?.passed || !hasPermission('cam:approve')} title={!simulation?.passed ? '请先通过仿真' : hasPermission('cam:approve') ? '审核当前通过仿真的计划' : '需要审核角色'} onClick={approveCamPlan}>审核通过</button><button className="primary-button" disabled={!loggedIn || platform?.busy || !camPlan || !gate?.passed || !hasPermission('cam:release') || Boolean(nc)} title={nc ? '此计划已有已放行的 NC 文件' : !hasPermission('cam:release') ? '需要制造放行权限' : '审核和仿真通过后才可放行'} onClick={releaseCamPlan}>{nc ? 'NC 已放行' : '放行 NC'}</button></div>
+        {camCreateReason && <p className="platform-help">{camCreateReason}</p>}
         {!camPlan ? <div className="platform-empty">生成并校验 STEP 后创建 CAM 草案；计划会记录几何哈希、毛坯、刀具和工序。</div> : <><div className="cam-plan-summary"><div><span>计划状态</span><b>{camPlan.status}</b></div><div><span>工序</span><b>{camPlan.operations?.length || 0}</b></div><div><span>修订</span><b>r{camPlan.revision}</b></div><div><span>引擎</span><b>{simulation?.engine || '—'}</b></div></div>{simulation && <div className={`simulation-result ${simulation.passed ? 'pass' : 'fail'}`}><div className="simulation-title"><span>{simulation.passed ? '✓' : '!'}</span><b>{simulation.passed ? '仿真通过' : '仿真阻断'}</b><small>{simulation.runtimeSeconds ?? 0}s · 碰撞 {simulation.collisionCount} · 擦伤 {simulation.gougeCount}</small></div><div className="simulation-checks">{Object.entries(simulation.checks || {}).map(([key, value]) => <span key={key} className={value ? 'pass' : 'fail'}>{value ? '✓' : '×'} {key}</span>)}</div>{simulation.warnings?.length > 0 && <small className="platform-help">{simulation.warnings.join('；')}</small>}</div>}{gate && <div className={`gate-result ${gate.passed ? 'pass' : 'fail'}`}><b>{gate.passed ? '放行条件满足' : '仍不可放行'}</b><span>{(gate.reasons || []).join('；') || '审核与仿真状态已满足'}</span></div>}{nc && <div className="nc-preview"><div><div><b>{nc.id}</b><small>{nc.postprocessor} · SHA {nc.sha256?.slice(0, 12)}</small></div>{hasPermission('nc:download') && <button className="secondary-button" onClick={downloadNcProgram}>下载 NC</button>}</div>{nc.text ? <pre>{String(nc.text).slice(0, 900)}</pre> : <div className="nc-text-locked">NC 文本已持久化；点击下载后按当前制造权限读取。</div>}</div>}<small className="platform-help">计划、仿真、审批与 NC 会写入 SQLite 并在服务重启后恢复。审核者和制造者必须使用不同账号；确定性预仿真只是一道安全预检查，切削前仍需机床/材料专用验证。</small></>}
       </section>}
     </div>
@@ -3804,36 +4332,8 @@ function CheckPanel({ model, modelValid, showToast, backend, generation, drawing
   return <div className="inspector-content check-panel">{evidence && <section className={`check-evidence-card ${evidenceConfirmed ? 'confirmed' : 'needs-review'}`} aria-label="图纸证据确认"><div className="check-evidence-heading"><div><span className="eyebrow">DRAWING EVIDENCE</span><b>{evidenceConfirmed ? '尺寸证据已确认' : 'AI 候选数据待确认'}</b></div><span className={`confidence ${evidenceConfirmed ? 'ready' : ''}`}>{evidence.confidence !== undefined ? `${Math.round(Number(evidence.confidence) * 100)}%` : '—'}</span></div>{analysis.message && <p className="check-analysis-message">{analysis.message}</p>}<div className="check-evidence-rows">{evidenceRows.map(([label, value]) => <div key={label}><span>{evidenceConfirmed ? label : `候选 · ${label}`}</span><b>{value}</b></div>)}</div><p>{evidenceConfirmed ? '来源已锁定；生成实体会继续经过 CadQuery / OCCT 拓扑检查。' : '候选尺寸可在参数面板中逐项编辑；确认数据后，下一步就是生成 3D。'}</p><div className="check-evidence-actions"><button type="button" className={evidenceConfirmed ? 'secondary-button' : 'primary-button'} disabled={busy || !customerReady || drawingJob?.status === 'generating' || drawingJob?.status === 'generated'} onClick={() => { if (evidenceConfirmed) return showToast('尺寸证据已确认'); acceptDrawingData?.() || generateFromDrawing?.() }}>{evidenceConfirmed ? '已确认' : busy ? '处理中…' : '确认数据'} <Icon>↗</Icon></button></div></section>}{!evidence && <div className="check-evidence-empty"><span>⌁</span><b>完成 AI 分析后，这里会显示尺寸证据。</b><small>系统会把来源视图、置信度和确认状态绑定到当前模型版本。</small></div>}<div className="check-summary"><div className={`check-ring ${modelValid && (kernelReady || !generation) ? 'ok' : 'warn'}`}>{modelValid && (kernelReady || !generation) ? '✓' : '!'}</div><div><b>{!modelValid ? '需要修正参数' : kernelReady ? 'OCCT 模型检查通过' : checkResult ? (checkResult.valid ? '当前参数检查通过' : '服务校验未通过') : '参数初检通过 · 未运行服务检查'}</b><small>{backend?.engine || '浏览器'} · 最近检查：{checkResult?.checkedAt || (generation ? '生成时' : '尚未运行')}</small></div></div>{parameterErrors.map((error) => <p className="parameter-error" key={error.field + error.message}>{error.message}</p>)}{checkResult && <><p>{checkResult.scope} · {checkResult.checkedAt}</p>{(checkResult.errors || []).map((error, index) => <p className="parameter-error" key={index}>{typeof error === 'string' ? error : error.message}</p>)}</>}{checks.map((check) => <div className="check-row" key={check.label}><span>{check.label}</span><span className={`check-status ${check.status === '通过' ? 'pass' : check.status === '提示' ? 'hint' : 'warn'}`}>{check.status}</span></div>)}{generation && <div className="kernel-metrics"><span>包络</span><b>{modelBoundsText(model, metrics)} mm</b><span>体积</span><b>{metrics.volumeMm3 ? `${Number(metrics.volumeMm3).toFixed(3)} mm³` : '—'}</b></div>}<button className="primary-outline" disabled={busy} onClick={onRunChecks}>{busy ? '检查中…' : '重新运行检查'} <Icon>↗</Icon></button></div>
 }
 
-function HomeWorkspace({ projects, onSelectProject, onStartText, createProject, setActiveMode, showToast, attachDrawingToConversation }) {
-  const inputRef = useRef(null)
-  const [description, setDescription] = useState('')
-  const openTextWorkbench = () => onStartText(description)
-  const chooseDrawing = () => inputRef.current?.click()
-  return <div className="home-workspace currentcad-home">
-    <section className="home-hero">
-      <input ref={inputRef} className="file-input" type="file" accept="image/*,.pdf,.dxf,.dwg" aria-label="上传图纸开始 AI 分析" onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; attachDrawingToConversation?.(files) }} />
-      <div className="home-launch-badge"><b>JoyNiu AI V2.0</b><span>Agent 驱动的零件与装配体 CAD 智能设计平台</span><button onClick={() => setActiveMode('帮助与反馈')}>查看流程 <Icon>→</Icon></button></div>
-      <span className="home-kicker">AI PARAMETRIC CAD</span>
-      <h1>Hi，开启您的 AI 建模旅程</h1>
-      <p>用文字或工程图生成可编辑的参数化模型，完整保留尺寸来源、特征树和交付版本。</p>
-      <div className="home-agent-modes" aria-label="开始设计"><button className="active" onClick={openTextWorkbench}><Icon>✦</Icon> 参数化零件</button><button onClick={() => setActiveMode('装配')}><Icon>⌘</Icon> 装配工作台</button></div>
-      <div className="home-composer-frame">
-        <textarea className="home-composer-input" aria-label="描述零件设计" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="描述你想设计的零件，例如：创建一个外径 24、长 70、带键槽的动力轴" />
-        <div className="home-composer-footer"><div><button onClick={chooseDrawing}><Icon>＋</Icon> 上传图纸</button><button onClick={() => setActiveMode('帮助与反馈')}><Icon>?</Icon> 使用指南</button></div><span>JPG / PDF / DWG / DXF · ≤ 20 MB</span><button className="home-composer-submit" aria-label="开始文字设计" onClick={openTextWorkbench}>↑</button></div>
-      </div>
-      <div className="home-capability-strip">
-        <button onClick={openTextWorkbench}><span className="capability-art text-art">Aa</span><b>文字生成模型</b><Icon>›</Icon></button>
-        <button onClick={chooseDrawing}><span className="capability-art image-art">▧</span><b>图片生成模型</b><Icon>›</Icon></button>
-        <button onClick={chooseDrawing}><span className="capability-art drawing-art">▱</span><b>二维图生成模型</b><Icon>›</Icon></button>
-        <button onClick={() => setActiveMode('标准件库')}><span className="capability-art lab-art">◇</span><b>标准件与自定义零件</b><Icon>›</Icon></button>
-      </div>
-      <div className="hero-format-note">上传 → AI 分析 → 确认数据 → 生成 3D → 二次修改 → 导出交付</div>
-    </section>
-
-    <div className="home-section-heading"><div><h2>最近项目</h2><span>继续你的设计工作</span></div><button className="text-button" onClick={createProject}>＋ 新建项目</button></div>
-    <div className="project-cards">{projects.map((project) => <button key={project.id} className="project-card" onClick={() => onSelectProject(project.id)}><div className={`project-preview ${project.color}`}><span>{project.name.slice(0, 1)}</span><small>{project.files} 个文件</small></div><div className="project-card-body"><b>{project.name}</b><span>更新于 {project.updated}</span></div><span className="card-arrow">↗</span></button>)}</div>
-    <div className="quick-grid"><button onClick={() => { setActiveMode('3D 建模'); showToast('已打开 AI 设计助手') }}><span className="quick-icon blue">✦</span><div><b>AI 参数化零件</b><small>从一句话开始设计</small></div><span>→</span></button><button onClick={() => setActiveMode('2D 工程图')}><span className="quick-icon orange">▱</span><div><b>2D 工程图</b><small>由当前模型生成视图</small></div><span>→</span></button><button onClick={() => setActiveMode('装配')}><span className="quick-icon violet">◈</span><div><b>装配工作台</b><small>已有实体后再创建装配</small></div><span>→</span></button></div>
-  </div>
+function HomeWorkspace(props) {
+  return <StudioHome {...props} />
 }
 
-export default App
+export default function App() { return <CustomerShell Workbench={WorkbenchApp} /> }

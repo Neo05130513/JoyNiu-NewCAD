@@ -159,7 +159,7 @@ def test_capability_download_does_not_open_other_runs(api, monkeypatch):
     url = first["artifacts"][0]["url"]
     # The capability grants only this immutable revision's artifact.
     assert client.get(url).status_code == 200
-    assert client.get(url.split("?", 1)[0] + "?access=wrong").status_code == 401
+    assert client.get(url.split("?", 1)[0] + "?access=wrong").status_code == 403
     assert client.get(f"/api/v1/cad-agent/runs/{first['runId']}").status_code == 401
 
 

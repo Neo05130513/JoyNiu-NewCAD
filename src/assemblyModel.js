@@ -1,3 +1,5 @@
+import { createClientId } from './clientId.js'
+
 // Nominal dimensions for a small, editable local library. These are geometry
 // envelopes, not thread forms, bearing races, or procurement certificates.
 export const standardParts = Object.freeze([
@@ -10,8 +12,14 @@ export const standardParts = Object.freeze([
   { catalogId: 'pin-6-24', name: '圆柱销', spec: 'Ø6 × 24', group: '定位件', shape: 'cylinder', dimensions: { innerDiameter: 0, outerDiameter: 6, length: 24 }, source: '内置公称尺寸 · Ø6 × 24' },
 ])
 
-let nextId = 0
-const uniqueId = () => globalThis.crypto?.randomUUID?.() || `part-${Date.now().toString(36)}-${++nextId}`
+export function filterStandardParts(query = '', group = '全部') {
+  const normalize = (value) => String(value).toLowerCase().replace(/(?<=\d)x(?=\d)/g, ' ').replace(/[×*·]/g, ' ')
+  const terms = normalize(query).trim().split(/\s+/).filter(Boolean)
+  return standardParts.filter((part) => (group === '全部' || part.group === group)
+    && terms.every((term) => normalize(`${part.name} ${part.spec} ${part.source} ${part.group}`).includes(term)))
+}
+
+const uniqueId = () => createClientId()
 const finite = (value) => (typeof value === 'number' || typeof value === 'string') && String(value).trim() !== '' && Number.isFinite(Number(value))
 const positive = (value) => finite(value) && Number(value) > 0
 const vec = (value = {}) => Object.fromEntries(['x', 'y', 'z'].map((key) => [key, finite(value[key]) ? Number(value[key]) : 0]))
@@ -26,7 +34,7 @@ export function validatePartDefinition(part) {
     if (!positive(d[key]) || Number(d[key]) > 100000) errors.push(`${label}须为大于 0 且不超过 100000 mm 的有限数值。`)
   }
   if (part?.shape === 'ring' && (!positive(d.innerDiameter) || Number(d.innerDiameter) >= Number(d.outerDiameter))) errors.push('内径须大于 0 且小于外径。')
-  if (part?.shape === 'bolt' && (!positive(d.headLength) || !positive(d.headDiameter) || Number(d.headDiameter) < Number(d.outerDiameter))) errors.push('螺钉头部长度须大于 0，头部直径不得小于杆径。')
+  if (part?.shape === 'bolt' && (!positive(d.headLength) || Number(d.headLength) > 100000 || !positive(d.headDiameter) || Number(d.headDiameter) > 100000 || Number(d.headDiameter) < Number(d.outerDiameter))) errors.push('螺钉头部长度和直径须大于 0 且不超过 100000 mm，头部直径不得小于杆径。')
   return errors
 }
 
@@ -49,7 +57,8 @@ export function createPartInstance(part, options = {}) {
 }
 
 export function duplicatePartInstance(item) {
-  return createPartInstance(item, { position: { ...item.position, y: Number(item.position?.y || 0) + Number(item.dimensions.outerDiameter) + 10 }, rotation: item.rotation })
+  const bounds = instanceBounds(item)
+  return createPartInstance(item, { position: { ...item.position, y: Number(item.position?.y || 0) + bounds.max.y - bounds.min.y + 10 }, rotation: item.rotation })
 }
 
 export function validateTransform(position, rotation) {
@@ -99,6 +108,21 @@ export function instanceBounds(item) {
 
 export function mainModelEnvelope(model = {}) {
   const kind = String(model?.kind || model?.recipeId || '').toLowerCase()
+  if (kind === 'feature_model') {
+    const run = model.agentRun || {}
+    const inspection = run.inspection
+    // Edited plans must not inherit the old solid's measured size or position.
+    if (model.stale || run.stale || run.dirty || !['ready', 'review_required', 'needs_input'].includes(run.status)
+      || inspection?.valid !== true || inspection.kernelBacked !== true) return null
+    const { min, max } = inspection.bbox || {}
+    if (!Array.isArray(min) || !Array.isArray(max) || min.length !== 3 || max.length !== 3
+      || [...min, ...max].some((value) => !finite(value))
+      || max.some((value, index) => Number(value) <= Number(min[index]))) return null
+    const axes = ['x', 'y', 'z']
+    return { kind, axial: false, length: Number(max[0]) - Number(min[0]), width: Number(max[1]) - Number(min[1]), height: Number(max[2]) - Number(min[2]),
+      min: Object.fromEntries(axes.map((axis, index) => [axis, Number(min[index])])),
+      max: Object.fromEntries(axes.map((axis, index) => [axis, Number(max[index])])) }
+  }
   let length; let width; let height; let axial = false
   if (['shaft', 'shaft_v1'].includes(kind)) { length = model.length; width = model.outerDiameter; height = model.outerDiameter; axial = true }
   else if (['arched_clevis_support', 'arched_clevis_support_v1'].includes(kind)) {
@@ -120,7 +144,8 @@ export function initialPartPosition(model, existingItems = [], part) {
     if (validatePartDefinition(item).length || validateTransform(item.position, item.rotation).length) return edge
     return Math.max(edge, instanceBounds(item).max.y)
   }, envelope?.max.y || 0)
-  return { x: envelope?.axial ? envelope.length / 2 : 0, y: rightEdge + Number(part.dimensions.outerDiameter) / 2 + 15, z: envelope?.axial ? 0 : Number(part.dimensions.outerDiameter) / 2 }
+  const bounds = partLocalBounds(part)
+  return { x: envelope ? (envelope.min.x + envelope.max.x) / 2 : 0, y: rightEdge - bounds.min.y + 15, z: envelope ? (envelope.min.z + envelope.max.z) / 2 : -bounds.min.z }
 }
 
 export function boundsOverlap(a, b) {
@@ -135,7 +160,9 @@ export function checkAssembly(model, items = []) {
   const fits = []
   const envelope = mainModelEnvelope(model)
   const hasModel = Boolean(model?.kind || model?.recipeId)
-  if (hasModel && !envelope) issues.push({ severity: 'error', code: 'model-envelope', message: '当前模型类型或外形尺寸无效，无法计算主件包络。' })
+  if (hasModel && !envelope) issues.push({ severity: 'error', code: 'model-envelope', message: model.kind === 'feature_model'
+    ? '主件尚无当前有效的实体尺寸。请返回 3D 建模检查并更新预览，再检查主件配合。'
+    : '当前模型类型或外形尺寸无效，无法计算主件包络。' })
   if (!hasModel && !items.length) issues.push({ severity: 'info', code: 'empty-assembly', message: '当前装配为空，请先创建主件或插入标准件。' })
   const ids = new Set()
   for (const item of items) {

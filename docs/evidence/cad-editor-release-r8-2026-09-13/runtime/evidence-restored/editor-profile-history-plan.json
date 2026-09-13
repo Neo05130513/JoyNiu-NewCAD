@@ -1,0 +1,186 @@
+{
+  "version": "cad-plan-v1",
+  "units": "mm",
+  "name": "编辑器候选验收",
+  "parameters": {
+    "width": {
+      "value": 22,
+      "source": {
+        "type": "user",
+        "text": "合成验收"
+      }
+    }
+  },
+  "features": [
+    {
+      "id": "body",
+      "op": "profile_extrude",
+      "plane": "XY",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "start": [
+        0,
+        0
+      ],
+      "segments": [
+        {
+          "type": "line",
+          "to": [
+            "width",
+            0
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            "width",
+            16
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            0,
+            16
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            0,
+            0
+          ]
+        }
+      ],
+      "distance": 10
+    },
+    {
+      "id": "boss",
+      "op": "profile_extrude",
+      "plane": "custom",
+      "planeSource": {
+        "kind": "face",
+        "sourceFeatureId": "body",
+        "geometryVersion": "78b9cde6d1cad227ce42b17b24cd0a7684a605844d1c5f4465304f79801ee4dc",
+        "index": 5,
+        "signature": "6005854ae70c85854b3607876dc4ddd8fe91629198da623aa627dad715b5a90f",
+        "binding": {
+          "version": 1,
+          "key": "fb9ae0085911b1f537035e1f55522b784b6da52b720590e54da647ffc5b61399"
+        }
+      },
+      "frame": {
+        "origin": [
+          10.0,
+          8.0,
+          10.0
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "xDir": [
+          1.0,
+          0.0,
+          -0.0
+        ]
+      },
+      "start": [
+        -5,
+        -4
+      ],
+      "segments": [
+        {
+          "type": "line",
+          "to": [
+            5,
+            -4
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            5,
+            4
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            -5,
+            4
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            -5,
+            -4
+          ]
+        }
+      ],
+      "distance": 5,
+      "planeAttachment": {
+        "version": 1,
+        "origin": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xDir": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "id": "joined",
+      "op": "union",
+      "inputs": [
+        "body",
+        "boss"
+      ]
+    },
+    {
+      "id": "round",
+      "op": "fillet",
+      "input": "joined",
+      "radius": 1,
+      "edges": [
+        {
+          "kind": "edge",
+          "sourceFeatureId": "joined",
+          "geometryVersion": "c0d88a477b92079caddb0b7f8449eaa5fdf481255dbd675efef97db181145433",
+          "index": 18,
+          "signature": "c603b6bcd60363a67771f427e7a319d4a1aa56af62b31564eb9d00d3e755ef3f",
+          "binding": {
+            "version": 1,
+            "key": "8f06c5fb0f9a18197ad6cc80416d728982162141101d5a74f5e6d0d600740e3a"
+          }
+        },
+        {
+          "kind": "edge",
+          "sourceFeatureId": "joined",
+          "geometryVersion": "c0d88a477b92079caddb0b7f8449eaa5fdf481255dbd675efef97db181145433",
+          "index": 22,
+          "signature": "9e7c9af351f4cfc90b6e883d188e65b76b6d89d93257a4fc24753003001a5628",
+          "binding": {
+            "version": 1,
+            "key": "67b2f2632fb51f96a8ba44f67739f1eedfc634cf693d1cbf5b1a7986f04af34d"
+          }
+        }
+      ]
+    }
+  ],
+  "result": "round"
+}

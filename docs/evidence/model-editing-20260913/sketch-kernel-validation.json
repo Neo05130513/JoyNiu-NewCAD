@@ -1,0 +1,50 @@
+[
+  {
+    "name": "XY-rectangle",
+    "volumeMm3": 420.0,
+    "stepReadbackVolumeMm3": 420.0,
+    "valid": true
+  },
+  {
+    "name": "XY-circle",
+    "volumeMm3": 251.32741228718342,
+    "stepReadbackVolumeMm3": 251.32741228718342,
+    "valid": true
+  },
+  {
+    "name": "XZ-rectangle",
+    "volumeMm3": 420.0,
+    "stepReadbackVolumeMm3": 420.0,
+    "valid": true
+  },
+  {
+    "name": "XZ-circle",
+    "volumeMm3": 251.32741228718342,
+    "stepReadbackVolumeMm3": 251.32741228718345,
+    "valid": true
+  },
+  {
+    "name": "YZ-rectangle",
+    "volumeMm3": 420.0,
+    "stepReadbackVolumeMm3": 420.0,
+    "valid": true
+  },
+  {
+    "name": "YZ-circle",
+    "volumeMm3": 251.32741228718342,
+    "stepReadbackVolumeMm3": 251.32741228718345,
+    "valid": true
+  },
+  {
+    "name": "XZ-revolve-annulus",
+    "volumeMm3": 1225.221134900019,
+    "stepReadbackVolumeMm3": 1225.2211349000127,
+    "valid": true
+  },
+  {
+    "name": "XY-edited-point",
+    "volumeMm3": 385.00000000000006,
+    "stepReadbackVolumeMm3": 385.00000000005775,
+    "valid": true
+  }
+]

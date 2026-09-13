@@ -1,0 +1,539 @@
+{
+  "ok": true,
+  "networkCalls": "loopback only",
+  "usesCustomerCredentials": false,
+  "candidateRuntime": true,
+  "architecture": "x86_64",
+  "compilerAbsent": true,
+  "packages": {
+    "cadquery": "2.8.0",
+    "ezdxf": "1.4.4",
+    "PyMuPDF": "1.28.2",
+    "cryptography": "50.0.1"
+  },
+  "tools": {
+    "dwgread": {
+      "sha256": "c32ab15bef6f02209a1f4328d593cfe5ea38b4088adc1e38ad9736d28075dc5a",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    },
+    "dwg2dxf": {
+      "sha256": "c684041b7eadf2e89bd52ef2d916141f82d74b80620f8ac3b8cea31868becf04",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    },
+    "dxf2dwg": {
+      "sha256": "baa3f4c339507faeecf41ed93fde8433a67767e334d5dd247c2b53e721789539",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    },
+    "joyniu-native-dwg-adapter": {
+      "sha256": "73bba139c420013bd81d9a6c5b86800f57b0daf4a08a65230b6d6f5ab3ac6122",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    }
+  },
+  "native": {
+    "binaryDwg": true,
+    "fullDrawingSignatureMatch": true,
+    "dimensionsRemainNative": true,
+    "measurementMm": 150,
+    "editedLinkedMeasurementMm": 160,
+    "toleranceUpper": 0.2,
+    "toleranceLower": 0.1,
+    "bubbleNumber": 7,
+    "blocksAndPaperLayoutsPreserved": true
+  },
+  "engineering": {
+    "featureWorker": true,
+    "stepValid": true,
+    "solidCount": 1,
+    "sizeMm": [
+      40.5,
+      20,
+      10
+    ],
+    "volumeMm3": 8100,
+    "dxfDimensionMm": 10,
+    "pdfPaperMm": [
+      420,
+      297
+    ],
+    "pdfChineseGlyphsRendered": true,
+    "pdfEmbeddedFontBytes": [
+      407397
+    ],
+    "cadEditor": {
+      "topologyFaces": 6,
+      "topologyEdges": 12,
+      "triangleMembership": true,
+      "selectedEdgeFillet": true,
+      "atomicFailurePreservedHead": true,
+      "idempotentRetry": true,
+      "parameterHistoryRebuilt": true,
+      "stepReadback": true,
+      "volumeMm3": 3517.8539816339744,
+      "profileHistoryRebuilt": true,
+      "profileHistory": {
+        "sourceWidthMm": 20,
+        "finalWidthMm": 22,
+        "sizeMm": [
+          22,
+          16,
+          15
+        ],
+        "selectedBossEdges": 2,
+        "bossAttachmentMovementMm": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "volumeBeforeMm3": 3595.707963267949,
+        "volumeAfterMm3": 3915.707963267949,
+        "savedRevisions": 4,
+        "stepReadback": true,
+        "previousVersionPreserved": true,
+        "failurePreservedHead": true,
+        "foreignDesignBindingRejected": true
+      },
+      "compoundBodiesRebuilt": true,
+      "compoundBodies": {
+        "solidCount": 2,
+        "savedRevisions": 4,
+        "sourceWidthMm": 20,
+        "finalWidthMm": 22,
+        "initialVolumeMm3": 4000,
+        "finalVolumeMm3": 4317.853981633974,
+        "independentSecondVolumeMm3": 797.8539816339745,
+        "overlapBeforeMm3": 199.99999999999994,
+        "overlapAfterMm3": 280.0,
+        "selectedEdgeFillet": true,
+        "stepReadback": true,
+        "parameterHistoryRebuilt": true,
+        "previousVersionPreserved": true,
+        "failurePreservedHead": true
+      }
+    },
+    "completeEditor": {
+      "format": "joyniu-complete-editor-smoke-v1",
+      "scriptSha256": "9a79cffb3ec05367bb0c435681375c12f7d86e50d91c87054802c17f20a6c42c",
+      "isolatedSyntheticData": true,
+      "checks": {
+        "multiContourHole": true,
+        "ellipseHole": true,
+        "hermiteSpline": true,
+        "spatialSweepHole": true,
+        "arbitraryLoftHole": true,
+        "referenceHelix": true,
+        "helixParameterRebuild": true,
+        "helixInteractivePreview": true,
+        "styledSurface": true,
+        "curvatureBoundaryG2": true,
+        "surfaceJoin": true,
+        "movedFace": true,
+        "pmiAnchorsRebuilt": true,
+        "importWithoutHistory": true,
+        "importedBodyEdited": true,
+        "pdmImmutableRecovery": true,
+        "standardPart": true,
+        "communityPublishedSnapshot": true,
+        "communityReaderIsolation": true,
+        "communityIndependentEdit": true,
+        "communityWithdrawal": true
+      },
+      "geometries": {
+        "multi-contour": {
+          "valid": true,
+          "solidCount": 2,
+          "faceCount": 13,
+          "volumeMm3": 1437.168146928204,
+          "areaMm2": 1137.6991118430774,
+          "sizeMm": [
+            40.0,
+            10.0,
+            5.0
+          ],
+          "step": {
+            "name": "complete-editor-multi-contour.step",
+            "bytes": 36313,
+            "sha256": "d4c8a9b9a1f14a0252d52661bfca17cb7c5fb4929cbf3fee30672955c9019e72"
+          }
+        },
+        "ellipse": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 4,
+          "volumeMm3": 578.053048260522,
+          "areaMm2": 533.0672603159499,
+          "sizeMm": [
+            20.0,
+            10.0,
+            4.0
+          ],
+          "step": {
+            "name": "complete-editor-ellipse.step",
+            "bytes": 9641,
+            "sha256": "605c09cff89df6e23b08c99b613a06a5f6a00aa94144033da8a827018aaebe5b"
+          }
+        },
+        "spline": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 7,
+          "volumeMm3": 483.3333333333361,
+          "areaMm2": 389.71670856093544,
+          "sizeMm": [
+            10.000000199999999,
+            13.000000199999999,
+            5.000000200000001
+          ],
+          "step": {
+            "name": "complete-editor-spline.step",
+            "bytes": 22526,
+            "sha256": "4c6c6d3996f8294e2b10b5ace711a980559f827947e9dca83d196782e66362a4"
+          }
+        },
+        "sweep": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 4,
+          "volumeMm3": 86.35903850953662,
+          "areaMm2": 212.53432468306815,
+          "sizeMm": [
+            4.000000099999999,
+            11.0000001,
+            11.0
+          ],
+          "step": {
+            "name": "complete-editor-sweep.step",
+            "bytes": 10206,
+            "sha256": "145cbe00097c8c6313c185cf3a4b91a7e211d435cb16078f03b0a60db8484d7d"
+          }
+        },
+        "loft": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 7,
+          "volumeMm3": 568.5840738693765,
+          "areaMm2": 499.5488190223144,
+          "sizeMm": [
+            10.000000199999999,
+            12.0000002,
+            6.0000002
+          ],
+          "step": {
+            "name": "complete-editor-loft.step",
+            "bytes": 23898,
+            "sha256": "4f26810fd52b59d25c5ed80a809b3cc9fc2624efcaddd349e2a112c5e13aeceb"
+          }
+        },
+        "helix": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 3,
+          "volumeMm3": 13.431523688163374,
+          "areaMm2": 90.10900834560542,
+          "sizeMm": [
+            10.600031546307388,
+            10.600016065159245,
+            6.595190885357027
+          ],
+          "step": {
+            "name": "complete-editor-helix.step",
+            "bytes": 35309,
+            "sha256": "d004c5913b0acb9fd591f0553b191f67bf3484698edea93dc07c7f455d2eec55"
+          }
+        },
+        "helix-rebuilt": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 3,
+          "volumeMm3": 18.773695646044406,
+          "areaMm2": 125.7234768164319,
+          "sizeMm": [
+            14.600002189366483,
+            14.600001371317589,
+            8.096156044102887
+          ],
+          "step": {
+            "name": "complete-editor-helix-rebuilt.step",
+            "bytes": 37957,
+            "sha256": "f4178852f55b7a8779760182991a3eb0e11b912e73fa4f2fd3fcd393f1399b2c"
+          }
+        },
+        "style": {
+          "valid": true,
+          "solidCount": 0,
+          "faceCount": 1,
+          "volumeMm3": 0,
+          "areaMm2": 84.98865580836573,
+          "sizeMm": [
+            10.000000199999999,
+            8.000000199999999,
+            3.9200001999999996
+          ],
+          "step": {
+            "name": "complete-editor-style.step",
+            "bytes": 5599,
+            "sha256": "d74b0dd79a43948eac7dfb4a27fd96ee959c436fcf469b3a7d436a97bccf3e95"
+          }
+        },
+        "boundary-g2": {
+          "valid": true,
+          "solidCount": 0,
+          "faceCount": 1,
+          "volumeMm3": 0,
+          "areaMm2": 84.98865580836761,
+          "sizeMm": [
+            10.000000199999999,
+            8.000000199999999,
+            3.9200001999999996
+          ],
+          "step": {
+            "name": "complete-editor-boundary-g2.step",
+            "bytes": 6726,
+            "sha256": "1992269e6561b9f2a5cfa07796d04811a1167a9c40feaa07034a5a8221f42b03"
+          }
+        },
+        "joined-sheets": {
+          "valid": true,
+          "solidCount": 0,
+          "faceCount": 1,
+          "volumeMm3": 0,
+          "areaMm2": 159.99999999999997,
+          "sizeMm": [
+            20.000000200000002,
+            8.000000199999999,
+            2e-07
+          ],
+          "step": {
+            "name": "complete-editor-joined-sheets.step",
+            "bytes": 4825,
+            "sha256": "368836445d95e65326615e9e7314643b649943d4bb0ee2bd7c1205393bdf7382"
+          }
+        },
+        "pmi-rebuilt": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 6,
+          "volumeMm3": 4800.0,
+          "areaMm2": 1879.9999999999998,
+          "sizeMm": [
+            30.0,
+            16.0,
+            10.0
+          ],
+          "step": {
+            "name": "complete-editor-pmi-rebuilt.step",
+            "bytes": 15418,
+            "sha256": "8b27be3d4520e9d40fdb43c0a8419a9b6c9063cb34da7cc76fde6cc71401e680"
+          }
+        },
+        "import-edited": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 6,
+          "volumeMm3": 3840.0,
+          "areaMm2": 1504.0,
+          "sizeMm": [
+            20.0,
+            16.0,
+            12.0
+          ],
+          "step": {
+            "name": "complete-editor-import-edited.step",
+            "bytes": 15412,
+            "sha256": "53abeceb668b263c834eb2e914159d109dafa88998787336588f1aaba3125e97"
+          }
+        },
+        "pdm-reopened": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 6,
+          "volumeMm3": 3840.0,
+          "areaMm2": 1504.0,
+          "sizeMm": [
+            20.0,
+            16.0,
+            12.0
+          ],
+          "step": {
+            "name": "complete-editor-pdm-reopened.step",
+            "bytes": 15412,
+            "sha256": "dac57091caa3e6bb597337c486933e198709465fd4521c9d6dd7c6e5092e8ba2"
+          }
+        },
+        "standard-part": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 4,
+          "volumeMm3": 233.03077667266626,
+          "areaMm2": 413.9362480369748,
+          "sizeMm": [
+            16.0,
+            16.0,
+            1.6
+          ],
+          "step": {
+            "name": "complete-editor-standard-part.step",
+            "bytes": 9638,
+            "sha256": "8847185bcd460d5c506a84e9f1bda538a7ab6338c74b9634b97d3aa0e4e440ae"
+          }
+        },
+        "community-download": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 6,
+          "volumeMm3": 599.9999999999999,
+          "areaMm2": 459.99999999999994,
+          "sizeMm": [
+            12.0,
+            10.0,
+            5.0
+          ],
+          "step": {
+            "name": "complete-editor-community-download.step",
+            "bytes": 15403,
+            "sha256": "770dc700df4f1e73da743958fc29185123841b5ea60127688c004d52512f7864"
+          }
+        },
+        "community-edited-copy": {
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 6,
+          "volumeMm3": 999.9999999999998,
+          "areaMm2": 699.9999999999999,
+          "sizeMm": [
+            20.0,
+            10.0,
+            5.0
+          ],
+          "step": {
+            "name": "complete-editor-community-edited-copy.step",
+            "bytes": 15403,
+            "sha256": "d5db53be4eeb1d3f12c695bc8821badf2b9e0522100628a54681d99b01d9e370"
+          }
+        }
+      },
+      "details": {
+        "helix": {
+          "savedRevisions": 2,
+          "radiusBefore": 5,
+          "radiusAfter": 7,
+          "pitchAfter": 5,
+          "exactCurvedEdges": 1,
+          "previewVertices": 78649,
+          "previewTriangles": 156346,
+          "previewPreservedHead": true
+        },
+        "g2": {
+          "edgeSamples": 4,
+          "maxCurvatureError": 3.180095076160683e-14,
+          "nonzeroSourceCurvature": true
+        },
+        "pmi": {
+          "measurementBeforeMm": 16,
+          "measurementAfterMm": 24,
+          "savedRevisions": 2,
+          "oldVersionPreserved": true
+        },
+        "pdm": {
+          "idempotent": true,
+          "missingSourceRestored": true,
+          "independentRebuild": true,
+          "manufacturingConfirmed": false,
+          "archive": {
+            "name": "complete-editor-pdm.zip",
+            "bytes": 10876,
+            "sha256": "7c0f12e06fc616174969d96752b639388d4763c01e0c58b2b5f7cb987e15523a"
+          }
+        },
+        "standardPart": {
+          "catalogId": "washer-m8",
+          "nominalDimensions": {
+            "innerDiameter": 8.4,
+            "outerDiameter": 16,
+            "length": 1.6
+          }
+        },
+        "community": {
+          "publicFieldsOnly": true,
+          "publicationIdempotent": true,
+          "copyIdempotent": true,
+          "immutablePublishedRevision": true,
+          "independentCopy": true,
+          "parameterEdit": true,
+          "foreignWithdrawRejected": true,
+          "withdrawalRejectedDownloads": true,
+          "withdrawalRejectedOpen": true,
+          "withdrawalRejectedRetry": true,
+          "existingCopyPreserved": true,
+          "manufacturingConfirmed": false,
+          "sourceRevision": 1,
+          "sourceHeadRevision": 2,
+          "copyRevision": 2,
+          "publishedVolumeMm3": 600,
+          "editedCopyVolumeMm3": 1000,
+          "glb": {
+            "name": "complete-editor-community.glb",
+            "bytes": 1964,
+            "sha256": "9ed845113a54121ee80923413333f1504df367e19fb1e409e32f26e85fe192bb"
+          },
+          "archive": {
+            "name": "complete-editor-community.zip",
+            "bytes": 5233,
+            "sha256": "5c5edbf0d9dc67ae7e1b6ce881d59673f62fd6d1677d7490a2c06d8b08a2b674"
+          }
+        }
+      }
+    }
+  },
+  "http": {
+    "anonymousStatus": {
+      "/api/cad/drawings": 401,
+      "/api/cad/features": 401,
+      "/api/cad/designs": 401,
+      "/api/cad/deliveries": 401
+    },
+    "syntheticLogin": true,
+    "authenticatedLists": true,
+    "deliveryArchiveVerified": true,
+    "cadEditor": {
+      "anonymousRejected": true,
+      "readerRejected": true,
+      "ownerOnlyArtifacts": true,
+      "staleInteractivePickRejected": true,
+      "atomicHttpCommit": true,
+      "httpIdempotency": true,
+      "foreignUpdateRejected": true,
+      "revisionConflictPreservedHead": true,
+      "maintenanceProbe": true,
+      "commitWaitedForPreviews": true,
+      "concurrency": {
+        "occupiedPreviewWorkers": 2,
+        "previewSolidsEach": 1,
+        "previewRejectedImmediately": true,
+        "previewAdmissionMs": 4,
+        "commitElapsedMs": 7118,
+        "stepReadback": true,
+        "capacityReusable": true
+      }
+    }
+  },
+  "restore": {
+    "sourceUnchanged": true,
+    "originalDatabaseRowsPreserved": false,
+    "requiredOriginalRowsPreserved": true,
+    "businessRowsPreserved": true,
+    "databases": 4,
+    "sourceFiles": 873,
+    "expiredAuthRateLimitRowsAllowed": 1,
+    "expiredAuthRateLimitRowsRemoved": 1,
+    "expiredManualPreviewRowsAllowed": 8,
+    "expiredManualPreviewRowsRemoved": 8,
+    "expiredAuthRateLimitCutoffEpoch": 1789295509,
+    "expiredManualPreviewCutoffEpoch": 1789293709,
+    "previewCacheTtlSeconds": 1800,
+    "rowPreservationException": "Only exact auth_rate_limits rows expired at smoke start and exact manual_feature_previews cache rows created more than 1800 seconds before smoke start may be deleted. Identity reuse, row changes, saved feature revisions and all other business-data changes remain forbidden."
+  }
+}

@@ -62,6 +62,9 @@ app = FastAPI(
     ),
 )
 
+from .operations_gate import OperationsGateMiddleware
+app.add_middleware(OperationsGateMiddleware)
+
 origins = [
     item.strip()
     for item in os.getenv(
@@ -1294,12 +1297,12 @@ try:  # pragma: no cover - exercised when platform module is present
     # those duplicate routes from OpenAPI to avoid ambiguous operation ids and
     # a documented response shape that differs from the route selected at
     # runtime.
-    _platform_compat_router = create_platform_router(platform_services)
+    _platform_compat_router = create_platform_router(platform_services, billing_provider=lambda: getattr(app.state, "billing_service", None))
     for _route in _platform_compat_router.routes:
         if getattr(_route, "path", None) == "/health":
             _route.include_in_schema = False
     app.include_router(_platform_compat_router, prefix="/api")
-    _platform_v1_router = create_platform_router(platform_services)
+    _platform_v1_router = create_platform_router(platform_services, billing_provider=lambda: getattr(app.state, "billing_service", None))
     for _route in _platform_v1_router.routes:
         if getattr(_route, "path", None) == "/health":
             _route.include_in_schema = False
@@ -1314,14 +1317,57 @@ except Exception as exc:  # pragma: no cover - optional platform dependency
 
 
 if platform_services is not None:
+    from .auth_account_api import create_account_router
+    from .account_workspace_api import create_account_workspace_router
+    from .billing_api import create_billing_router
+    from .billing import BillingService
+    from .billing_policy import BillingPolicyService
+    from .billing_policy_api import create_billing_policy_router
+    from .wechat_payment import WechatPayNativeAdapter
     from .cad_agent_api import create_cad_agent_router
     from .cad_agent_store import CadRunStore
+    from .commercial_terms_api import create_commercial_terms_router
+    from .support_api import create_support_router
+    from .admin_operations_api import create_admin_operations_router
 
     cad_agent_store = CadRunStore(os.getenv(
         "JOYNIU_CAD_AGENT_DIR", str(Path(__file__).resolve().parents[1] / "data" / "cad-agent"),
     ))
     app.state.cad_agent_store = cad_agent_store
-    app.include_router(create_cad_agent_router(platform_services, cad_agent_store))
+    app.include_router(create_account_router(platform_services), prefix="/api/v1")
+    app.include_router(create_account_workspace_router(platform_services), prefix="/api/v1")
+    terms_router = create_commercial_terms_router(platform_services)
+    app.state.commercial_terms = terms_router.terms_service
+    app.include_router(terms_router, prefix="/api/v1")
+    billing_service = BillingService(platform_services.auth.database, auth=platform_services.auth,
+        payment_adapter=WechatPayNativeAdapter.from_env(),
+        online_payments_enabled=os.getenv("JOYNIU_ONLINE_PAYMENTS_ENABLED", "false").lower() == "true",
+        terms_provider=terms_router.terms_service,
+        refunds_enabled=os.getenv("JOYNIU_REFUNDS_ENABLED", "false").lower() == "true")
+    billing_router = create_billing_router(platform_services, billing=billing_service)
+    billing_policy = BillingPolicyService(billing_service)
+    billing_service.charging_status_provider = billing_policy.status
+    app.state.billing_policy = billing_policy
+    app.include_router(create_billing_policy_router(platform_services, billing=billing_service, policy=billing_policy), prefix="/api/v1")
+    app.state.billing_service = billing_router.billing_service
+    app.include_router(billing_router, prefix="/api/v1")
+    app.include_router(create_cad_agent_router(platform_services, cad_agent_store, billing=billing_service, billing_policy=billing_policy))
+    from .native_drawing_api import create_native_drawing_router
+    app.include_router(create_native_drawing_router(platform_services))
+    from .cad_feature_workspace_api import create_cad_feature_workspace_router
+    app.include_router(create_cad_feature_workspace_router(platform_services, source_store=cad_agent_store))
+    from .cad_community_api import create_cad_community_router
+    app.include_router(create_cad_community_router(platform_services))
+    from .cad_design_workspace_api import create_cad_design_workspace_router
+    app.include_router(create_cad_design_workspace_router(platform_services, billing=billing_service, billing_policy=billing_policy, cad_store=cad_agent_store))
+    from .delivery_workspace_api import create_delivery_workspace_router
+    app.include_router(create_delivery_workspace_router(platform_services, cad_store=cad_agent_store))
+    app.include_router(create_support_router(platform_services, cad_store=cad_agent_store), prefix="/api/v1")
+    app.include_router(create_admin_operations_router(
+        platform_services, cad_store=cad_agent_store,
+        billing=billing_service, billing_policy=billing_policy,
+    ), prefix="/api/v1")
+    app.router.add_event_handler("shutdown", billing_service.close)
 
 
 def run() -> None:

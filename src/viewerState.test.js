@@ -1,9 +1,38 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { generationMatchesModel, updateModelView, fitModelView } from './viewerState.js'
+import { generationMatchesModel, updateModelView, fitModelView, configureViewerZoom, glbFileRecoveryStatus, VIEWER_MIN_ZOOM, VIEWER_MAX_ZOOM } from './viewerState.js'
 
 const shaft = { kind: 'shaft', outerDiameter: 24, length: 70, holeDiameter: 10, keywayWidth: 6, keywayDepth: 3, keywayLength: 40 }
+
+test('signed candidate and confirmed GLBs renew expired access without rebuilding geometry', () => {
+  for (const status of [403, 404]) {
+    for (const error of [{ status }, { response: { status } }, { target: { status } }, new Error(`fetch for model.glb responded with ${status}: Forbidden`)]) {
+      assert.equal(glbFileRecoveryStatus(error, { featureModel: true }), status)
+    }
+  }
+  assert.equal(glbFileRecoveryStatus(new Error('responded with a status of 403'), { featureModel: true }), 403)
+  assert.equal(glbFileRecoveryStatus({ status: 500, message: 'artifact 404: missing' }, { featureModel: true }), null)
+  for (const error of [{ status: 401 }, { status: 500 }, new Error('Failed to fetch'), new Error('model-404-example.glb invalid')]) {
+    assert.equal(glbFileRecoveryStatus(error, { featureModel: true }), null)
+  }
+  assert.equal(glbFileRecoveryStatus({ status: 403 }, { productionReady: true }), null)
+  assert.equal(glbFileRecoveryStatus({ status: 404 }, { productionReady: true }), 404)
+  assert.equal(glbFileRecoveryStatus({ status: 404 }), null)
+})
+
+test('wheel zoom bounds match toolbar limits and keep the full model inside the far clipping plane', () => {
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 5000)
+  const runtime = { camera, controls: {}, baseDistance: 180, modelRadius: 40 }
+  configureViewerZoom(runtime)
+  assert.equal(runtime.baseDistance / runtime.controls.minDistance, VIEWER_MAX_ZOOM)
+  assert.equal(runtime.baseDistance / runtime.controls.maxDistance, VIEWER_MIN_ZOOM)
+  assert.ok(camera.far > runtime.controls.maxDistance + runtime.modelRadius)
+  runtime.baseDistance = 3600
+  runtime.modelRadius = 800
+  configureViewerZoom(runtime)
+  assert.ok(camera.far > runtime.controls.maxDistance + runtime.modelRadius, 'large models stay visible at the minimum toolbar zoom')
+})
 
 test('an artifact with old dimensions is rejected even when stale was not set', () => {
   const generated = { parameters: { ...shaft }, partType: 'shaft' }

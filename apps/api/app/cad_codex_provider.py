@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Callable, Mapping
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from .ai_proxy import AIProxyError, AIProviderTransportError, _reasoning_effort
@@ -84,15 +85,56 @@ def model_name() -> str:
     return value
 
 
+def _proxy_url(value: str) -> str | None:
+    """Validate explicit operator configuration without exposing its contents."""
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        if len(raw) > 4096 or "\\" in raw or any(ord(char) <= 32 or ord(char) == 127 for char in raw):
+            raise ValueError
+        parsed = urlsplit(raw)
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.path not in {"", "/"} or "?" in raw or "#" in raw
+                or parsed.netloc.count("@") > 1
+                or parsed.netloc.rsplit("@", 1)[-1].endswith(":")
+                or (parsed.port is not None and not 1 <= parsed.port <= 65535)):
+            raise ValueError
+        if parsed.username is not None and (not parsed.username or parsed.password is None):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise CodexProviderError("not_configured") from None
+    return raw
+
+
+def _subprocess_environment(proxy_url: str | None) -> dict[str, str]:
+    # Host shell proxies and arbitrary credentials never cross this boundary.
+    # Only this explicitly configured CAD route is allowed through.
+    environment = {key: value for key, value in os.environ.items() if key in _ENV_KEYS}
+    if proxy_url is not None:
+        environment.update({"HTTP_PROXY": proxy_url, "HTTPS_PROXY": proxy_url})
+    return environment
+
+
 def status() -> dict[str, Any]:
     binary = binary_path()
     try:
         model = model_name()
     except CodexProviderError:
         model = None
-    return {"mode": "codex", "name": "codex-cli", "streaming": False, "model": model, "reasoningEffort": _reasoning_effort(),
-            "configured": bool(binary and Path(binary).is_file() and os.access(binary, os.X_OK) and model),
-            "authentication": "cli-managed"}
+    binary_available = bool(binary and Path(binary).is_file() and os.access(binary, os.X_OK))
+    proxy_valid = True
+    try:
+        proxy = _proxy_url(os.environ.get("JOYNIU_CAD_CODEX_PROXY_URL", ""))
+    except CodexProviderError:
+        proxy, proxy_valid = None, False
+    result = {"mode": "codex", "name": "codex-cli", "streaming": False, "model": model, "reasoningEffort": _reasoning_effort(),
+              "configured": bool(binary_available and model and proxy_valid), "binaryAvailable": binary_available,
+              "authentication": "cli-managed", "proxyConfigured": bool(proxy),
+              "deployment": "server" if os.environ.get("JOYNIU_ENV", "").strip().casefold() in {"production", "prod"} else "local"}
+    if not proxy_valid:
+        result["configurationError"] = "invalid_proxy_url"
+    return result
 
 
 def _json_loads(value: str | bytes) -> Any:
@@ -268,7 +310,7 @@ def _kill_group(process: subprocess.Popen) -> None:
 
 
 def _run(args: list[str], prompt: str, directory: Path, deadline: float, diagnostics: dict,
-         publish: Callable[[], None]) -> str:
+         publish: Callable[[], None], *, proxy_url: str | None = None, cancel_event=None) -> str:
     process = None
     selector = selectors.DefaultSelector()
     buffer = bytearray()
@@ -305,7 +347,8 @@ def _run(args: list[str], prompt: str, directory: Path, deadline: float, diagnos
             usage = item.get("usage") or {}
             if isinstance(usage, Mapping):
                 for source, target in (("input_tokens", "input_tokens"), ("output_tokens", "output_tokens"),
-                                       ("cached_input_tokens", "cached_tokens"), ("reasoning_output_tokens", "reasoning_tokens")):
+                                       ("cached_input_tokens", "cached_tokens"), ("reasoning_output_tokens", "reasoning_tokens"),
+                                       ("cache_write_tokens", "cache_write_tokens")):
                     value = usage.get(source)
                     if type(value) is int and 0 <= value <= 10**12:
                         diagnostics.setdefault("usage", {})[target] = value
@@ -336,11 +379,14 @@ def _run(args: list[str], prompt: str, directory: Path, deadline: float, diagnos
         publish()
 
     try:
+        if cancel_event is not None and cancel_event.is_set():
+            from .metered_cad_provider import CadOperationCancelled
+            raise CadOperationCancelled("CAD call cancelled before launch")
         if time.monotonic() >= deadline:
             raise AIProviderTransportError("timeout")
         try:
             process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       cwd=str(directory), env={k: v for k, v in os.environ.items() if k in _ENV_KEYS},
+                                       cwd=str(directory), env=_subprocess_environment(proxy_url),
                                        start_new_session=True, shell=False)
         except OSError:
             raise CodexProviderError("launch_failed") from None
@@ -350,6 +396,9 @@ def _run(args: list[str], prompt: str, directory: Path, deadline: float, diagnos
             os.set_blocking(pipe.fileno(), False)
             selector.register(pipe, mask, data)
         while selector.get_map():
+            if cancel_event is not None and cancel_event.is_set():
+                from .metered_cad_provider import CadOperationCancelled
+                raise CadOperationCancelled("CAD call cancelled")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AIProviderTransportError("timeout")
@@ -394,10 +443,19 @@ def _run(args: list[str], prompt: str, directory: Path, deadline: float, diagnos
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise AIProviderTransportError("timeout")
-        try:
-            exit_code = process.wait(timeout=remaining)
-        except subprocess.TimeoutExpired:
-            raise AIProviderTransportError("timeout") from None
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                from .metered_cad_provider import CadOperationCancelled
+                raise CadOperationCancelled("CAD call cancelled while waiting for process exit")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AIProviderTransportError("timeout")
+            try:
+                exit_code = process.wait(timeout=min(.1, remaining) if cancel_event is not None else remaining)
+                break
+            except subprocess.TimeoutExpired:
+                if cancel_event is None:
+                    raise AIProviderTransportError("timeout") from None
         if exit_code != 0:
             raise CodexProviderError("process_failed")
         if not completed:
@@ -431,11 +489,13 @@ def _run(args: list[str], prompt: str, directory: Path, deadline: float, diagnos
 
 class CodexCadProvider:
     supports_diagnostics = True
+    supports_cancellation = True
 
     def __init__(self):
         # A queued CAD run keeps the selected engine even if the host's
         # configuration changes before later reading or repair operations.
         self._binary = binary_path()
+        self._proxy_configuration = os.environ.get("JOYNIU_CAD_CODEX_PROXY_URL", "")
         self._provider_info = status()
 
     @property
@@ -443,7 +503,7 @@ class CodexCadProvider:
         return dict(self._provider_info)
 
     def __call__(self, body: Mapping[str, Any], timeout: float,
-                 on_diagnostics: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+                 on_diagnostics: Callable[[dict[str, Any]], None] | None = None, *, cancel_event=None) -> dict[str, Any]:
         start = time.monotonic()
         diagnostics = {"protocol": "json", "eventCount": 0, "terminalEventCount": 0,
                        "responseBytes": 0, "outputChars": 0, "terminalStatus": "unknown",
@@ -468,11 +528,13 @@ class CodexCadProvider:
                 raise CodexProviderError("invalid_input")
             if not binary or not Path(binary).is_file() or not os.access(binary, os.X_OK):
                 raise CodexProviderError("not_configured")
+            proxy_url = _proxy_url(self._proxy_configuration)
             with tempfile.TemporaryDirectory(prefix="joyniu-codex-inference-") as name:
                 directory = Path(name)
                 prompt, images, effort, schema = _prepare(body, directory)
                 final = _run(_argv(binary, model, directory, images, effort, schema), prompt, directory,
-                             start + timeout, diagnostics, publish)
+                             start + timeout, diagnostics, publish, proxy_url=proxy_url,
+                             **({"cancel_event": cancel_event} if cancel_event is not None else {}))
             publish()
             return {"id": "codex-" + uuid4().hex, "object": "response", "status": "completed",
                     "model": model, "output": [{"type": "message", "role": "assistant", "phase": "final_answer",

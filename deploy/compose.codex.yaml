@@ -1,0 +1,44 @@
+# Build the regular API image first, then explicitly opt into this engine.
+# Paths remain relative to the root compose.yaml.
+services:
+  api:
+    image: joyniu-cad-api-codex
+    build:
+      dockerfile: deploy/Dockerfile.codex
+      args:
+        CAD_API_IMAGE: joyniu-cad-api
+    environment:
+      JOYNIU_CAD_PROVIDER: codex
+      JOYNIU_CAD_CODEX_BINARY: /usr/local/bin/codex
+      JOYNIU_CAD_CODEX_MODEL: gpt-6-astra
+      JOYNIU_CAD_CODEX_PROXY_URL: http://cad-egress:7890
+      CODEX_HOME: /run/joyniu-codex
+    volumes:
+      - ./deploy/.secrets/codex:/run/joyniu-codex
+    depends_on:
+      cad-egress:
+        condition: service_started
+
+  cad-egress:
+    image: joyniu-cad-egress:v1.19.30
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.egress
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: ["-d", "/tmp/mihomo", "-f", "/etc/mihomo/config.yaml"]
+    volumes:
+      - ./deploy/.secrets/egress/config.yaml:/etc/mihomo/config.yaml:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=10001,gid=10001
+    expose: ["7890"]
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

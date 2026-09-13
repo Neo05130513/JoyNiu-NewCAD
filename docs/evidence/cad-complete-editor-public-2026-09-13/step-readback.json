@@ -1,0 +1,18 @@
+{
+  "joyniu-complete-multibody.step": {
+    "valid": true,
+    "solids": 2,
+    "faces": 13,
+    "volumeMm3": 5730.309799870473,
+    "expectedVolumeMm3": 5730.309799870501,
+    "sha256": "a472f4c912689e7d162ec63e65977918162f5a7b013023657cdd6ff9535f77bf"
+  },
+  "joyniu-complete-edited.step": {
+    "valid": true,
+    "solids": 2,
+    "faces": 14,
+    "volumeMm3": 6480.309799870463,
+    "expectedVolumeMm3": 6480.309799870501,
+    "sha256": "d0dbad48be1fa10e6c1a417d910f258aaef43592226759826d959a3bb5ff554b"
+  }
+}

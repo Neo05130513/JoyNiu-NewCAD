@@ -1,0 +1,22 @@
+const paths={
+  undo:<><path d="M8 4 3 9l5 5M4 9h9c5 0 7 3 7 8"/></>,redo:<><path d="m16 4 5 5-5 5M20 9h-9c-5 0-7 3-7 8"/></>,
+  sketch:<><path fill="#c9d3ff" d="m3 16 10-9 9 6-10 9Z"/><path d="m6 11 8-8 3 3-8 8-4 1Z"/></>,
+  extrude:<><path fill="#c9d3ff" d="m5 10 7-4 7 4v10l-7 3-7-3Z"/><path d="m5 10 7 4 7-4M12 14v9M12 2v7m-3-4 3-3 3 3"/></>,
+  fillet:<><path fill="#c9d3ff" d="M4 21V7a3 3 0 0 1 3-3h10l4 4v13Z"/><path d="M4 11h9a4 4 0 0 1 4 4v6M17 4v6"/></>,
+  pattern:<><rect fill="#c9d3ff" x="2" y="3" width="7" height="7"/><rect x="15" y="3" width="7" height="7"/><rect x="2" y="16" width="7" height="7"/><rect x="15" y="16" width="7" height="7"/></>,
+  mirror:<><path d="M12 1v22M8 5H3v14h5ZM16 5h5v14h-5Z"/><path fill="#c9d3ff" d="M8 5H3v14h5Z"/></>,
+  boolean:<><circle fill="#c9d3ff" cx="9" cy="13" r="7"/><circle cx="16" cy="9" r="7"/></>,
+  plane:<><path fill="#c9d3ff" d="m6 4 15 3-4 14-15-3Z"/><path d="M2 21h13M5 18l-1 5"/></>,
+  gear:<><path d="m9 2 6 0 1 3 3 1 3 3-1 3 1 3-3 3-3 1-1 3H9l-1-3-3-1-3-3 1-3-1-3 3-3 3-1Z"/><circle fill="#c9d3ff" cx="12" cy="12" r="4"/></>,
+  spring:<><path d="M7 2c19 0 12 5 3 5S1 12 12 12s12 5 2 5-10 5 4 5M7 2 5 3M18 22l2-2"/></>,
+  measure:<><path d="M3 4v15h18M7 3v6M11 3v4M15 3v6M19 3v4M5 14l3-3 9 0 3 3M5 14l3 3m-3-3h15m0 0-3 3"/></>,
+  pmi:<><path d="M3 3v18M21 3v18M3 7h18M3 17h18M8 10v4m4-4v4m4-4v4"/></>,
+  appearance:<><circle fill="#c9d3ff" cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18"/></>,
+  export:<><path d="M3 3h11v8H3ZM3 11v10h17v-7M14 6h8m-4-4 4 4-4 4"/></>,
+  save:<><path d="M3 3h15l3 3v15H3ZM7 3v6h10V3M7 21v-8h10v8"/></>,
+  ai:<><path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z"/></>,
+  cube:<><path fill="#c9d3ff" d="m12 2 10 6v11l-10 5-10-5V8Z"/><path d="m2 8 10 6 10-6M12 14v10"/></>,
+  surface:<><path fill="#c9d3ff" d="M2 7q5-6 10 0t10 0v11q-5 6-10 0T2 18Z"/></>,
+  eye:<><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12"/><circle cx="12" cy="12" r="3"/></>,
+}
+export default function CadEditorIcon({name='cube',size=22}){return <svg width={size} height={size} viewBox="0 0 24 26" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]||paths.cube}</svg>}

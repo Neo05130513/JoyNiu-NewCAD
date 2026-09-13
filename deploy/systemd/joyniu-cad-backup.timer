@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry JoyNiu CAD backup when idle (default once per 24 hours)
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=60
+Persistent=true
+Unit=joyniu-cad-backup.service
+
+[Install]
+WantedBy=timers.target

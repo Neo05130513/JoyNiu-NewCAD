@@ -1,0 +1,7 @@
+{
+  "backup": "/opt/joyniu-backups/scheduled/scheduled-20260913T103110Z-ac38224c",
+  "backupManifestSha256": "1092781afd9e40d542bbc38da9f9808e3e369244acbefba12b6451ab595d6139",
+  "restoreCopy": "/opt/joyniu-candidates/cad-editor-parity-20260913-r8/restore-copy",
+  "databases": 4,
+  "files": 1294
+}

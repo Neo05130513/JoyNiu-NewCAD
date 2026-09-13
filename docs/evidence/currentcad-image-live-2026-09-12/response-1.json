@@ -1,0 +1,26 @@
+{
+  "id": "codex-081f3e271f384d6492515a65df3d1004",
+  "object": "response",
+  "status": "completed",
+  "model": "gpt-6-astra",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "phase": "final_answer",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"annotations\":[],\"questions\":[]}"
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 5689,
+    "output_tokens": 11,
+    "cached_tokens": 2816,
+    "reasoning_tokens": 0
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "compiler": null,
+  "tools": {
+    "dwgread": {
+      "path": "/usr/local/bin/dwgread",
+      "dependencies": "\tlinux-vdso.so.1 (0x0000f2091c41d000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000f2091b2a0000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000f2091b0f0000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000f2091c3e0000)\n"
+    },
+    "dwg2dxf": {
+      "path": "/usr/local/bin/dwg2dxf",
+      "dependencies": "\tlinux-vdso.so.1 (0x0000f9e68203a000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000f9e681260000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000f9e6810b0000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000f9e681ff0000)\n"
+    },
+    "dxf2dwg": {
+      "path": "/usr/local/bin/dxf2dwg",
+      "dependencies": "\tlinux-vdso.so.1 (0x0000fc1f6e66b000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000fc1f6dbc0000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000fc1f6da10000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000fc1f6e620000)\n"
+    },
+    "joyniu-native-dwg-adapter": {
+      "path": "/usr/local/bin/joyniu-native-dwg-adapter",
+      "dependencies": "\tlinux-vdso.so.1 (0x0000faf7f39dd000)\n\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000faf7f2f40000)\n\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000faf7f2d90000)\n\t/lib/ld-linux-aarch64.so.1 (0x0000faf7f39a0000)\n"
+    }
+  }
+}

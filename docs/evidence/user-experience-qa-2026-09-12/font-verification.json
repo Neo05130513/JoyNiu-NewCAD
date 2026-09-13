@@ -1,0 +1,17 @@
+{
+  "fonts": [
+    {
+      "name": "HOPCHP+Droid Sans Fallback Regular",
+      "type": "Type0",
+      "encoding": "Identity-H",
+      "embeddedBytes": 407568
+    }
+  ],
+  "newPdfBytes": 171096,
+  "oldPdfBytes": 166386,
+  "textUnchanged": true,
+  "pageSizeUnchanged": true,
+  "oldDrawingCount": 896,
+  "newDrawingCount": 896,
+  "text": "gear-model.step\n单位 mm · OCCT 实体投影 · 曲线离散 0.05 mm\nFRONT  1:1\nRIGHT  1:1\n15\n"
+}

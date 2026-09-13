@@ -4,9 +4,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { API_BASE, api } from './api.js'
 import { archedClevisSupportGeometries, clampSupportBaseGeometry, shaftPreviewSegments } from './viewerGeometry.js'
-import { generationMatchesModel, updateModelView, fitModelView } from './viewerState.js'
+import { generationMatchesModel, updateModelView, fitModelView, configureViewerZoom, glbFileRecoveryStatus, VIEWER_MIN_ZOOM as MIN_ZOOM, VIEWER_MAX_ZOOM as MAX_ZOOM } from './viewerState.js'
 import { canonicalModelKind } from './modelValidation.js'
 import { isFeatureModel } from './cadAgentState.js'
+import './viewer-interactions.css'
 
 /*
  * The workbench used to draw a convincing-looking SVG projection.  That is
@@ -17,9 +18,6 @@ import { isFeatureModel } from './cadAgentState.js'
  * fallback so the UI remains inspectable while the API is offline; the status
  * badge always tells the operator which source is on screen.
  */
-
-const MIN_ZOOM = 0.55
-const MAX_ZOOM = 1.8
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 const number = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback
@@ -696,17 +694,21 @@ function setMaterialsClipping(root, planes) {
 }
 
 function viewDirection(view) {
-  if (view === 'front') return new THREE.Vector3(0, -1, 0.18)
-  if (view === 'top') return new THREE.Vector3(0, 0, 1)
+  if (view === 'front') return new THREE.Vector3(0, -1, 0)
+  if (view === 'top') return new THREE.Vector3(0, -0.000001, 1)
   return new THREE.Vector3(1.55, -1.85, 1.2)
 }
 
 function applyCameraPreset(runtime, view, zoom = 1) {
   if (!runtime?.model || !runtime.baseDistance) return
+  // Finish any drag inertia before applying a precise view direction.
+  const damping = runtime.controls.enableDamping
+  runtime.controls.enableDamping = false
+  runtime.controls.update()
+  runtime.controls.enableDamping = damping
   const direction = viewDirection(view).normalize()
   const distance = runtime.baseDistance / clamp(Number(zoom) || 1, MIN_ZOOM, MAX_ZOOM)
   runtime.camera.up.set(0, 0, 1)
-  if (view === 'top') runtime.camera.up.set(0, 1, 0)
   runtime.camera.position.copy(runtime.target).addScaledVector(direction, distance)
   runtime.camera.lookAt(runtime.target)
   runtime.controls.target.copy(runtime.target)
@@ -721,16 +723,19 @@ function applyZoom(runtime, zoom) {
   runtime.controls.update()
 }
 
-export default function ThreeDViewer({ model, generation, view = 'isometric', section = false, zoom = 1, onZoomChange, onProductionGlbLoadError, resetNonce = 0 }) {
+export default function ThreeDViewer({ model, generation, view = 'isometric', section = false, zoom = 1, onZoomChange, onProductionGlbLoadError, resetNonce = 0, viewResetNonce = 0 }) {
   const hostRef = useRef(null)
   const runtimeRef = useRef(null)
   const viewRef = useRef(view)
   const zoomRef = useRef(zoom)
   const sectionRef = useRef(section)
   const productionGlbLoadErrorRef = useRef(onProductionGlbLoadError)
+  const zoomChangeRef = useRef(onZoomChange)
   const reportedGlbFailuresRef = useRef(new Set())
   const [ready, setReady] = useState(false)
   const [status, setStatus] = useState({ phase: 'initializing', source: '', message: '' })
+  const [loadRetryNonce, setLoadRetryNonce] = useState(0)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   // Keep asynchronous GLB callbacks aligned with the latest toolbar state.
   // The loading effect intentionally does not depend on view/zoom/section,
@@ -739,6 +744,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
   zoomRef.current = zoom
   sectionRef.current = section
   productionGlbLoadErrorRef.current = onProductionGlbLoadError
+  zoomChangeRef.current = onZoomChange
 
   const artifactMatchesModel = generationMatchesModel(model, generation)
   const featureModel = isFeatureModel(model)
@@ -903,8 +909,8 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     controls.dampingFactor = 0.075
     controls.enablePan = true
     controls.screenSpacePanning = true
-    controls.minPolarAngle = 0.04
-    controls.maxPolarAngle = Math.PI - 0.04
+    controls.minPolarAngle = 0
+    controls.maxPolarAngle = Math.PI
     controls.rotateSpeed = 0.78
     controls.zoomSpeed = 0.85
     controls.panSpeed = 0.7
@@ -973,10 +979,10 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     const reportZoom = () => {
       if (runtime.suppressZoomReport || !runtime.model || !runtime.baseDistance) return
       const distance = camera.position.distanceTo(controls.target)
-      const next = clamp(runtime.baseDistance / Math.max(distance, 0.01), MIN_ZOOM, MAX_ZOOM)
-      if (Math.abs(next - runtime.lastReportedZoom) > 0.018) {
+      const next = Number(clamp(runtime.baseDistance / Math.max(distance, 0.01), MIN_ZOOM, MAX_ZOOM).toFixed(2))
+      if (next !== runtime.lastReportedZoom) {
         runtime.lastReportedZoom = next
-        onZoomChange?.(Number(next.toFixed(2)))
+        zoomChangeRef.current?.(next)
       }
     }
     controls.addEventListener('change', reportZoom)
@@ -1018,6 +1024,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     const runtime = runtimeRef.current
     if (!ready || !runtime) return undefined
     let cancelled = false
+    setLoadFailed(false)
     const oldModel = runtime.model
     if (oldModel) {
       runtime.scene.remove(oldModel)
@@ -1043,12 +1050,8 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
       const center = box.getCenter(new THREE.Vector3())
       const radius = Math.max(size.length() / 2, 1)
       const preserveView = updateModelView(runtime, center, radius, canonicalModelKind(model))
-      const currentDistance = runtime.camera.position.distanceTo(runtime.controls.target)
       runtime.camera.near = Math.max(radius / 100, 0.01)
-      runtime.camera.far = Math.max(radius * 24, currentDistance + radius * 2, 1000)
-      runtime.camera.updateProjectionMatrix()
-      runtime.controls.minDistance = preserveView ? Math.min(currentDistance * 0.9, Math.max(radius * 0.26, 0.2)) : Math.max(radius * 0.26, 0.2)
-      runtime.controls.maxDistance = Math.max(radius * 12, currentDistance * 2, 100)
+      configureViewerZoom(runtime)
       runtime.suppressZoomReport = true
       if (preserveView) runtime.controls.update()
       else applyCameraPreset(runtime, viewRef.current, zoomRef.current)
@@ -1077,24 +1080,30 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     const loader = new GLTFLoader()
     loader.load(glbUrl, (gltf) => {
       if (cancelled) return
-      attach(prepareLoadedScene(gltf.scene), `真实 GLB · ${glbArtifact?.engine || generation?.engine || 'CadQuery/OCCT'}`, '已从 FastAPI artifact 加载 GLB；STEP 仍是生产 B-Rep 交付物。')
+      attach(prepareLoadedScene(gltf.scene), `真实 GLB · ${glbArtifact?.engine || generation?.engine || 'CadQuery/OCCT'}`, generation?.reviewIncomplete
+        ? '实体草稿 · 图纸复核未完成。可旋转查看当前实体，完成复核并确认后才能交付。'
+        : '已从 FastAPI artifact 加载 GLB；STEP 仍是生产 B-Rep 交付物。')
     }, undefined, (error) => {
       if (cancelled) return
       // A broken/expired process-local artifact must not leave a blank canvas.
       // Fall back visibly and keep the error in the status line for diagnosis.
       const detail = error?.message || 'GLB 加载失败'
-      if (featureModel) setStatus({ phase: 'error', source: '实体预览加载失败', message: '当前实体文件读取失败，请重新生成实体后再试。' })
+      setLoadFailed(true)
+      if (featureModel) setStatus({ phase: 'error', source: '实体预览加载失败', message: '当前实体文件读取失败。可以重试载入，模型参数会保留。' })
       else attach(makeFallback(model), '参数化 WebGL fallback', `真实 GLB 加载失败（${detail}），已切换到可交互参数预览。`)
-      const statusCode = Number(error?.target?.status || error?.response?.status || error?.status)
-      const missingArtifact = statusCode === 404 || /responded with (?:a status of )?404|\b404\s*(?::|Not Found)/i.test(detail)
-      if (productionCadGlb && missingArtifact) {
-        const failureKey = `${generation?.requestId || 'unknown'}:${glbArtifact?.id || glbUrl}`
+      const recoveryStatus = glbFileRecoveryStatus(error, { featureModel, productionReady: productionCadGlb })
+      if (recoveryStatus) {
+        const failureKey = featureModel ? `${model.agentRun?.runId}:${model.agentRun?.revision}:${glbUrl}`
+          : `${generation?.requestId || 'unknown'}:${glbArtifact?.id || glbUrl}`
         if (!reportedGlbFailuresRef.current.has(failureKey)) {
           reportedGlbFailuresRef.current.add(failureKey)
           productionGlbLoadErrorRef.current?.({
             requestId: generation?.requestId || '',
             artifactId: glbArtifact?.id || '',
             artifactUrl: glbUrl,
+            runId: model.agentRun?.runId || '',
+            revision: model.agentRun?.revision,
+            status: recoveryStatus,
             message: detail,
           })
         }
@@ -1104,7 +1113,7 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     // The generation object can contain transient metadata; the GLB URL and
     // parameter signature are the actual model identity for this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, glbUrl, modelSignature])
+  }, [ready, glbUrl, modelSignature, loadRetryNonce])
 
   useEffect(() => {
     const runtime = runtimeRef.current
@@ -1112,21 +1121,26 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
     runtime.suppressZoomReport = true
     applyCameraPreset(runtime, view, zoom)
     runtime.suppressZoomReport = false
-  }, [view])
+  }, [view, viewResetNonce])
 
   useEffect(() => {
     const runtime = runtimeRef.current
     if (!runtime?.model) return
     runtime.suppressZoomReport = true
     fitModelView(runtime)
-    applyCameraPreset(runtime, 'isometric', 1)
+    configureViewerZoom(runtime)
+    applyCameraPreset(runtime, viewRef.current, 1)
     runtime.suppressZoomReport = false
     runtime.lastReportedZoom = 1
+    zoomChangeRef.current?.(1)
   }, [resetNonce])
 
   useEffect(() => {
     const runtime = runtimeRef.current
     if (!runtime?.model) return
+    // A wheel event already moved the camera. Its rounded toolbar echo must
+    // not move it again or interfere with orbit damping.
+    if (Number(zoom) === runtime.lastReportedZoom) return
     runtime.suppressZoomReport = true
     applyZoom(runtime, zoom)
     runtime.suppressZoomReport = false
@@ -1148,6 +1162,6 @@ export default function ThreeDViewer({ model, generation, view = 'isometric', se
       <span>{status.phase === 'loading' ? '载入 3D 网格…' : status.phase === 'initializing' ? '初始化 WebGL…' : status.phase === 'waiting' ? '等待建模' : status.phase === 'error' ? '预览不可用' : fallbackStatus ? '参数化 3D 预览' : '真实 GLB 3D 网格'}</span>
       {status.source && <b>{status.source}</b>}
     </div>
-    {status.message && <div className={`three-viewer-message ${status.source?.includes('fallback') ? 'warning' : ''}`}>{status.message}</div>}
+    {status.message && <div className={`three-viewer-message ${status.source?.includes('fallback') ? 'warning' : ''}`}>{status.message}{loadFailed && glbUrl && <button type="button" className="three-viewer-retry" onClick={() => { setLoadFailed(false); setLoadRetryNonce((value) => value + 1) }}>重新载入 3D 预览</button>}</div>}
   </div>
 }

@@ -1,0 +1,17 @@
+{
+  "release": "offline-credits-20260912",
+  "sourceBackup": "scheduled-20260912T111611Z-708d62ea",
+  "files": 1039,
+  "databases": 2,
+  "serverIsolatedRestoreVerified": true,
+  "macAuthenticatedDecryptVerified": true,
+  "ciphertextBytes": 60825656,
+  "ciphertextSha256": "1688cb7472d037431a74a999a1dde9d6c55a6e23ac5d4eb531a858f33e0543f9",
+  "algorithm": "AES-256-GCM",
+  "fileMode": "0600",
+  "separatePrivateDirectories": true,
+  "continuousOffsiteSyncConfigured": false,
+  "externalNotificationsConfigured": false,
+  "onlinePaymentsEnabled": false,
+  "actualChargingEnabled": false
+}

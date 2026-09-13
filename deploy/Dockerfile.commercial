@@ -1,0 +1,12 @@
+# An explicitly pinned, already verified Codex/CadQuery/LibreDWG image is required.
+# This small release layer preserves those runtime versions during this upgrade.
+ARG CURRENT_CAD_IMAGE
+FROM ${CURRENT_CAD_IMAGE}
+USER 0:0
+WORKDIR /opt/joyniu-api
+ARG PIP_INDEX_URL=https://pypi.org/simple
+COPY apps/api/pyproject.toml apps/api/README.md ./
+RUN python -c "import sys, subprocess, tomllib; deps = tomllib.load(open('pyproject.toml', 'rb'))['project']['optional-dependencies']['payment']; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', '--only-binary=:all:', '--timeout=30', '--retries=2', '--index-url', '${PIP_INDEX_URL}', *deps])"
+COPY apps/api/app ./app
+RUN python -c "from pathlib import Path; [p.unlink() for p in Path('app').rglob('._*') if p.is_file()]"
+USER 10001:10001

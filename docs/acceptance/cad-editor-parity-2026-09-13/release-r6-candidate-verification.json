@@ -1,0 +1,33 @@
+{
+  "sourceAndBuildSha256": "e3f3e4774b2b2d72b34f6b0999aabccd81ce409225ce522afde3b7f8c5d4baf6",
+  "apiImage": {
+    "tag": "joyniu-cad-api-codex:cad-editor-parity-20260913-r6",
+    "id": "sha256:a4c96cc7ba87572d3f80f6986bd7ca43e73e785a8658d8e23d76af260e82f26c",
+    "architecture": "amd64"
+  },
+  "webImage": {
+    "tag": "joyniu-cad-web:cad-editor-parity-20260913-r6",
+    "id": "sha256:feabd24fe2df5b58d88a7029c02ad96f7e23f3e536dfacec6157f06572edcf6b",
+    "architecture": "amd64"
+  },
+  "baseImage": {
+    "tag": "joyniu-cad-api-codex:cad-editor-parity-20260913-r4",
+    "id": "sha256:d0ba40e977ff5e97ad4e6fa64f087634a4d50f768167c8ed27a76e91c4743502",
+    "architecture": "amd64"
+  },
+  "toolsImage": {
+    "tag": "joyniu-currentcad-tools:20260912-amd64",
+    "id": "sha256:689cfa61d5abdc1bbe68fbd799539cc5de779b5e92402217e7c469fe374ed042",
+    "architecture": "amd64"
+  },
+  "smoke": {
+    "path": "evidence/verification.json",
+    "sha256": "46ba0626d0ff338bab1748a5ed1cfbc1b1c18a030a71b5ea467ccdcf8947931e",
+    "apiImageId": "sha256:a4c96cc7ba87572d3f80f6986bd7ca43e73e785a8658d8e23d76af260e82f26c",
+    "sourceAndBuildSha256": "e3f3e4774b2b2d72b34f6b0999aabccd81ce409225ce522afde3b7f8c5d4baf6",
+    "containerId": "61cfaba3f902e126a95215976dae7bb20541ca22756311c301bfdb6a077a659b",
+    "scriptSha256": "0d30d34e81031b21f312cd52c93f0b9d464d721d6d1cf3fd3159fed285c0c539",
+    "entrypoint": "deploy/cad_editor_release_smoke.py",
+    "editorScriptSha256": "7f4d6d6e244e2055b72adcc084216ab983715805bae1fce8f2702dbc04afc54e"
+  }
+}

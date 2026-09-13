@@ -1,0 +1,24 @@
+# Required: explicitly select the already released Codex API and same-platform
+# static tool image built by build_currentcad_tools.py / Dockerfile.api.
+ARG CURRENT_CAD_IMAGE=required-currentcad-base:unset
+ARG DWG_TOOLS_IMAGE=required-currentcad-tools:unset
+FROM ${DWG_TOOLS_IMAGE} AS currentcad-tools
+FROM ${CURRENT_CAD_IMAGE} AS currentcad
+
+USER 0:0
+WORKDIR /opt/joyniu-api
+ARG PIP_INDEX_URL=https://pypi.org/simple
+COPY apps/api/pyproject.toml apps/api/README.md ./
+# Install only absent/out-of-range dependencies; never upgrade a satisfied
+# CadQuery/OCCT runtime just because a newer release is available.
+RUN python -c "import os, subprocess, sys, tomllib; from importlib.metadata import version; from pip._vendor.packaging.requirements import Requirement; p = tomllib.load(open('pyproject.toml', 'rb'))['project']; deps = list(dict.fromkeys(p['dependencies'] + [dep for extra in ('geometry','ocr','dwg','pdf','image','payment') for dep in p['optional-dependencies'][extra]])); subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', '--only-binary=:all:', '--timeout=30', '--retries=2', '--index-url', os.environ['PIP_INDEX_URL'], *deps]); subprocess.check_call([sys.executable, '-m', 'pip', 'check']); assert all(Requirement(raw).specifier.contains(version(Requirement(raw).name), prereleases=True) for raw in deps)"
+
+COPY --from=currentcad-tools /out/dwgread /out/dwg2dxf /out/dxf2dwg /out/joyniu-native-dwg-adapter /usr/local/bin/
+# These executions reject architecture/glibc mismatches during the build.
+RUN dwgread --version && dwg2dxf --version && dxf2dwg --version && joyniu-native-dwg-adapter --version \
+    && python -c "import shutil; assert not any(shutil.which(x) for x in ('cc','gcc','clang')), 'Runtime must not contain a C compiler'"
+COPY apps/api/app ./app
+RUN python -c "from pathlib import Path; [p.unlink() for p in Path('app').rglob('._*') if p.is_file()]" \
+    && python -c "import cadquery, ezdxf, pymupdf; from app import native_drawing, native_dwg, cad_feature_workspace, cad_design_workspace"
+USER 10001:10001
+# Base CMD, Codex binary and runtime authentication/egress mounts are inherited.

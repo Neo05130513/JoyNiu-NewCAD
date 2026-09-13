@@ -1,0 +1,49 @@
+{
+  "sourceSha256": "0cf1cc7168137aa6b791c90fa320ceff6938ef270134db6d3a6043608d08cc97",
+  "sourceFrozen": true,
+  "changedRuntimeProductCode": false,
+  "changedR7Candidate": false,
+  "tests": {
+    "uniqueTotal": 167,
+    "added": 22,
+    "finalRestoreRulesAndRealHttpAndBasePublisher": 80,
+    "editorPublisher": 84,
+    "coreEditorGeometryAndHook": 3
+  },
+  "diagnostic": {
+    "restoredOriginalSourceUnchanged": true,
+    "providerCalls": 0,
+    "missingTables": [
+      {
+        "database": "joyniu.sqlite3",
+        "table": "auth_rate_limits",
+        "rows": 1,
+        "baselineExpired": true,
+        "sameKeyReinserted": 0
+      },
+      {
+        "database": "cad-feature-workspace/features.sqlite3",
+        "table": "manual_feature_previews",
+        "rows": 8,
+        "baselineExpired": true
+      }
+    ],
+    "otherOriginalTableRowsMissing": 0
+  },
+  "repair": {
+    "previewTtlSeconds": 1800,
+    "previewDatabase": "cad-feature-workspace/features.sqlite3",
+    "strictCreatedBeforeBaselineMinusTtl": true,
+    "exactRowHashes": true,
+    "sameIdReplacementRejected": true,
+    "savedVersionsProtected": true,
+    "allOtherBusinessTablesProtected": true
+  },
+  "scope": "Local targeted real OCCT/HTTP regression and release gate tests. Frozen r7 reproduction used an isolated disposable container and read-only restored source. Root will run the full r8 restored-data candidate smoke separately.",
+  "logs": [
+    "/tmp/joyniu-r7-restoration-diagnose.log",
+    "/tmp/joyniu-r8-restore-final-tests.log",
+    "/tmp/joyniu-r8-release-combined-tests.log",
+    "/tmp/joyniu-r8-final-test-collection.log"
+  ]
+}

@@ -28,6 +28,21 @@ def provider_details(provider=None):
     }))
 
 
+def provider_is_configured(provider=None) -> bool:
+    """Query readiness through instrumentation without invoking a model."""
+    from . import ai_proxy
+    if provider is None or provider is ai_proxy._call_provider:
+        return ai_proxy._provider_configured()
+    check = getattr(provider, "is_configured", None)
+    if callable(check):
+        return bool(check())
+    metadata = getattr(provider, "provider_info", None)
+    if isinstance(metadata, dict) and type(metadata.get("configured")) is bool:
+        return metadata["configured"]
+    # Explicit test/integration providers need not use the remote relay.
+    return True
+
+
 def same_reading_engine(reading, current):
     previous = reading.get("provider") if isinstance(reading, dict) else None
     if not isinstance(previous, dict) or not previous.get("model"):

@@ -1,0 +1,26 @@
+{
+  "frontend": {
+    "tests": 784,
+    "passed": 784,
+    "failed": 0,
+    "skipped": 0,
+    "logSha256": "a35d329fb6694a88685b11c8f3dc8d3af753acad77f968179f6132296ac436c1"
+  },
+  "backendGeometryAndPersistence": {
+    "tests": 282,
+    "failed": 0,
+    "skipped": 0,
+    "junitSha256": "920727ccab901a202f216e5c9e60a38f89615a8c81fa486daa0ce5a5690edb4b"
+  },
+  "communityRuntimeGate": {
+    "testedCases": 88,
+    "fixedRuntimeEvidence": "/tmp/joyniu-complete-editor-community-runtime-evidence",
+    "checks": 21,
+    "stepArtifacts": 16,
+    "zipArtifacts": 2,
+    "glbArtifacts": 1
+  },
+  "build": "VITE_API_BASE=/api/v1 npm run build",
+  "buildWarning": "main JavaScript chunk exceeds 500 kB; build succeeds",
+  "production": "not deployed at the time of this local verification"
+}

@@ -1,0 +1,232 @@
+{
+  "api": "http://localhost:8016",
+  "evidenceBoundary": "Authenticated API 200 and archived payloads; IAB browser download completion not claimed.",
+  "cases": {
+    "user-box": {
+      "id": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+      "name": "用户验收长方体",
+      "createdAt": "2026-09-12T12:55:05.381349+00:00",
+      "metricsReported": {
+        "valid": true,
+        "kernel": "CadQuery / OCCT",
+        "solidCount": 1,
+        "volume": 8100.0,
+        "area": 2830.0,
+        "size": [
+          40.5,
+          20.0,
+          10.0
+        ],
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          40.5,
+          20.0,
+          10.0
+        ]
+      },
+      "files": [
+        {
+          "artifactKey": "step",
+          "file": "user-box.step",
+          "status": 200,
+          "contentType": "application/step",
+          "bytes": 15429,
+          "sha256": "a8840fee3f57444ea93f26432dff799fe02ee8ef64b63ff29a610513eb483aec"
+        }
+      ]
+    },
+    "user-gear": {
+      "id": "design_8add77dec2ff46b48ebc6dd35404ee96",
+      "name": "gear-model.step",
+      "createdAt": "2026-09-12T13:07:21.287702+00:00",
+      "metricsReported": {
+        "valid": true,
+        "kernel": "CadQuery / OCCT",
+        "solidCount": 1,
+        "volume": 24934.83234406697,
+        "area": 8617.444700586075,
+        "size": [
+          52.000000199999995,
+          52.000000199999945,
+          15.000000199999999
+        ],
+        "min": [
+          -26.000000099999998,
+          -26.00000009999994,
+          -1e-07
+        ],
+        "max": [
+          26.000000099999998,
+          26.0000001,
+          15.0000001
+        ]
+      },
+      "files": [
+        {
+          "artifactKey": "step",
+          "file": "user-gear.step",
+          "status": 200,
+          "contentType": "application/step",
+          "bytes": 1132518,
+          "sha256": "989dd09d9111df7e6cd3d17ae2be52d0f95edfe73c54c7a4c5f2b72553944103"
+        },
+        {
+          "artifactKey": "sheet-d15038d9900f424c.svg",
+          "file": "user-gear-sheet.svg",
+          "status": 200,
+          "contentType": "image/svg+xml",
+          "bytes": 175317,
+          "sha256": "4573ecb938b5f75cf529ac67f5c1c885b9f2f3432d97628ffb32470fbdee18c7"
+        },
+        {
+          "artifactKey": "sheet-d15038d9900f424c.dxf",
+          "file": "user-gear-sheet.dxf",
+          "status": 200,
+          "contentType": "application/dxf",
+          "bytes": 257973,
+          "sha256": "668a40793249b56532a641c45d57118fa76bd96f4a423d6bccf3b883fb0c3db7"
+        },
+        {
+          "artifactKey": "sheet-d15038d9900f424c.pdf",
+          "file": "user-gear-sheet.pdf",
+          "status": 200,
+          "contentType": "application/pdf",
+          "bytes": 166386,
+          "sha256": "a3c00221bb1aa8ae1ce3bafdc1af297b7bfece3dea7f0e727d9989d0879bd963"
+        }
+      ],
+      "drawing": {
+        "page": "A3",
+        "layouts": [
+          {
+            "view": "front",
+            "index": 0,
+            "scale": 1.0,
+            "x": 115.5,
+            "y": 154.5,
+            "tx": 115.5,
+            "ty": 147.0,
+            "frame": {
+              "normal": [
+                0,
+                -1,
+                0
+              ],
+              "horizontal": [
+                1,
+                0,
+                0
+              ],
+              "vertical": [
+                0,
+                0,
+                1
+              ],
+              "origin": [
+                0,
+                0,
+                0
+              ]
+            },
+            "naturalSizeMm": [
+              51.99999999999999,
+              15.0
+            ]
+          },
+          {
+            "view": "right",
+            "index": 1,
+            "scale": 1.0,
+            "x": 306.5,
+            "y": 154.5,
+            "tx": 306.49999999999994,
+            "ty": 147.0,
+            "frame": {
+              "normal": [
+                1,
+                0,
+                0
+              ],
+              "horizontal": [
+                0,
+                1,
+                0
+              ],
+              "vertical": [
+                0,
+                0,
+                1
+              ],
+              "origin": [
+                0,
+                0,
+                0
+              ]
+            },
+            "naturalSizeMm": [
+              51.999999999999936,
+              15.0
+            ]
+          }
+        ],
+        "dimensions": [
+          {
+            "index": 0,
+            "value": 15.0,
+            "units": "mm",
+            "orientation": "vertical"
+          }
+        ],
+        "curveToleranceMm": 0.05,
+        "settings": {
+          "page": "A3",
+          "hidden": true,
+          "views": [
+            {
+              "view": "front"
+            },
+            {
+              "view": "right"
+            }
+          ],
+          "dimensions": [
+            {
+              "viewIndex": 1,
+              "orientation": "vertical",
+              "offset": 10,
+              "a": {
+                "kind": "face",
+                "index": 3
+              },
+              "b": {
+                "kind": "face",
+                "index": 4
+              }
+            }
+          ]
+        },
+        "artifacts": {
+          "sheet-d15038d9900f424c.svg": {
+            "filename": "sheet-d15038d9900f424c.svg",
+            "mimeType": "image/svg+xml",
+            "label": "工程图 SVG"
+          },
+          "sheet-d15038d9900f424c.dxf": {
+            "filename": "sheet-d15038d9900f424c.dxf",
+            "mimeType": "application/dxf",
+            "label": "工程图 DXF"
+          },
+          "sheet-d15038d9900f424c.pdf": {
+            "filename": "sheet-d15038d9900f424c.pdf",
+            "mimeType": "application/pdf",
+            "label": "工程图 PDF"
+          }
+        }
+      }
+    }
+  }
+}

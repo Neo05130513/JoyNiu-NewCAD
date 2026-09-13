@@ -1,0 +1,53 @@
+{
+  "method": "Actual FeatureSketchEditor event output -> validate_plan -> OCCT -> STEP readback -> bidirectional solid difference",
+  "results": [
+    {
+      "name": "numeric-box",
+      "valid": true,
+      "solidCount": 1,
+      "sizeMm": [
+        85.0,
+        50.0,
+        12.0
+      ],
+      "volumeMm3": 51000.0,
+      "bidirectionalDifferenceMm3": [
+        0.0,
+        0.0
+      ],
+      "stepSha256": "e5849549c42676e39a402bc2514162e46847fcd689860149d286075329d2d0be"
+    },
+    {
+      "name": "parameter-box",
+      "valid": true,
+      "solidCount": 1,
+      "sizeMm": [
+        85.0,
+        50.0,
+        12.0
+      ],
+      "volumeMm3": 51000.0,
+      "bidirectionalDifferenceMm3": [
+        0.0,
+        0.0
+      ],
+      "stepSha256": "54ce9ac008c8bdc4ff7c57e0d10d69e1172584501d460a879454e1417f0885d3"
+    },
+    {
+      "name": "mouse-rectangle",
+      "valid": true,
+      "solidCount": 1,
+      "sizeMm": [
+        85.0,
+        50.0,
+        12.0
+      ],
+      "volumeMm3": 51000.0,
+      "bidirectionalDifferenceMm3": [
+        0.0,
+        0.0
+      ],
+      "stepSha256": "9833c23e087e918356c0f1b4ef5a399992f1eab4d8801c2982e7c9d060c4863f"
+    }
+  ]
+}

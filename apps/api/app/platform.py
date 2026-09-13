@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -83,6 +84,12 @@ class AuthorizationError(PlatformError):
     pass
 
 
+class RateLimitError(PlatformError):
+    def __init__(self, retry_after: int):
+        self.retry_after = max(1, int(retry_after))
+        super().__init__("操作过于频繁，请稍后再试。")
+
+
 class Permission(str, Enum):
     PROJECT_READ = "project:read"
     PROJECT_WRITE = "project:write"
@@ -101,6 +108,20 @@ class Permission(str, Enum):
     NC_DOWNLOAD = "nc:download"
     USER_MANAGE = "user:manage"
     AUDIT_READ = "audit:read"
+    ADMIN_OVERVIEW = "admin:overview"
+    ADMIN_CUSTOMERS = "admin:customers"
+    ADMIN_CUSTOMER_MANAGE = "admin:customer-manage"
+    ADMIN_TASK_FOLLOWUP = "admin:task-followup"
+    ADMIN_TASKS = "admin:tasks"
+    ADMIN_TASK_MANAGE = "admin:task-manage"
+    ADMIN_SYSTEM = "admin:system"
+    ADMIN_AUDIT = "admin:audit"
+    BILLING_READ = "billing:read"
+    BILLING_MANAGE = "billing:manage"
+    BILLING_ADJUST = "billing:adjust"
+    BILLING_POLICY = "billing:policy"
+    SUPPORT_MANAGE = "support:manage"
+    TERMS_MANAGE = "terms:manage"
 
 
 class Role(str, Enum):
@@ -109,6 +130,10 @@ class Role(str, Enum):
     REVIEWER = "reviewer"
     MANUFACTURING = "manufacturing"
     ADMIN = "admin"
+    OPS = "ops"
+    FINANCE = "finance"
+    SUPPORT = "support"
+    AUDITOR = "auditor"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
@@ -154,6 +179,13 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             Permission.NC_DOWNLOAD,
         }
     ),
+    Role.OPS: frozenset({Permission.ADMIN_OVERVIEW, Permission.ADMIN_CUSTOMERS, Permission.ADMIN_TASKS,
+                         Permission.ADMIN_TASK_MANAGE, Permission.ADMIN_SYSTEM, Permission.ADMIN_CUSTOMER_MANAGE, Permission.ADMIN_TASK_FOLLOWUP}),
+    Role.FINANCE: frozenset({Permission.ADMIN_OVERVIEW, Permission.ADMIN_CUSTOMERS, Permission.BILLING_READ,
+                             Permission.BILLING_MANAGE, Permission.BILLING_ADJUST}),
+    Role.SUPPORT: frozenset({Permission.ADMIN_CUSTOMERS, Permission.ADMIN_TASKS, Permission.SUPPORT_MANAGE, Permission.ADMIN_CUSTOMER_MANAGE, Permission.ADMIN_TASK_FOLLOWUP}),
+    Role.AUDITOR: frozenset({Permission.ADMIN_OVERVIEW, Permission.ADMIN_CUSTOMERS, Permission.ADMIN_TASKS,
+                             Permission.ADMIN_SYSTEM, Permission.ADMIN_AUDIT, Permission.BILLING_READ}),
     Role.ADMIN: frozenset({"*"}),
 }
 
@@ -332,6 +364,7 @@ class AuthService(_SQLiteComponent):
             raise ValidationError("token_ttl_seconds must be at least 1")
         self.token_ttl_seconds = token_ttl_seconds
         self._clock = clock
+        self._dummy_password_hash = self._hash_password(secrets.token_urlsafe(32))
         self._create_schema()
 
     def _create_schema(self) -> None:
@@ -352,6 +385,11 @@ class AuthService(_SQLiteComponent):
                     role TEXT NOT NULL,
                     PRIMARY KEY (user_id, role)
                 );
+                CREATE TABLE IF NOT EXISTS auth_login_aliases (
+                    alias TEXT PRIMARY KEY COLLATE NOCASE,
+                    user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+                    updated_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS auth_audit (
                     id TEXT PRIMARY KEY,
                     actor_id TEXT NOT NULL,
@@ -359,6 +397,32 @@ class AuthService(_SQLiteComponent):
                     target_id TEXT NOT NULL,
                     details_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS auth_user_security (
+                    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                    token_version INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS auth_sessions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token_version INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    revoked_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id);
+                CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES auth_sessions(id) ON DELETE CASCADE,
+                    created_at INTEGER NOT NULL,
+                    used_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS auth_refresh_session ON auth_refresh_tokens(session_id);
+                CREATE TABLE IF NOT EXISTS auth_rate_limits (
+                    key_hash TEXT PRIMARY KEY,
+                    window_start INTEGER NOT NULL,
+                    attempts INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL
                 );
                 """
             )
@@ -370,11 +434,46 @@ class AuthService(_SQLiteComponent):
             raise ValidationError("a valid email address is required")
         return value
 
+    @staticmethod
+    def _normalise_login_alias(alias: str) -> str:
+        value = str(alias or "").strip().lower()
+        if not re.fullmatch(r"[a-z][a-z0-9._-]{2,31}", value):
+            raise ValidationError("登录账号须为 3–32 位，以英文字母开头，可包含字母、数字、点、下划线和短横线。")
+        return value
+
+    def set_login_alias(self, user_id: str, alias: str, *, actor_id: str) -> User:
+        """Assign a login name without changing the account's email or ownership."""
+        normalised = self._normalise_login_alias(alias)
+        try:
+            with self._lock, self._connection:
+                self._connection.execute("BEGIN IMMEDIATE")
+                actor = self.require(actor_id, Permission.USER_MANAGE)
+                if not actor.active:
+                    raise AuthorizationError("user account is inactive")
+                self.get_user(user_id)
+                current = self._connection.execute(
+                    "SELECT alias FROM auth_login_aliases WHERE user_id=?", (user_id,)
+                ).fetchone()
+                if current is not None and current[0] == normalised:
+                    return self.get_user(user_id)
+                self._connection.execute(
+                    "INSERT INTO auth_login_aliases(alias,user_id,updated_at) VALUES (?,?,?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET alias=excluded.alias,updated_at=excluded.updated_at",
+                    (normalised, user_id, _utc_timestamp()),
+                )
+                self._connection.execute("UPDATE users SET updated_at=? WHERE id=?", (_utc_timestamp(), user_id))
+                self._revoke_user_sessions_locked(user_id)
+                self._record_audit(actor.id, "user.login_alias_changed", user_id,
+                                   {"alias": normalised, "previousAlias": current[0] if current else None})
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError("该登录账号已被使用。") from exc
+        return self.get_user(user_id)
+
     @classmethod
     def _hash_password(cls, password: str) -> str:
         password = str(password or "")
-        if len(password) < 8:
-            raise ValidationError("password must contain at least 8 characters")
+        if not 8 <= len(password) <= 256:
+            raise ValidationError("password must contain between 8 and 256 characters")
         salt = secrets.token_bytes(16)
         digest = hashlib.pbkdf2_hmac(
             "sha256", password.encode("utf-8"), salt, cls._PBKDF2_ITERATIONS
@@ -423,6 +522,8 @@ class AuthService(_SQLiteComponent):
         clean_name = str(display_name or "").strip()
         if not clean_name:
             raise ValidationError("display_name is required")
+        if len(clean_name) > 120:
+            raise ValidationError("display_name must not exceed 120 characters")
         role_iterable = (roles,) if isinstance(roles, (str, Role)) else roles
         try:
             role_values = tuple(sorted({Role(role).value for role in role_iterable}))
@@ -528,6 +629,9 @@ class AuthService(_SQLiteComponent):
         self.get_user(user_id)
         updated_at = _utc_timestamp()
         with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            if "admin" not in role_values:
+                self._protect_last_active_admin_locked(user_id)
             self._connection.execute("DELETE FROM user_roles WHERE user_id = ?", (user_id,))
             self._connection.executemany(
                 "INSERT INTO user_roles (user_id, role) VALUES (?, ?)",
@@ -544,32 +648,54 @@ class AuthService(_SQLiteComponent):
     def set_active(self, user_id: str, active: bool, *, actor_id: str) -> User:
         self.get_user(user_id)
         with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            if not active:
+                self._protect_last_active_admin_locked(user_id)
             self._connection.execute(
                 "UPDATE users SET active = ?, updated_at = ? WHERE id = ?",
                 (int(active), _utc_timestamp(), user_id),
             )
+            if not active:
+                self._revoke_user_sessions_locked(user_id)
             self._record_audit(
                 actor_id, "user.activated" if active else "user.deactivated", user_id, {}
             )
         return self.get_user(user_id)
 
+    def _protect_last_active_admin_locked(self, user_id: str) -> None:
+        rows = self._connection.execute(
+            "SELECT u.id FROM users u JOIN user_roles r ON r.user_id=u.id WHERE u.active=1 AND r.role='admin'"
+        ).fetchall()
+        if len(rows) == 1 and rows[0]["id"] == user_id:
+            raise ValidationError("至少需要保留一名启用的管理员；请先设置其他管理员。")
+
     def authenticate(self, email: str, password: str) -> AccessToken:
-        normalised_email = self._normalise_email(email)
-        with self._lock:
+        if len(str(password or "")) > 256:
+            raise AuthenticationError("invalid email or password")
+        identifier = str(email or "").strip()
+        is_email = "@" in identifier
+        try:
+            normalised = self._normalise_email(identifier) if is_email else self._normalise_login_alias(identifier)
+        except ValidationError:
+            normalised = ""
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
             row = self._connection.execute(
-                "SELECT * FROM users WHERE email = ? COLLATE NOCASE", (normalised_email,)
+                "SELECT * FROM users WHERE email = ? COLLATE NOCASE" if is_email else
+                "SELECT u.* FROM users u JOIN auth_login_aliases a ON a.user_id=u.id WHERE a.alias=? COLLATE NOCASE",
+                (normalised,),
             ).fetchone()
             # Run a real hash even for unknown accounts to reduce timing differences.
-            stored = row["password_hash"] if row is not None else self._hash_password("invalid-password")
+            stored = row["password_hash"] if row is not None else self._dummy_password_hash
             valid = self._verify_password(password, stored)
             if row is None or not valid or not bool(row["active"]):
                 raise AuthenticationError("invalid email or password")
             user = self._row_to_user(row)
-        return self.issue_token(user)
+            return self.issue_token(user)
 
     login = authenticate
 
-    def issue_token(self, user: User | str) -> AccessToken:
+    def issue_token(self, user: User | str, *, session_id: str | None = None) -> AccessToken:
         resolved = self.get_user(user) if isinstance(user, str) else self.get_user(user.id)
         if not resolved.active:
             raise AuthenticationError("user account is inactive")
@@ -583,7 +709,17 @@ class AuthService(_SQLiteComponent):
             "iat": issued_at,
             "exp": expires_at,
             "jti": uuid.uuid4().hex,
+            "ver": self._token_version(resolved.id),
         }
+        if session_id is not None:
+            with self._lock:
+                session = self._connection.execute("SELECT * FROM auth_sessions WHERE id = ?", (session_id,)).fetchone()
+            if (session is None or session["user_id"] != resolved.id or session["revoked_at"] is not None
+                    or session["expires_at"] <= issued_at or session["token_version"] != payload["ver"]):
+                raise AuthenticationError("session has expired or been revoked")
+            payload["sid"] = session_id
+            expires_at = min(expires_at, session["expires_at"])
+            payload["exp"] = expires_at
         encoded_header = _b64url_encode(_canonical_json(header).encode("utf-8"))
         encoded_payload = _b64url_encode(_canonical_json(payload).encode("utf-8"))
         signing_input = f"{encoded_header}.{encoded_payload}".encode("ascii")
@@ -611,11 +747,154 @@ class AuthService(_SQLiteComponent):
             user = self.get_user(str(payload["sub"]))
             if not user.active:
                 raise AuthenticationError("user account is inactive")
+            if payload.get("ver", 0) != self._token_version(user.id):
+                raise AuthenticationError("session has been revoked")
+            if "sid" in payload:
+                with self._lock:
+                    session = self._connection.execute("SELECT * FROM auth_sessions WHERE id = ?", (payload["sid"],)).fetchone()
+                if (session is None or session["user_id"] != user.id or session["revoked_at"] is not None
+                        or session["expires_at"] <= int(self._clock())):
+                    raise AuthenticationError("session has expired or been revoked")
             return user
         except AuthenticationError:
             raise
         except (KeyError, TypeError, ValueError, json.JSONDecodeError, NotFoundError) as exc:
             raise AuthenticationError("invalid access token") from exc
+
+    def _token_version(self, user_id: str) -> int:
+        with self._lock:
+            row = self._connection.execute("SELECT token_version FROM auth_user_security WHERE user_id = ?", (user_id,)).fetchone()
+        return int(row[0]) if row is not None else 0
+
+    def consume_auth_limits(self, limits: Iterable[tuple[str, str, int, int]]) -> None:
+        """Durable bounded windows; identifiers are hashed, never logged."""
+        now = int(self._clock())
+        retry_after = 0
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._connection.execute("DELETE FROM auth_rate_limits WHERE expires_at <= ?", (now,))
+            for purpose, identity, maximum, seconds in limits:
+                key = hashlib.sha256(f"{purpose}:{identity}".encode()).hexdigest()
+                row = self._connection.execute("SELECT * FROM auth_rate_limits WHERE key_hash = ?", (key,)).fetchone()
+                start = row["window_start"] if row is not None else now
+                count = min(int(row["attempts"]) + 1, maximum + 1) if row is not None else 1
+                self._connection.execute(
+                    "INSERT INTO auth_rate_limits VALUES (?, ?, ?, ?) ON CONFLICT(key_hash) DO UPDATE SET attempts=excluded.attempts",
+                    (key, start, count, start + seconds))
+                if count > maximum:
+                    retry_after = max(retry_after, start + seconds - now)
+        if retry_after:
+            raise RateLimitError(retry_after)
+
+    def create_session(self, user: User | str, *, ttl_seconds: int = 30 * 86400,
+                       credential_token: str | None = None) -> tuple[AccessToken, str, int]:
+        if not 300 <= ttl_seconds <= 90 * 86400:
+            raise ValidationError("session lifetime must be between 300 seconds and 90 days")
+        raw = secrets.token_urlsafe(48)
+        now = int(self._clock())
+        expires_at = now + ttl_seconds
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            resolved = self.get_user(user if isinstance(user, str) else user.id)
+            if not resolved.active:
+                raise AuthenticationError("user account is inactive")
+            if credential_token is not None and self.verify_token(credential_token).id != resolved.id:
+                raise AuthenticationError("invalid session credentials")
+            # Expired sessions and their consumed refresh hashes are no longer
+            # useful for replay protection after the absolute session lifetime.
+            self._connection.execute("DELETE FROM auth_sessions WHERE expires_at <= ?", (now,))
+            session_id = _new_id("ses")
+            self._connection.execute("INSERT INTO auth_sessions VALUES (?, ?, ?, ?, ?, NULL)",
+                                     (session_id, resolved.id, self._token_version(resolved.id), now, expires_at))
+            self._connection.execute("INSERT INTO auth_refresh_tokens VALUES (?, ?, ?, NULL)",
+                                     (hashlib.sha256(raw.encode()).hexdigest(), session_id, now))
+            self._record_audit(resolved.id, "session.created", resolved.id, {})
+            token = self.issue_token(resolved, session_id=session_id)
+        return token, raw, expires_at
+
+    def refresh_session(self, raw: str) -> tuple[AccessToken, str, int]:
+        if not isinstance(raw, str) or not 40 <= len(raw) <= 256:
+            raise AuthenticationError("session has expired or been revoked")
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        now = int(self._clock())
+        replayed = False
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = self._connection.execute(
+                "SELECT s.*, t.used_at FROM auth_refresh_tokens t JOIN auth_sessions s ON s.id=t.session_id WHERE t.token_hash=?",
+                (digest,)).fetchone()
+            if row is None or row["revoked_at"] is not None or row["expires_at"] <= now:
+                raise AuthenticationError("session has expired or been revoked")
+            user = self.get_user(row["user_id"])
+            if not user.active or row["token_version"] != self._token_version(user.id):
+                raise AuthenticationError("session has expired or been revoked")
+            if row["used_at"] is not None:
+                # Commit the family revocation before reporting the replay.
+                self._connection.execute("UPDATE auth_sessions SET revoked_at=? WHERE id=?", (now, row["id"]))
+                self._record_audit(user.id, "session.refresh_replay", user.id, {})
+                replayed = True
+            else:
+                self._connection.execute("UPDATE auth_refresh_tokens SET used_at=? WHERE token_hash=?", (now, digest))
+                next_raw = secrets.token_urlsafe(48)
+                self._connection.execute("INSERT INTO auth_refresh_tokens VALUES (?, ?, ?, NULL)",
+                                         (hashlib.sha256(next_raw.encode()).hexdigest(), row["id"], now))
+                token = self.issue_token(user, session_id=row["id"])
+        if replayed:
+            raise AuthenticationError("session has been revoked; please sign in again")
+        return token, next_raw, row["expires_at"]
+
+    def revoke_refresh_session(self, raw: str) -> None:
+        if not isinstance(raw, str) or len(raw) > 256:
+            return
+        with self._lock, self._connection:
+            row = self._connection.execute("SELECT session_id FROM auth_refresh_tokens WHERE token_hash=?",
+                                           (hashlib.sha256(raw.encode()).hexdigest(),)).fetchone()
+            if row is not None:
+                self._connection.execute("UPDATE auth_sessions SET revoked_at=? WHERE id=?", (int(self._clock()), row[0]))
+
+    def revoke_access_session(self, token: str) -> None:
+        user = self.verify_token(token)
+        payload = json.loads(_b64url_decode(token.split(".")[1]))
+        with self._lock, self._connection:
+            if payload.get("sid"):
+                self._connection.execute("UPDATE auth_sessions SET revoked_at=? WHERE id=? AND user_id=?",
+                                         (int(self._clock()), payload["sid"], user.id))
+            else:
+                # Legacy bearer-only sessions have no durable identity. A
+                # version bump is required so logout actually revokes them.
+                self._revoke_user_sessions_locked(user.id)
+
+    def _revoke_user_sessions_locked(self, user_id: str) -> None:
+        self._connection.execute(
+            "INSERT INTO auth_user_security(user_id, token_version) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET token_version=token_version+1",
+            (user_id,))
+        self._connection.execute("UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+                                 (int(self._clock()), user_id))
+
+    def change_password(self, user_id: str, current_password: str, new_password: str) -> User:
+        encoded = self._hash_password(new_password)
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            row = self._connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            if (row is None or not row["active"] or len(str(current_password)) > 256
+                    or not self._verify_password(current_password, row["password_hash"])):
+                raise AuthenticationError("当前密码不正确。")
+            self._connection.execute("UPDATE users SET password_hash=?, updated_at=? WHERE id=?", (encoded, _utc_timestamp(), user_id))
+            self._revoke_user_sessions_locked(user_id)
+            self._record_audit(user_id, "user.password_changed", user_id, {})
+        return self.get_user(user_id)
+
+    def reset_password(self, user_id: str, new_password: str, *, actor_id: str) -> User:
+        actor = self.require(actor_id, Permission.USER_MANAGE)
+        if not actor.active:
+            raise AuthorizationError("user account is inactive")
+        encoded = self._hash_password(new_password)
+        with self._lock, self._connection:
+            self.get_user(user_id)
+            self._connection.execute("UPDATE users SET password_hash=?, updated_at=? WHERE id=?", (encoded, _utc_timestamp(), user_id))
+            self._revoke_user_sessions_locked(user_id)
+            self._record_audit(actor.id, "user.password_reset", user_id, {})
+        return self.get_user(user_id)
 
     def has_permission(self, user: User | str, permission: str | Permission) -> bool:
         resolved = self.get_user(user) if isinstance(user, str) else self.get_user(user.id)

@@ -1,0 +1,75 @@
+{
+  "environment": "public r8",
+  "sourceAndBuildSha256": "05952dab9b1898724f802b99a8f5ae64e126af48e3324a8cf3f3799c69a9c211",
+  "credentialsIncluded": false,
+  "files": {
+    "README.md": {
+      "bytes": 1569,
+      "sha256": "72b909d5180aaead9b326a8b80f20d56bcc24d1af5bad1a507cbd882fb5f5901"
+    },
+    "joyniu-complete-desktop-final.png": {
+      "bytes": 106866,
+      "sha256": "f5b9af4c5ec946abfadb1abee34432590585570cb90acba3f1dde50c5ba9833c"
+    },
+    "joyniu-complete-edited.step": {
+      "bytes": 42407,
+      "sha256": "d0dbad48be1fa10e6c1a417d910f258aaef43592226759826d959a3bb5ff554b"
+    },
+    "joyniu-complete-linked-dimension.png": {
+      "bytes": 142628,
+      "sha256": "89ec2bd4c87adacf1f67cf1332a0ef021a930940b8bb7c462e4aaba7c4b3b415"
+    },
+    "joyniu-complete-linked-model.png": {
+      "bytes": 115560,
+      "sha256": "e7e6193f2c4310abc074fea976a6244984a1ded656db6a2c1ade8138cc270f7f"
+    },
+    "joyniu-complete-linked-records.json": {
+      "bytes": 13653,
+      "sha256": "e8bc3a439d894f7ef8df26e778fdc3d1c95f0068ea130e723142ab6a01cb5725"
+    },
+    "joyniu-complete-mobile.png": {
+      "bytes": 67410,
+      "sha256": "baf1a6888f5a1b0e07cc3807e9f5f703890745516c15d59b4f111141fff3fc9a"
+    },
+    "joyniu-complete-multibody.png": {
+      "bytes": 84900,
+      "sha256": "4369a1c26eb380e50ab60bbf094cef35fcd4d110b78964f159020c3e7bfc9b41"
+    },
+    "joyniu-complete-multibody.step": {
+      "bytes": 36805,
+      "sha256": "a472f4c912689e7d162ec63e65977918162f5a7b013023657cdd6ff9535f77bf"
+    },
+    "joyniu-complete-multicontour.png": {
+      "bytes": 130404,
+      "sha256": "fd33a1263b45b91883405c414942eefc232ec7e6c8a5f9c362bf544607ba09cb"
+    },
+    "joyniu-complete-pmi-picking.png": {
+      "bytes": 121342,
+      "sha256": "806da0485763730ab8eecf41ae7409d4f3415ae82be5879446c94f9daca3d000"
+    },
+    "joyniu-complete-pmi-saved.png": {
+      "bytes": 96677,
+      "sha256": "7c3470c87cea31a084bd8e14ef8d9e1d96320ba2c5de7809d25f5ec1faa16f1d"
+    },
+    "joyniu-complete-pmi.svg": {
+      "bytes": 54408,
+      "sha256": "6dceb1a6acd104720386939291f0e5d63f0176b4d73039993dd9887a35e05e3e"
+    },
+    "joyniu-complete-references.png": {
+      "bytes": 111886,
+      "sha256": "d3bdfc42e83c321b7f1c381beaf3b83d3fc5c226fdd351e3969dd1a6596e35da"
+    },
+    "joyniu-complete-surface-drag.png": {
+      "bytes": 157303,
+      "sha256": "626ef44dd9819b91c448e2f09b18654a04c7233fbeef9f89c7cefa3557903bb3"
+    },
+    "joyniu-complete-ui-records.json": {
+      "bytes": 52106,
+      "sha256": "05d52862df636e2d9ef636e70c057ecf3bb762bdc1cf568835fde460fced7e92"
+    },
+    "step-readback.json": {
+      "bytes": 514,
+      "sha256": "855289fb193124925c2e1939a590c37c4483b623f8fe186f58f26de1fa714f3f"
+    }
+  }
+}

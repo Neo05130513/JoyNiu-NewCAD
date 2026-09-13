@@ -1,0 +1,64 @@
+{
+  "evidenceType": "Real public browser QA plus independent local OCCT readback",
+  "credentialsIncluded": false,
+  "sessionStateIncluded": false,
+  "summary": "final-verification.json",
+  "files": {
+    "01-explicit-publication.png": {
+      "bytes": 151168,
+      "sha256": "d1d1486abf07661e3e397dcd300cdfcb58627b698d39fcdb973846e5beccd8e8"
+    },
+    "02-published-preview.png": {
+      "bytes": 156727,
+      "sha256": "1218cad2700e9b82d172ea9326d460a25968520eebeba81443f944b21dfd2dba"
+    },
+    "03-other-account-search-preview.png": {
+      "bytes": 132875,
+      "sha256": "076c22ec22abbf0e4491d699df68ec1cd1b35be579da591692b96ad734c9f366"
+    },
+    "04-independent-copy.png": {
+      "bytes": 110044,
+      "sha256": "fb84c011488b282b6cdcd8fc5cd8baad1c8357218aa0a0f25fe897c0d60faf44"
+    },
+    "05-edited-copy.png": {
+      "bytes": 106899,
+      "sha256": "6479037f3d60f05686a1256ce809b7d0cfe73fa66da838b8f82fee14c5a5bb15"
+    },
+    "06-mobile-community.png": {
+      "bytes": 93060,
+      "sha256": "98276ba55913d1afd4d02a63efb827626ebcd30e3cf17ed43702ec9b900efa75"
+    },
+    "07-resource-withdrawn.png": {
+      "bytes": 105096,
+      "sha256": "01aca79ac02d91d7e798bffca89191830b5b94402e482655aca99651f3df128e"
+    },
+    "08-independent-copy-after-relogin.png": {
+      "bytes": 101029,
+      "sha256": "f3fb18fb6efea7c5438d7d25c0b2f5b936b3553e58a6ef19d02bf2c9f57518d3"
+    },
+    "final-verification.json": {
+      "bytes": 2679,
+      "sha256": "b6da62d4e9f7ff1c9b2e2e2a4cc378f3f29368d50a8c1c34f738694bbfc42524"
+    },
+    "initial-browser-run.json": {
+      "bytes": 17072,
+      "sha256": "aafca618815622dbfc7b0ac7c89278d211a6df0fc4a7ecb284fb897010a56a50"
+    },
+    "modified-copy.step": {
+      "bytes": 15423,
+      "sha256": "7cd4d55e3ea2db08927cbc8ccb44f52eda825717ea4bb40d81f3ae31eba9f713"
+    },
+    "published.step": {
+      "bytes": 15406,
+      "sha256": "9b32f0219cde0f5c953c3c1c9ece0c85c937bf9c2264a2565f026805c1212b24"
+    },
+    "reopen-after-relogin.json": {
+      "bytes": 4563,
+      "sha256": "7ddd80debe03b9a5d572b92af6a1123bf181f73be2199ac777ba4014653a47c8"
+    },
+    "step-readback.json": {
+      "bytes": 1140,
+      "sha256": "1391f017414694c90ad673634942aafb53458c1f2dbfcd02b2bcf2b3f6f8ee20"
+    }
+  }
+}

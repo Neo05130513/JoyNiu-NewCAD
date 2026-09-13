@@ -1,0 +1,33 @@
+{
+  "name": "studio-shell-20260913",
+  "scope": "web-only",
+  "apiBase": "/api/v1",
+  "files": {
+    "deploy/Dockerfile.web": "e4f6e81cecb2f8ea7a9258d9649e38c7ad0b42bb13837c81ae1cdd461aa1dbb9",
+    "deploy/nginx.conf": "5c79bcb65711a292d0e2f3afee097f3c440949bbca9a8cb4101e7348f4140c62",
+    "dist/assets/AdminShell-IMmj5css.css": "8fcf3832f739eed00832fe6aae6e1e8f3eb6e7164395d4ed85bd20056511eaf7",
+    "dist/assets/AdminShell-Ux4rXUMx.js": "b348cbfe012cc1f9d5cce1eb13d005ed4beba439ea4a26f33ab5541fed2efec1",
+    "dist/assets/index-B5UWJeBE.css": "5b2b380499212fc79b793572cc9d5800d87637f5eaed4ed2445bc588315fbb1a",
+    "dist/assets/index-CJ647Fby.js": "9ba0d035b13925ccb5ba6550c043bd8a55ce57662e232cc3bdff7125104355c4",
+    "dist/index.html": "d3df1b2e20d7f7b1ea24d609dcd07128c4e4d4681c7cc99fac2bb9d17ee164f5",
+    "source/App.jsx": "ffc1485745d337cf90303b75ec209f152f245b5d1d81297ff1791288c4fe12ce",
+    "source/CadAgentPanel.jsx": "828e6080b02b9618112c8d97f3ee21b9a7b2a13089390fc8380f8e489a65ec06",
+    "source/DirectFeatureWorkspace.jsx": "6a94bbe96d7752e8e12598fbd189b90e37e2f306761d2db92322c3cff77d4e01",
+    "source/EngineeringWorkspace.jsx": "f39981ba432cf530bcaf055fde6c065b6f925f43b4975fdd39e19d7e773f76e7",
+    "source/NativeDrawingWorkspace.jsx": "0620977ce645e33c9a4a45562faa20f1558e359957868cdc8611cc0d7d4f45bb",
+    "source/StudioHome.jsx": "5aa806ce49b31100959a822b4adf52a27f67081cad16796fc8ba7e6f15e6ebfc",
+    "source/StudioNavigation.jsx": "b7e513bb6dddf572cdff441d17028ca7020a4b75db947be9e418c4c115674387",
+    "source/cad-agent.css": "15d3fcf143864e5e894b4ed233a2da909d600326989c66e9a363e47c63f8d7a6",
+    "source/cadAgent.test.js": "fa19c31706558b59bbd2e8131584e72b98b4a1aa508f40ec127451a6fdc627ad",
+    "source/cadAgentRetry.test.js": "e1f9ecb382c0d4edec9061124dbb8970578946163dd4021b825c37888b2bd3ea",
+    "source/direct-feature-workspace.css": "f7843286fd2fbb588ae8d0f174d792e7ae2c6637484898da5c052bb30c6ce76c",
+    "source/engineering-workspace.css": "3401bda440cb358c878937c2d669a4b3b01cbca2ee9d657593ae6ead8c60c8d3",
+    "source/main.jsx": "87bbcdaabe6ae7183d9018c58228de5c5fa30bdf86cc1a524153a5ed575a1f81",
+    "source/native-drawing.css": "9d720e84279fcd55105f133b1aea601dd69cdbfcd5a7fbe3fed9515784a2c61e",
+    "source/nativeDrawingWorkspace.test.js": "812689763a08eeb2a1e1a1937c950cdf06ee1af3be1372e98e960d618e158781",
+    "source/studio-home.css": "7d3a5c706fd8e9ef1ca8062610b3f046dd8528f9e322151ec505a731ca9e5e7e",
+    "source/studio-shell.css": "c63d2bdbef8ffb50e2e32a4feea89156f044ff78612d3a4c3d423a76796dd931",
+    "source/studioModelIntegration.test.js": "be2b2baa9511533b719a189f476240131a62bf34cb2a6b42c5c2193ea0659698",
+    "source/workbench-layout.css": "4ba5cd3a8ea75fa20e9592154b8c5f641225e2b98b4ede2a58c9654fd3fb826c"
+  }
+}

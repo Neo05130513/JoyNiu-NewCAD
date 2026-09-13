@@ -1,0 +1,187 @@
+{
+  "method": "New isolated browser context, same synthetic reader explicitly signs in again over public HTTP",
+  "capabilities": {
+    "persistentSessionAvailable": false
+  },
+  "refresh": {
+    "status": 403,
+    "detail": "自动保持登录需要 HTTPS。"
+  },
+  "login": {
+    "persistent_session": false,
+    "session_notice": "自动保持登录需要 HTTPS；当前仅登录到本次浏览器会话。"
+  },
+  "copyRestored": true,
+  "parametersMatchCommittedR2": true,
+  "reopenedDownload": {
+    "bytes": 15423,
+    "sha256": "7cd4d55e3ea2db08927cbc8ccb44f52eda825717ea4bb40d81f3ae31eba9f713",
+    "matchesEarlierModifiedStep": true
+  },
+  "expectedId": "feature_1c0839a3494887840f83a45772afa917",
+  "expectedRevision": 2,
+  "reads": [
+    {
+      "id": "feature_1c0839a3494887840f83a45772afa917",
+      "revision": 2,
+      "name": "验收-社区独立副本-1789296236405",
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 6,
+        "edgeCount": 12,
+        "volumeMm3": 3199.999999999999,
+        "surfaceAreaMm2": 1359.9999999999998,
+        "geometryKind": "solid",
+        "shellCount": 1,
+        "bbox": {
+          "min": [
+            10,
+            0,
+            0
+          ],
+          "max": [
+            30,
+            16,
+            10
+          ],
+          "size": [
+            20,
+            16,
+            10
+          ]
+        },
+        "bboxLength": 20,
+        "bboxWidth": 16,
+        "bboxHeight": 10,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 1,
+          "volumeMm3": 3199.999999999999,
+          "bbox": {
+            "min": [
+              10,
+              0,
+              0
+            ],
+            "max": [
+              30,
+              16,
+              10
+            ],
+            "size": [
+              20,
+              16,
+              10
+            ]
+          }
+        }
+      },
+      "parameters": {
+        "import_64c0b703ea574319b03c_x": {
+          "label": "合成社区模型 · X 位移 mm",
+          "value": 10,
+          "source": {
+            "type": "user",
+            "text": "手工特征工作台修改"
+          }
+        },
+        "import_64c0b703ea574319b03c_y": {
+          "label": "合成社区模型 · Y 位移 mm",
+          "value": 0
+        },
+        "import_64c0b703ea574319b03c_z": {
+          "label": "合成社区模型 · Z 位移 mm",
+          "value": 0
+        }
+      }
+    }
+  ],
+  "withdrawnResourceStatus": 404,
+  "errors": [],
+  "events": [
+    {
+      "path": "/api/v1/auth/refresh",
+      "method": "POST",
+      "status": 403
+    },
+    {
+      "path": "/api/v1/ai/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/auth/account-capabilities",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/auth/login",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/account/workspace",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/cad/features",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/pdm/projects",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/ai/status",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/health",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917/versions",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/billing/wallet",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917/versions/2/artifacts/glb",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/cad/features/feature_1c0839a3494887840f83a45772afa917/versions/2/artifacts/step",
+      "method": "GET",
+      "status": 200
+    }
+  ]
+}

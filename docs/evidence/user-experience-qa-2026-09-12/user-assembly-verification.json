@@ -1,0 +1,179 @@
+{
+  "checkedAt": "2026-09-12T13:23:57.133412+00:00",
+  "method": "Authenticated GET payload reopened with CadQuery/OCCT; exact solid bounding boxes, boolean intersection and minimum distance independently measured; BOM CSV parsed. No design changes.",
+  "design": {
+    "id": "design_6b331cbc664444d0aea3e01f1f186c2d",
+    "name": "用户体验双长方体装配",
+    "kind": "assembly",
+    "metricsReported": {
+      "valid": true,
+      "kernel": "CadQuery / OCCT",
+      "solidCount": 2,
+      "volume": 16200.0,
+      "area": 5660.0,
+      "size": [
+        100.5,
+        20.0,
+        10.0
+      ],
+      "min": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "max": [
+        100.5,
+        20.0,
+        10.0
+      ]
+    },
+    "instancesReported": [
+      {
+        "id": "part17892191571630",
+        "designId": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+        "name": "用户验收长方体",
+        "fixed": true,
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ]
+      },
+      {
+        "id": "part17892191723681",
+        "designId": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+        "name": "用户验收长方体",
+        "fixed": false,
+        "position": [
+          60.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          -0.0,
+          0.0
+        ]
+      }
+    ],
+    "constraintsReported": [],
+    "constraintResultsReported": [],
+    "interferenceReported": [
+      {
+        "a": "part17892191571630",
+        "b": "part17892191723681",
+        "volumeMm3": 0.0,
+        "interferes": false
+      }
+    ],
+    "bomReported": [
+      {
+        "designId": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+        "name": "用户验收长方体",
+        "quantity": 2
+      }
+    ]
+  },
+  "artifacts": {
+    "step": {
+      "file": "user-box-assembly.step",
+      "status": 200,
+      "contentType": "application/step",
+      "bytes": 32489,
+      "sha256": "0e14ec9d33753d2545e880940b6995eb2a8b821fc80d59c63ba46e13577b4eb9"
+    },
+    "bom": {
+      "file": "user-box-assembly-bom.csv",
+      "status": 200,
+      "contentType": "text/csv;charset=utf-8",
+      "bytes": 93,
+      "sha256": "da9e9923e906a35e5739ad5cd0ffda715f2063857d0e98252a8c537d80b648e8"
+    }
+  },
+  "stepReadback": {
+    "valid": true,
+    "solidCount": 2,
+    "volumeMm3": 16200.0,
+    "areaMm2": 5660.0,
+    "minMm": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "maxMm": [
+      100.5,
+      20.0,
+      10.0
+    ],
+    "sizeMm": [
+      100.5,
+      20.0,
+      10.0
+    ]
+  },
+  "partsReadback": [
+    {
+      "valid": true,
+      "solidCount": 1,
+      "volumeMm3": 8100.0,
+      "areaMm2": 2830.0,
+      "minMm": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maxMm": [
+        40.5,
+        20.0,
+        10.0
+      ],
+      "sizeMm": [
+        40.5,
+        20.0,
+        10.0
+      ]
+    },
+    {
+      "valid": true,
+      "solidCount": 1,
+      "volumeMm3": 8100.0,
+      "areaMm2": 2830.0,
+      "minMm": [
+        60.0,
+        0.0,
+        0.0
+      ],
+      "maxMm": [
+        100.5,
+        20.0,
+        10.0
+      ],
+      "sizeMm": [
+        40.5,
+        20.0,
+        10.0
+      ]
+    }
+  ],
+  "interferenceReadback": {
+    "intersectionVolumeMm3": 0.0,
+    "minimumDistanceMm": 19.5,
+    "interferes": false
+  },
+  "bomReadback": [
+    {
+      "零件 ID": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+      "名称": "用户验收长方体",
+      "数量": "2"
+    }
+  ],
+  "result": "passed",
+  "assemblyScope": "Two manually positioned parts; no assembly mating constraints are claimed.",
+  "browserDownloadCompletion": "not_observed; API 200 and actual file readback do not establish browser download completion.",
+  "reportedChecksMatchIndependentReadback": true
+}

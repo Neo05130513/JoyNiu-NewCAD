@@ -1,0 +1,2222 @@
+{
+  "browser": "isolated headless Chromium",
+  "base": "http://127.0.0.1:5186",
+  "account": "dedicated local import QA",
+  "imported": {
+    "id": "feature_f022978e0b4a4ef786f4e4a8852592c3",
+    "revision": 1,
+    "fileId": "file_ed2bbcda-aacb-4f2d-b482-c6e7277877be",
+    "name": "新零件 1",
+    "plan": {
+      "version": "cad-plan-v1",
+      "units": "mm",
+      "name": "新零件 1",
+      "parameters": {
+        "import_174042d3b8d14772a2ab_x": {
+          "value": 0,
+          "label": "验收-导入PDM · X 位移 mm"
+        },
+        "import_174042d3b8d14772a2ab_y": {
+          "value": 0,
+          "label": "验收-导入PDM · Y 位移 mm"
+        },
+        "import_174042d3b8d14772a2ab_z": {
+          "value": 0,
+          "label": "验收-导入PDM · Z 位移 mm"
+        }
+      },
+      "features": [
+        {
+          "id": "import_174042d3b8d14772a2ab",
+          "op": "import_step",
+          "label": "验收-导入PDM",
+          "assetId": "asset_e33edc340b30fc9758f10a31262292c2",
+          "sha256": "7f038fe9e636f7666023d0df054bc8bd9618599e5c11da47bae3cfcdd0041518"
+        },
+        {
+          "id": "import_174042d3b8d14772a2ab_position",
+          "op": "translate",
+          "input": "import_174042d3b8d14772a2ab",
+          "vector": [
+            "import_174042d3b8d14772a2ab_x",
+            "import_174042d3b8d14772a2ab_y",
+            "import_174042d3b8d14772a2ab_z"
+          ]
+        }
+      ],
+      "result": "import_174042d3b8d14772a2ab_position"
+    },
+    "inspection": {
+      "engine": "cadquery-occt",
+      "kernelBacked": true,
+      "valid": true,
+      "solidCount": 1,
+      "faceCount": 6,
+      "edgeCount": 12,
+      "volumeMm3": 3199.999999999999,
+      "surfaceAreaMm2": 1359.9999999999998,
+      "geometryKind": "solid",
+      "shellCount": 1,
+      "bbox": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          20,
+          16,
+          10
+        ],
+        "size": [
+          20,
+          16,
+          10
+        ]
+      },
+      "bboxLength": 20,
+      "bboxWidth": 16,
+      "bboxHeight": 10,
+      "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+      "cylinders": [],
+      "raySections": {},
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+      "stepReadback": {
+        "valid": true,
+        "solidCount": 1,
+        "volumeMm3": 3199.999999999999,
+        "bbox": {
+          "min": [
+            0,
+            0,
+            0
+          ],
+          "max": [
+            20,
+            16,
+            10
+          ],
+          "size": [
+            20,
+            16,
+            10
+          ]
+        }
+      }
+    }
+  },
+  "standard": {
+    "id": "feature_f022978e0b4a4ef786f4e4a8852592c3",
+    "revision": 2,
+    "fileId": "file_ed2bbcda-aacb-4f2d-b482-c6e7277877be",
+    "name": "新零件 1",
+    "plan": {
+      "version": "cad-plan-v1",
+      "units": "mm",
+      "name": "新零件 1",
+      "parameters": {
+        "import_174042d3b8d14772a2ab_x": {
+          "value": 0,
+          "label": "验收-导入PDM · X 位移 mm"
+        },
+        "import_174042d3b8d14772a2ab_y": {
+          "value": 0,
+          "label": "验收-导入PDM · Y 位移 mm"
+        },
+        "import_174042d3b8d14772a2ab_z": {
+          "value": 0,
+          "label": "验收-导入PDM · Z 位移 mm"
+        },
+        "sp_0f8e6ec4919841d18181_outerDiameter": {
+          "value": 6,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 外径 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_length": {
+          "value": 20,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 长度 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_headDiameter": {
+          "value": 10,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头部外径 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_headLength": {
+          "value": 6,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头高 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_pitch": {
+          "value": 1,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺距 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_socketAcrossFlats": {
+          "value": 5,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 内六角对边 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_socketDepth": {
+          "value": 3,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 内六角深度 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_threadLength": {
+          "value": 20,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺纹长度 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_headChamfer": {
+          "value": 0.6,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头部倒角 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_tipChamfer": {
+          "value": 0.5,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺钉端部倒角 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_x": {
+          "value": 40,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · X 位置 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_y": {
+          "value": 0,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · Y 位置 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        },
+        "sp_0f8e6ec4919841d18181_z": {
+          "value": 0,
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · Z 位置 mm",
+          "source": {
+            "type": "user",
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj"
+          }
+        }
+      },
+      "features": [
+        {
+          "id": "import_174042d3b8d14772a2ab",
+          "op": "import_step",
+          "label": "验收-导入PDM",
+          "assetId": "asset_e33edc340b30fc9758f10a31262292c2",
+          "sha256": "7f038fe9e636f7666023d0df054bc8bd9618599e5c11da47bae3cfcdd0041518"
+        },
+        {
+          "id": "import_174042d3b8d14772a2ab_position",
+          "op": "translate",
+          "input": "import_174042d3b8d14772a2ab",
+          "vector": [
+            "import_174042d3b8d14772a2ab_x",
+            "import_174042d3b8d14772a2ab_y",
+            "import_174042d3b8d14772a2ab_z"
+          ]
+        },
+        {
+          "id": "sp_0f8e6ec4919841d18181_geometry",
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · geometry",
+          "op": "standard_part",
+          "catalogId": "socket-m6-20",
+          "dimensions": {
+            "outerDiameter": "sp_0f8e6ec4919841d18181_outerDiameter",
+            "length": "sp_0f8e6ec4919841d18181_length",
+            "headDiameter": "sp_0f8e6ec4919841d18181_headDiameter",
+            "headLength": "sp_0f8e6ec4919841d18181_headLength",
+            "pitch": "sp_0f8e6ec4919841d18181_pitch",
+            "socketAcrossFlats": "sp_0f8e6ec4919841d18181_socketAcrossFlats",
+            "socketDepth": "sp_0f8e6ec4919841d18181_socketDepth",
+            "threadLength": "sp_0f8e6ec4919841d18181_threadLength",
+            "headChamfer": "sp_0f8e6ec4919841d18181_headChamfer",
+            "tipChamfer": "sp_0f8e6ec4919841d18181_tipChamfer"
+          }
+        },
+        {
+          "id": "sp_0f8e6ec4919841d18181_position",
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · position",
+          "op": "translate",
+          "input": "sp_0f8e6ec4919841d18181_geometry",
+          "vector": [
+            "sp_0f8e6ec4919841d18181_x",
+            "sp_0f8e6ec4919841d18181_y",
+            "sp_0f8e6ec4919841d18181_z"
+          ]
+        },
+        {
+          "id": "sp_0f8e6ec4919841d18181_bodies",
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · bodies",
+          "op": "compound",
+          "inputs": [
+            "import_174042d3b8d14772a2ab_position",
+            "sp_0f8e6ec4919841d18181_position"
+          ]
+        }
+      ],
+      "result": "sp_0f8e6ec4919841d18181_bodies"
+    },
+    "inspection": {
+      "engine": "cadquery-occt",
+      "kernelBacked": true,
+      "valid": true,
+      "solidCount": 2,
+      "faceCount": 44,
+      "edgeCount": 112,
+      "volumeMm3": 4055.8250959325496,
+      "surfaceAreaMm2": 2305.193893686832,
+      "geometryKind": "solid",
+      "shellCount": 2,
+      "bbox": {
+        "min": [
+          0,
+          -5.0000001,
+          -1.000000000576339e-07
+        ],
+        "max": [
+          45.0000001,
+          16,
+          26
+        ],
+        "size": [
+          45.0000001,
+          21.0000001,
+          26.0000001
+        ]
+      },
+      "bboxLength": 45.0000001,
+      "bboxWidth": 21.0000001,
+      "bboxHeight": 26.0000001,
+      "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+      "cylinders": [
+        {
+          "faceIndex": 6,
+          "radius": 5,
+          "diameter": 10,
+          "origin": [
+            40,
+            0,
+            20
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 169.6460032938488
+        },
+        {
+          "faceIndex": 11,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.355978760573617
+        },
+        {
+          "faceIndex": 12,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560868160980863
+        },
+        {
+          "faceIndex": 13,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560600982141118
+        },
+        {
+          "faceIndex": 14,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3559853269001136
+        },
+        {
+          "faceIndex": 15,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.35613852308982
+        },
+        {
+          "faceIndex": 16,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.356018250080778
+        },
+        {
+          "faceIndex": 17,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.356069583566523
+        },
+        {
+          "faceIndex": 18,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3562011595514054
+        },
+        {
+          "faceIndex": 19,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560616561111427
+        },
+        {
+          "faceIndex": 20,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.355954712027617
+        },
+        {
+          "faceIndex": 21,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560370111685227
+        },
+        {
+          "faceIndex": 22,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560222597001648
+        },
+        {
+          "faceIndex": 23,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560062681478815
+        },
+        {
+          "faceIndex": 24,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.356029904131532
+        },
+        {
+          "faceIndex": 25,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3561279427341217
+        },
+        {
+          "faceIndex": 26,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.355892786375403
+        },
+        {
+          "faceIndex": 27,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.35606859299512
+        },
+        {
+          "faceIndex": 28,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560614022771578
+        },
+        {
+          "faceIndex": 29,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.319398150860633
+        },
+        {
+          "faceIndex": 30,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 0.03680520718447407
+        },
+        {
+          "faceIndex": 34,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.982011863964471
+        }
+      ],
+      "raySections": {},
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+      "stepReadback": {
+        "valid": true,
+        "solidCount": 2,
+        "volumeMm3": 4055.825488777001,
+        "bbox": {
+          "min": [
+            0,
+            -5.0000001,
+            -1.0000010315249213e-07
+          ],
+          "max": [
+            45.0000001,
+            16,
+            26
+          ],
+          "size": [
+            45.0000001,
+            21.0000001,
+            26.000000100000104
+          ]
+        }
+      }
+    }
+  },
+  "pdm": {
+    "versionId": "ver_0020c5d04ab742b2879f707315aafde7",
+    "source": {
+      "featureId": "feature_f022978e0b4a4ef786f4e4a8852592c3",
+      "fileId": "file_ed2bbcda-aacb-4f2d-b482-c6e7277877be",
+      "revision": 2
+    },
+    "engineeringDesignId": "design_395d2cac71c64390aa3344356ed77ae7"
+  },
+  "opened": {
+    "id": "feature_f800ea1b7ee8795d69d15e1056db2199",
+    "revision": 1,
+    "fileId": "file_ff9c04fc-a561-4dd1-82c8-ad0d887ebea9",
+    "name": "验收-导入PDM",
+    "plan": {
+      "features": [
+        {
+          "assetId": "asset_e33edc340b30fc9758f10a31262292c2",
+          "id": "import_174042d3b8d14772a2ab",
+          "label": "验收-导入PDM",
+          "op": "import_step",
+          "sha256": "7f038fe9e636f7666023d0df054bc8bd9618599e5c11da47bae3cfcdd0041518"
+        },
+        {
+          "id": "import_174042d3b8d14772a2ab_position",
+          "input": "import_174042d3b8d14772a2ab",
+          "op": "translate",
+          "vector": [
+            "import_174042d3b8d14772a2ab_x",
+            "import_174042d3b8d14772a2ab_y",
+            "import_174042d3b8d14772a2ab_z"
+          ]
+        },
+        {
+          "catalogId": "socket-m6-20",
+          "dimensions": {
+            "headChamfer": "sp_0f8e6ec4919841d18181_headChamfer",
+            "headDiameter": "sp_0f8e6ec4919841d18181_headDiameter",
+            "headLength": "sp_0f8e6ec4919841d18181_headLength",
+            "length": "sp_0f8e6ec4919841d18181_length",
+            "outerDiameter": "sp_0f8e6ec4919841d18181_outerDiameter",
+            "pitch": "sp_0f8e6ec4919841d18181_pitch",
+            "socketAcrossFlats": "sp_0f8e6ec4919841d18181_socketAcrossFlats",
+            "socketDepth": "sp_0f8e6ec4919841d18181_socketDepth",
+            "threadLength": "sp_0f8e6ec4919841d18181_threadLength",
+            "tipChamfer": "sp_0f8e6ec4919841d18181_tipChamfer"
+          },
+          "id": "sp_0f8e6ec4919841d18181_geometry",
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · geometry",
+          "op": "standard_part"
+        },
+        {
+          "id": "sp_0f8e6ec4919841d18181_position",
+          "input": "sp_0f8e6ec4919841d18181_geometry",
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · position",
+          "op": "translate",
+          "vector": [
+            "sp_0f8e6ec4919841d18181_x",
+            "sp_0f8e6ec4919841d18181_y",
+            "sp_0f8e6ec4919841d18181_z"
+          ]
+        },
+        {
+          "id": "sp_0f8e6ec4919841d18181_bodies",
+          "inputs": [
+            "import_174042d3b8d14772a2ab_position",
+            "sp_0f8e6ec4919841d18181_position"
+          ],
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · bodies",
+          "op": "compound"
+        }
+      ],
+      "name": "新零件 1",
+      "parameters": {
+        "import_174042d3b8d14772a2ab_x": {
+          "label": "验收-导入PDM · X 位移 mm",
+          "value": 0
+        },
+        "import_174042d3b8d14772a2ab_y": {
+          "label": "验收-导入PDM · Y 位移 mm",
+          "value": 0
+        },
+        "import_174042d3b8d14772a2ab_z": {
+          "label": "验收-导入PDM · Z 位移 mm",
+          "value": 0
+        },
+        "sp_0f8e6ec4919841d18181_headChamfer": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头部倒角 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0.6
+        },
+        "sp_0f8e6ec4919841d18181_headDiameter": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头部外径 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 10
+        },
+        "sp_0f8e6ec4919841d18181_headLength": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头高 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 6
+        },
+        "sp_0f8e6ec4919841d18181_length": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 长度 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 20
+        },
+        "sp_0f8e6ec4919841d18181_outerDiameter": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 外径 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 6
+        },
+        "sp_0f8e6ec4919841d18181_pitch": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺距 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 1
+        },
+        "sp_0f8e6ec4919841d18181_socketAcrossFlats": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 内六角对边 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 5
+        },
+        "sp_0f8e6ec4919841d18181_socketDepth": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 内六角深度 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 3
+        },
+        "sp_0f8e6ec4919841d18181_threadLength": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺纹长度 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 20
+        },
+        "sp_0f8e6ec4919841d18181_tipChamfer": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺钉端部倒角 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0.5
+        },
+        "sp_0f8e6ec4919841d18181_x": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · X 位置 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 40
+        },
+        "sp_0f8e6ec4919841d18181_y": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · Y 位置 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0
+        },
+        "sp_0f8e6ec4919841d18181_z": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · Z 位置 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0
+        }
+      },
+      "result": "sp_0f8e6ec4919841d18181_bodies",
+      "units": "mm",
+      "version": "cad-plan-v1"
+    },
+    "inspection": {
+      "bbox": {
+        "max": [
+          45.0000001,
+          16,
+          26
+        ],
+        "min": [
+          0,
+          -5.0000001,
+          -1.000000000576339e-07
+        ],
+        "size": [
+          45.0000001,
+          21.0000001,
+          26.0000001
+        ]
+      },
+      "bboxHeight": 26.0000001,
+      "bboxLength": 45.0000001,
+      "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+      "bboxWidth": 21.0000001,
+      "cylinders": [
+        {
+          "area": 169.6460032938488,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 10,
+          "faceIndex": 6,
+          "origin": [
+            40,
+            0,
+            20
+          ],
+          "radius": 5
+        },
+        {
+          "area": 2.355978760573617,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 11,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3560868160980863,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 12,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3560600982141118,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 13,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3559853269001136,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 14,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.35613852308982,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 15,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.356018250080778,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 16,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.356069583566523,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 17,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3562011595514054,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 18,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3560616561111427,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 19,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.355954712027617,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 20,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3560370111685227,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 21,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3560222597001648,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 22,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3560062681478815,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 23,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.356029904131532,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 24,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3561279427341217,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 25,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.355892786375403,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 26,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.35606859299512,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 27,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.3560614022771578,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 28,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.319398150860633,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 29,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 0.03680520718447407,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 30,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        },
+        {
+          "area": 2.982011863964471,
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "diameter": 6,
+          "faceIndex": 34,
+          "origin": [
+            40,
+            0,
+            0
+          ],
+          "radius": 3
+        }
+      ],
+      "drawingAgreement": "not_checked",
+      "edgeCount": 112,
+      "engine": "cadquery-occt",
+      "faceCount": 44,
+      "geometryKind": "solid",
+      "kernelBacked": true,
+      "productionReady": false,
+      "raySections": {},
+      "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+      "shellCount": 2,
+      "solidCount": 2,
+      "stepReadback": {
+        "bbox": {
+          "max": [
+            45.0000001,
+            16,
+            26
+          ],
+          "min": [
+            0,
+            -5.0000001,
+            -1.0000010315249213e-07
+          ],
+          "size": [
+            45.0000001,
+            21.0000001,
+            26.000000100000104
+          ]
+        },
+        "solidCount": 2,
+        "valid": true,
+        "volumeMm3": 4055.825488777001
+      },
+      "surfaceAreaMm2": 2305.193893686832,
+      "valid": true,
+      "volumeMm3": 4055.8250959325496
+    }
+  },
+  "modified": {
+    "id": "feature_f800ea1b7ee8795d69d15e1056db2199",
+    "revision": 2,
+    "fileId": "file_ff9c04fc-a561-4dd1-82c8-ad0d887ebea9",
+    "name": "验收-导入PDM",
+    "plan": {
+      "features": [
+        {
+          "assetId": "asset_e33edc340b30fc9758f10a31262292c2",
+          "id": "import_174042d3b8d14772a2ab",
+          "label": "验收-导入PDM",
+          "op": "import_step",
+          "sha256": "7f038fe9e636f7666023d0df054bc8bd9618599e5c11da47bae3cfcdd0041518"
+        },
+        {
+          "id": "import_174042d3b8d14772a2ab_position",
+          "input": "import_174042d3b8d14772a2ab",
+          "op": "translate",
+          "vector": [
+            "import_174042d3b8d14772a2ab_x",
+            "import_174042d3b8d14772a2ab_y",
+            "import_174042d3b8d14772a2ab_z"
+          ]
+        },
+        {
+          "catalogId": "socket-m6-20",
+          "dimensions": {
+            "headChamfer": "sp_0f8e6ec4919841d18181_headChamfer",
+            "headDiameter": "sp_0f8e6ec4919841d18181_headDiameter",
+            "headLength": "sp_0f8e6ec4919841d18181_headLength",
+            "length": "sp_0f8e6ec4919841d18181_length",
+            "outerDiameter": "sp_0f8e6ec4919841d18181_outerDiameter",
+            "pitch": "sp_0f8e6ec4919841d18181_pitch",
+            "socketAcrossFlats": "sp_0f8e6ec4919841d18181_socketAcrossFlats",
+            "socketDepth": "sp_0f8e6ec4919841d18181_socketDepth",
+            "threadLength": "sp_0f8e6ec4919841d18181_threadLength",
+            "tipChamfer": "sp_0f8e6ec4919841d18181_tipChamfer"
+          },
+          "id": "sp_0f8e6ec4919841d18181_geometry",
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · geometry",
+          "op": "standard_part"
+        },
+        {
+          "id": "sp_0f8e6ec4919841d18181_position",
+          "input": "sp_0f8e6ec4919841d18181_geometry",
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · position",
+          "op": "translate",
+          "vector": [
+            "sp_0f8e6ec4919841d18181_x",
+            "sp_0f8e6ec4919841d18181_y",
+            "sp_0f8e6ec4919841d18181_z"
+          ]
+        },
+        {
+          "id": "sp_0f8e6ec4919841d18181_bodies",
+          "inputs": [
+            "import_174042d3b8d14772a2ab_position",
+            "sp_0f8e6ec4919841d18181_position"
+          ],
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · bodies",
+          "op": "compound"
+        }
+      ],
+      "name": "新零件 1",
+      "parameters": {
+        "import_174042d3b8d14772a2ab_x": {
+          "label": "验收-导入PDM · X 位移 mm",
+          "value": 0
+        },
+        "import_174042d3b8d14772a2ab_y": {
+          "label": "验收-导入PDM · Y 位移 mm",
+          "value": 0
+        },
+        "import_174042d3b8d14772a2ab_z": {
+          "label": "验收-导入PDM · Z 位移 mm",
+          "value": 0
+        },
+        "sp_0f8e6ec4919841d18181_headChamfer": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头部倒角 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0.6
+        },
+        "sp_0f8e6ec4919841d18181_headDiameter": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头部外径 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 10
+        },
+        "sp_0f8e6ec4919841d18181_headLength": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 头高 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 6
+        },
+        "sp_0f8e6ec4919841d18181_length": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 长度 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 20
+        },
+        "sp_0f8e6ec4919841d18181_outerDiameter": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 外径 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 6
+        },
+        "sp_0f8e6ec4919841d18181_pitch": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺距 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 1
+        },
+        "sp_0f8e6ec4919841d18181_socketAcrossFlats": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 内六角对边 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 5
+        },
+        "sp_0f8e6ec4919841d18181_socketDepth": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 内六角深度 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 3
+        },
+        "sp_0f8e6ec4919841d18181_threadLength": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺纹长度 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 20
+        },
+        "sp_0f8e6ec4919841d18181_tipChamfer": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · 螺钉端部倒角 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0.5
+        },
+        "sp_0f8e6ec4919841d18181_x": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · X 位置 mm",
+          "source": {
+            "type": "user",
+            "text": "手工特征工作台修改"
+          },
+          "value": 50
+        },
+        "sp_0f8e6ec4919841d18181_y": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · Y 位置 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0
+        },
+        "sp_0f8e6ec4919841d18181_z": {
+          "label": "内六角圆柱头螺钉 ISO 4762 · M6 × 20 · Z 位置 mm",
+          "source": {
+            "text": "Bossard ISO 4762 / ISO 公制螺纹；https://bossard.partcommunity.com/3d-cad-models/?info=bossard%2F01%2F01_100%2F01_100_100%2F01_100_100_10%2Fbn_610_612_31101%2Fbn_610.prj",
+            "type": "user"
+          },
+          "value": 0
+        }
+      },
+      "result": "sp_0f8e6ec4919841d18181_bodies",
+      "units": "mm",
+      "version": "cad-plan-v1"
+    },
+    "inspection": {
+      "engine": "cadquery-occt",
+      "kernelBacked": true,
+      "valid": true,
+      "solidCount": 2,
+      "faceCount": 44,
+      "edgeCount": 112,
+      "volumeMm3": 4055.8250959325505,
+      "surfaceAreaMm2": 2305.193893686832,
+      "geometryKind": "solid",
+      "shellCount": 2,
+      "bbox": {
+        "min": [
+          0,
+          -5.0000001,
+          -1.000000000576339e-07
+        ],
+        "max": [
+          55.0000001,
+          16,
+          26
+        ],
+        "size": [
+          55.0000001,
+          21.0000001,
+          26.0000001
+        ]
+      },
+      "bboxLength": 55.0000001,
+      "bboxWidth": 21.0000001,
+      "bboxHeight": 26.0000001,
+      "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+      "cylinders": [
+        {
+          "faceIndex": 6,
+          "radius": 5,
+          "diameter": 10,
+          "origin": [
+            50,
+            0,
+            20
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 169.6460032938488
+        },
+        {
+          "faceIndex": 11,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.355978760573617
+        },
+        {
+          "faceIndex": 12,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560868160980863
+        },
+        {
+          "faceIndex": 13,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560600982141118
+        },
+        {
+          "faceIndex": 14,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3559853269001136
+        },
+        {
+          "faceIndex": 15,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.35613852308982
+        },
+        {
+          "faceIndex": 16,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.356018250080778
+        },
+        {
+          "faceIndex": 17,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.356069583566523
+        },
+        {
+          "faceIndex": 18,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3562011595514054
+        },
+        {
+          "faceIndex": 19,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560616561111427
+        },
+        {
+          "faceIndex": 20,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.355954712027617
+        },
+        {
+          "faceIndex": 21,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560370111685227
+        },
+        {
+          "faceIndex": 22,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560222597001648
+        },
+        {
+          "faceIndex": 23,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560062681478815
+        },
+        {
+          "faceIndex": 24,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.356029904131532
+        },
+        {
+          "faceIndex": 25,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3561279427341217
+        },
+        {
+          "faceIndex": 26,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.355892786375403
+        },
+        {
+          "faceIndex": 27,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.35606859299512
+        },
+        {
+          "faceIndex": 28,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.3560614022771578
+        },
+        {
+          "faceIndex": 29,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.319398150860633
+        },
+        {
+          "faceIndex": 30,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 0.03680520718447407
+        },
+        {
+          "faceIndex": 34,
+          "radius": 3,
+          "diameter": 6,
+          "origin": [
+            50,
+            0,
+            0
+          ],
+          "axis": [
+            0,
+            0,
+            -1
+          ],
+          "area": 2.982011863964471
+        }
+      ],
+      "raySections": {},
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+      "stepReadback": {
+        "valid": true,
+        "solidCount": 2,
+        "volumeMm3": 4055.825488777001,
+        "bbox": {
+          "min": [
+            0,
+            -5.0000001,
+            -1.0000010315249213e-07
+          ],
+          "max": [
+            55.0000001,
+            16,
+            26
+          ],
+          "size": [
+            55.0000001,
+            21.0000001,
+            26.000000100000104
+          ]
+        }
+      }
+    }
+  },
+  "download": {
+    "filename": "验收-导入PDM-r2.step",
+    "failure": null
+  },
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 401
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/account-capabilities",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdm/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/billing/wallet",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdm/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/designs/imports",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/commit",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f022978e0b4a4ef786f4e4a8852592c3/versions/1/artifacts/glb",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/commit",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f022978e0b4a4ef786f4e4a8852592c3/versions/2/artifacts/glb",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/preview",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/designs/pdm/projects",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/designs/pdm/projects",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/designs/pdm/projects/prj_b59ae7c30a604265a45d6f2c282fb062/documents",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/designs/pdm/versions",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/designs/pdm/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/designs/pdm/projects/prj_b59ae7c30a604265a45d6f2c282fb062/documents",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/designs/pdm/versions/ver_0020c5d04ab742b2879f707315aafde7/open",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdm/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199/versions",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199/versions/1/artifacts/glb",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/preview",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/commit",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199/versions/2/artifacts/glb",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/preview",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199/versions/2/artifacts/step",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ai/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pdm/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features",
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/account/workspace",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199/versions",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/billing/wallet",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/cad/features/feature_f800ea1b7ee8795d69d15e1056db2199/versions/2/artifacts/glb",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/cad/features/preview",
+      "status": 200
+    }
+  ],
+  "refreshReopened": true,
+  "workspaceConflict": false,
+  "finalDatabaseHeads": {
+    "original": 2,
+    "copy": 2,
+    "originalUnchanged": true
+  }
+}

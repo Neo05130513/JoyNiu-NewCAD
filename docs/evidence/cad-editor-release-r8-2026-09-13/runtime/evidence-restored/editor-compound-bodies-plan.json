@@ -1,0 +1,103 @@
+{
+  "version": "cad-plan-v1",
+  "units": "mm",
+  "name": "编辑器候选验收",
+  "parameters": {
+    "width": {
+      "value": 22,
+      "source": {
+        "type": "user",
+        "text": "合成验收"
+      }
+    }
+  },
+  "features": [
+    {
+      "id": "body",
+      "op": "box",
+      "size": [
+        "width",
+        16,
+        10
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "second",
+      "op": "profile_extrude",
+      "plane": "XY",
+      "origin": [
+        15,
+        4,
+        5
+      ],
+      "start": [
+        0,
+        0
+      ],
+      "segments": [
+        {
+          "type": "line",
+          "to": [
+            10,
+            0
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            10,
+            8
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            0,
+            8
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            0,
+            0
+          ]
+        }
+      ],
+      "distance": 10
+    },
+    {
+      "id": "bodies",
+      "op": "compound",
+      "inputs": [
+        "body",
+        "second"
+      ]
+    },
+    {
+      "id": "rounded",
+      "op": "fillet",
+      "input": "bodies",
+      "radius": 1,
+      "edges": [
+        {
+          "kind": "edge",
+          "sourceFeatureId": "bodies",
+          "geometryVersion": "c4d963530128121279720065ea2474365a7f17d6f67bbf7907ad91b16bc9ce8d",
+          "index": 15,
+          "signature": "a67866ed73be031c55df35016929b6cd380c3e8d81de20c382ebacb51c03135f",
+          "binding": {
+            "version": 1,
+            "key": "edab919e3217628cc1ee82e36c2140fcd6a89b80b37da15251db3828f3af39fd"
+          }
+        }
+      ]
+    }
+  ],
+  "result": "rounded"
+}

@@ -1,0 +1,20 @@
+{
+  "multicontour.step": {
+    "valid": true,
+    "solids": 2,
+    "faces": 13,
+    "volumeMm3": 5730.309799870473,
+    "expectedVolumeMm3": 5730.309799870501,
+    "bytes": 36805,
+    "sha256": "00a9105560bd5573ef5d022e808e38f601bb57f12be345e04046a009b8885d85"
+  },
+  "dimension-edited.step": {
+    "valid": true,
+    "solids": 2,
+    "faces": 14,
+    "volumeMm3": 6480.309799870463,
+    "expectedVolumeMm3": 6480.309799870501,
+    "bytes": 42407,
+    "sha256": "7713918fd731f6251fde8f32d9d1b84825230882d4a140035be5c7711a766908"
+  }
+}

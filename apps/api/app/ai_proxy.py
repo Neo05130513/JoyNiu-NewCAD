@@ -131,6 +131,23 @@ class AIDWGPreprocessError(AIProxyError):
         super().__init__(str(message or "DWG preprocessing failed")[:320])
 
 
+def dwg_preprocess_failure_message(code: str) -> str:
+    """Customer recovery instructions without converter output or local paths."""
+    messages = {
+        "invalid_dwg_input": "无法识别这份 DWG 文件的格式。请用 CAD 软件确认文件可以打开，重新保存 DWG 后上传，或导出清晰的 PDF/PNG。",
+        "dwg_input_too_large": "DWG 文件超过解析大小限制。请只导出需要建模的零件图，或上传对应的 PDF/PNG。",
+        "dwg_converter_unavailable": "服务器的 DWG 转换组件暂不可用。请联系管理员处理，或先上传这张图纸导出的 PDF/PNG。",
+        "dwg_conversion_timeout": "这份 DWG 未能在限定时间内完成转换。请只导出需要建模的零件图，或上传对应的 PDF/PNG；如仍失败，请联系管理员。",
+        "dwg_conversion_failed": "服务器未能转换这份 DWG。请用 CAD 软件重新保存 DWG 后上传，或导出清晰的 PDF/PNG；也可联系管理员检查文件兼容性。",
+        "dxf_parser_unavailable": "服务器的 DWG 图纸解析组件暂不可用。请联系管理员处理，或先上传这张图纸导出的 PDF/PNG。",
+        "dxf_parse_failed": "DWG 转换后的图纸数据无法读取，本轮建模尚未开始。请用 CAD 软件重新保存 DWG 后上传，或导出清晰的 PDF/PNG；也可联系管理员检查文件兼容性。",
+        "dxf_render_failed": "DWG 已转换，但无法生成供识图使用的图纸预览。请导出清晰的 PDF/PNG 后上传，或联系管理员检查文件兼容性。",
+        "dwg_resource_limit_exceeded": "这份 DWG 的图元数量或转换结果超出处理上限。请只导出需要建模的零件图，或上传对应的 PDF/PNG。",
+        "dwg_preprocessor_unavailable": "服务器的 DWG 处理组件暂不可用。请联系管理员处理，或先上传这张图纸导出的 PDF/PNG。",
+    }
+    return messages.get(code, "这份 DWG 暂时无法处理。请联系管理员检查，或上传由原图导出的清晰 PDF/PNG。")
+
+
 @dataclass(frozen=True, slots=True)
 class AIFile:
     filename: str
@@ -2092,21 +2109,9 @@ def _prepare_provider_attachments(
                 if is_typed_error
                 else "dwg_preprocessor_unavailable"
             )
-            safe_messages = {
-                "invalid_dwg_input": "DWG 文件签名无效或文件已损坏",
-                "dwg_input_too_large": "DWG 文件超过本地解析上限",
-                "dwg_converter_unavailable": "服务器未安装 DWG 转换引擎",
-                "dwg_conversion_timeout": "DWG 本地转换超时",
-                "dwg_conversion_failed": "DWG 本地转换失败",
-                "dxf_parser_unavailable": "服务器未安装 DXF 矢量解析组件",
-                "dxf_parse_failed": "转换后的 DXF 无法解析",
-                "dxf_render_failed": "DWG 工程图预览生成失败",
-                "dwg_resource_limit_exceeded": "DWG 实体数量或输出超过安全上限",
-                "dwg_preprocessor_unavailable": "服务器 DWG 解析组件不可用",
-            }
             raise AIDWGPreprocessError(
                 code,
-                safe_messages.get(code, "DWG 本地解析失败"),
+                dwg_preprocess_failure_message(code),
             ) from exc
 
         summary_json = json.dumps(
@@ -3215,6 +3220,8 @@ def _call_provider(
 def _provider_error_code(error: AIProxyError | None) -> str:
     """Return a credential-free failure category for logs and UI diagnostics."""
 
+    if isinstance(error, AIProviderNotConfigured):
+        return "not_configured"
     from .cad_codex_provider import CodexProviderError
     if isinstance(error, CodexProviderError):
         return {"invalid_input": "invalid_response", "input_limit": "source_limit",
@@ -3842,8 +3849,8 @@ class AIProxy:
         if files_tuple:
             if preprocess_error is not None:
                 fallback_message = (
-                    f"已收到并保留原始 DWG，但{preprocess_error}；"
-                    "本次没有把原始二进制发送给中转站，也没有写入任何候选参数。"
+                    f"{dwg_preprocess_failure_message(preprocess_error.code)}"
+                    "原始 DWG 已保留，本轮未调用 AI，也没有生成候选参数。"
                 )
                 fallback_mode = "dwg-preprocess-error"
             else:

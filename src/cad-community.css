@@ -1,0 +1,12 @@
+.cad-community-panel{width:min(420px,calc(100vw - 36px));max-height:calc(100dvh - 140px);overflow:auto}
+.cad-community-tabs,.cad-community-search,.cad-community-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cad-community-tabs{margin:10px 0}.cad-community-tabs button[aria-pressed=true]{background:#e9efff;color:#234bae;border-color:#8daaf0}
+.cad-community-panel form.cad-community-search{display:flex;margin-bottom:10px}.cad-community-search input{flex:1;min-width:0}
+.cad-community-panel label.cad-community-consent{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.6;margin:12px 0}
+.cad-community-consent input[type=checkbox]{width:16px;min-width:16px;height:16px;margin-top:3px}
+.cad-community-resources article{border-top:1px solid #e0e5ed;padding:8px 0}.cad-community-resource-title{width:100%;display:flex;justify-content:space-between;gap:10px;text-align:left;background:none;border:0}
+.cad-community-resource-title b{overflow-wrap:anywhere}.cad-community-resource-title small{white-space:nowrap;color:#687587}
+.cad-community-resources article>p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+.cad-community-preview{height:220px;margin:8px 0;border:1px solid #e0e5ed;border-radius:8px;overflow:hidden}.cad-community-preview>.cad-model-viewport{height:100%;min-height:0}
+.cad-community-actions{margin:8px 0}.cad-community-actions button{font-size:12px;padding:7px 9px}
+@media(max-width:600px){.cad-community-panel{max-height:calc(100dvh - 115px)}.cad-community-preview{height:190px}}

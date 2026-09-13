@@ -1,0 +1,142 @@
+{
+  "activation": {
+    "stage": "completed",
+    "release": "cad-editor-parity-20260913",
+    "sourceAndBuildSha256": "e3f3e4774b2b2d72b34f6b0999aabccd81ce409225ce522afde3b7f8c5d4baf6",
+    "backup": "/opt/joyniu-backups/scheduled/currentcad-9591e8ecc0264a6fa0ca53db7aeee9ad",
+    "oldImages": {
+      "api": {
+        "tag": "joyniu-cad-api-codex:cad-editor-parity-20260913-r4",
+        "id": "sha256:d0ba40e977ff5e97ad4e6fa64f087634a4d50f768167c8ed27a76e91c4743502",
+        "os": "linux",
+        "architecture": "amd64"
+      },
+      "web": {
+        "tag": "joyniu-cad-web:cad-editor-parity-20260913-r4",
+        "id": "sha256:800369c19b4e36e325b912d642d3dfcec9ea1967a70f79710d4eca861243c591",
+        "os": "linux",
+        "architecture": "amd64"
+      }
+    },
+    "newImages": {
+      "apiImage": {
+        "tag": "joyniu-cad-api-codex:cad-editor-parity-20260913-r6",
+        "id": "sha256:a4c96cc7ba87572d3f80f6986bd7ca43e73e785a8658d8e23d76af260e82f26c",
+        "architecture": "amd64"
+      },
+      "webImage": {
+        "tag": "joyniu-cad-web:cad-editor-parity-20260913-r6",
+        "id": "sha256:feabd24fe2df5b58d88a7029c02ad96f7e23f3e536dfacec6157f06572edcf6b",
+        "architecture": "amd64"
+      },
+      "baseImage": {
+        "tag": "joyniu-cad-api-codex:cad-editor-parity-20260913-r4",
+        "id": "sha256:d0ba40e977ff5e97ad4e6fa64f087634a4d50f768167c8ed27a76e91c4743502",
+        "architecture": "amd64"
+      },
+      "toolsImage": {
+        "tag": "joyniu-currentcad-tools:20260912-amd64",
+        "id": "sha256:689cfa61d5abdc1bbe68fbd799539cc5de779b5e92402217e7c469fe374ed042",
+        "architecture": "amd64"
+      }
+    }
+  },
+  "containers": [
+    {
+      "name": "joyniu-cad-api-1",
+      "imageId": "sha256:a4c96cc7ba87572d3f80f6986bd7ca43e73e785a8658d8e23d76af260e82f26c",
+      "imageTag": "joyniu-cad-api-codex:cad-editor-parity-20260913-r6",
+      "status": "running",
+      "health": "healthy"
+    },
+    {
+      "name": "joyniu-cad-web-1",
+      "imageId": "sha256:feabd24fe2df5b58d88a7029c02ad96f7e23f3e536dfacec6157f06572edcf6b",
+      "imageTag": "joyniu-cad-web:cad-editor-parity-20260913-r6",
+      "status": "running",
+      "health": null
+    }
+  ],
+  "checkedAtUtc": "2026-09-13T04:45:49.589533+00:00",
+  "public": {
+    "/api/v1/health": {
+      "status": 200,
+      "body": {
+        "status": "ok",
+        "service": "joyniu-cad-api",
+        "version": "0.2.0",
+        "checkedAt": "2026-09-13T04:45:49.714080+00:00",
+        "geometry": {
+          "available": true,
+          "version": "2.8.0",
+          "error": null,
+          "engine": "cadquery-occt"
+        },
+        "dwg": {
+          "available": true,
+          "engine": "libredwg-dwgread",
+          "converterCandidates": [
+            "libredwg-dwgread",
+            "libredwg-dwg2dxf"
+          ],
+          "dependencies": {
+            "ezdxf": true,
+            "matplotlib": true,
+            "Pillow": true
+          },
+          "error": null,
+          "pipeline": "DWG -> DXF -> vector/dimension evidence + PNG",
+          "rawDwgSentToAI": false
+        },
+        "pdf": {
+          "available": true,
+          "engine": "PyMuPDF",
+          "dependencies": {
+            "PyMuPDF": true,
+            "Pillow": true
+          },
+          "pipeline": "PDF -> page text evidence + PNG previews",
+          "rawPdfSentToAI": false
+        },
+        "capabilities": {
+          "drawingRecognition": true,
+          "drawingResultSubmission": true,
+          "bracketValidation": true,
+          "stepExport": true,
+          "glbExport": true,
+          "cadqueryBRep": true,
+          "dwgVectorParsing": true,
+          "pdfVectorParsing": true,
+          "ocr": {
+            "available": true,
+            "engine": "pytesseract",
+            "version": "5.5.0"
+          }
+        },
+        "notes": []
+      }
+    },
+    "/release.json": {
+      "status": 200,
+      "body": {
+        "release": "cad-editor-parity-20260913",
+        "gitBase": "5cc68383923f43624fd86a44a338b2f5bcf04d14",
+        "workingTreeSnapshot": true,
+        "sourceAndBuildSha256": "e3f3e4774b2b2d72b34f6b0999aabccd81ce409225ce522afde3b7f8c5d4baf6"
+      }
+    },
+    "/api/v1/operations/readiness": {
+      "status": 200,
+      "body": {
+        "gateVersion": "v1",
+        "maintenance": false
+      }
+    }
+  },
+  "syntheticAccountCleanup": {
+    "id": "usr_e350eaed456d41f9afe31c52f66906fe",
+    "active": false,
+    "scope": "synthetic CAD editor acceptance account",
+    "verifiedBy": "AuthService.set_active returned active false after browser acceptance"
+  }
+}

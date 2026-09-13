@@ -1,0 +1,26 @@
+{
+  "id": "codex-c4f448c5c2904abfade3748a8a424f78",
+  "object": "response",
+  "status": "completed",
+  "model": "gpt-6-astra",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "phase": "final_answer",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"action\":\"execute_plan\",\"message\":\"图片外轮廓及中心圆形开口与圆柱直齿轮、中心通孔的俯视外形相符，但不据此确认齿形精度、厚度或贯通性。按用户精确尺寸提交单一 gear 特征，供内核执行。\",\"plan\":{\"version\":\"cad-plan-v1\",\"name\":\"中心通孔圆柱直齿轮\",\"units\":\"mm\",\"parameters\":{\"module\":{\"label\":\"齿轮模数\",\"value\":2,\"source\":{\"type\":\"user\",\"text\":\"用户给定精确建模尺寸：模数 module=2 mm。\"}},\"teeth\":{\"label\":\"齿轮齿数\",\"value\":24,\"source\":{\"type\":\"user\",\"text\":\"用户给定精确建模尺寸：齿数 teeth=24。\"}},\"pressureAngle\":{\"label\":\"齿轮压力角（度）\",\"value\":20,\"source\":{\"type\":\"user\",\"text\":\"用户给定精确建模尺寸：压力角 pressureAngle=20度。\"}},\"width\":{\"label\":\"沿齿轮轴线的齿宽\",\"value\":15,\"source\":{\"type\":\"user\",\"text\":\"用户给定精确建模尺寸：齿宽 width=15 mm。\"}},\"boreDiameter\":{\"label\":\"轴心通孔直径\",\"value\":12,\"source\":{\"type\":\"user\",\"text\":\"用户给定精确建模尺寸：中心通孔 boreDiameter=12 mm。\"}},\"profileShift\":{\"label\":\"齿轮变位系数\",\"value\":0,\"source\":{\"type\":\"user\",\"text\":\"用户给定精确建模尺寸：无变位 profileShift=0。\"}},\"backlash\":{\"label\":\"齿轮侧隙\",\"value\":0,\"source\":{\"type\":\"user\",\"text\":\"用户给定精确建模尺寸：侧隙 backlash=0。\"}}},\"features\":[{\"id\":\"gearBody\",\"op\":\"gear\",\"module\":\"module\",\"teeth\":\"teeth\",\"pressureAngle\":\"pressureAngle\",\"width\":\"width\",\"boreDiameter\":\"boreDiameter\",\"profileShift\":\"profileShift\",\"backlash\":\"backlash\",\"origin\":[0,0,0]}],\"result\":\"gearBody\",\"notes\":[\"坐标约定：齿轮轴线为Z轴，端面为XY平面，原点取轴线与起始端面的交点。\",\"图片仅作为外齿轮廓及中心圆形开口的候选证据；无可引用的尺寸标注，未由图片推断厚度、隐藏结构或精确齿形。\",\"参考平面标定不覆盖或修改用户精确尺寸；照片中不可判定的字段仍不确定。\",\"计划仅含用户要求的直齿轮及轴心通孔，不附加轴承、键槽、倒角、轮毂或其他孔；无剩余待建结构组。\",\"此为待执行计划，尚未获得实际几何、测量或投影核验结果。\"]}}"
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 10062,
+    "output_tokens": 652,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0
+  }
+}

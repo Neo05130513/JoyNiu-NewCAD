@@ -1,0 +1,2036 @@
+{
+  "records": [
+    {
+      "id": "feature_f25832ae7cb64ad3b2ac099bd5f6073f",
+      "revision": 1,
+      "name": "新零件 1",
+      "plan": {
+        "version": "cad-plan-v1",
+        "units": "mm",
+        "name": "新零件 1",
+        "parameters": {},
+        "features": [
+          {
+            "id": "profile_extrude1",
+            "op": "profile_extrude",
+            "label": "轮廓拉伸 1",
+            "plane": "XY",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "start": [
+              0,
+              0
+            ],
+            "segments": [
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  0
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "distance": 5,
+            "sketchConstraints": [
+              {
+                "id": "sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0
+              },
+              {
+                "id": "sketch_rect_1",
+                "type": "vertical",
+                "edge": 1
+              },
+              {
+                "id": "sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2
+              },
+              {
+                "id": "sketch_rect_3",
+                "type": "vertical",
+                "edge": 3
+              },
+              {
+                "id": "sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "contour1_sketch_circle_equal",
+                "type": "equal",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "contour1_sketch_circle_concentric",
+                "type": "concentric",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "sketch_radius_contour1_0",
+                "type": "radius",
+                "edge": {
+                  "contourId": "contour1",
+                  "edge": 0
+                },
+                "value": 7
+              },
+              {
+                "id": "contour2_sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_1",
+                "type": "vertical",
+                "edge": 1,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_3",
+                "type": "vertical",
+                "edge": 3,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  -15,
+                  0
+                ],
+                "contourId": "contour2"
+              }
+            ],
+            "contours": [
+              {
+                "id": "contour1",
+                "role": "hole",
+                "parent": "main",
+                "start": [
+                  27,
+                  15
+                ],
+                "segments": [
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      22
+                    ],
+                    "to": [
+                      13,
+                      15
+                    ]
+                  },
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      8
+                    ],
+                    "to": [
+                      27,
+                      15
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "contour2",
+                "role": "outer",
+                "start": [
+                  -15,
+                  0
+                ],
+                "segments": [
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      0
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      0
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "result": "profile_extrude1"
+      },
+      "suppressed": [],
+      "sourceRun": null,
+      "fileId": "file_0ea8fcd1-86a4-4514-9f26-e837d8a1271e",
+      "changeNote": "新建轮廓拉伸 1",
+      "status": "built",
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "updatedAt": "2026-09-13T10:43:14.247882+00:00",
+      "artifacts": {
+        "step": {
+          "format": "step",
+          "mimeType": "application/step",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/1/artifacts/step"
+        },
+        "glb": {
+          "format": "glb",
+          "mimeType": "model/gltf-binary",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/1/artifacts/glb"
+        },
+        "plan": {
+          "format": "plan",
+          "mimeType": "application/json",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/1/artifacts/plan"
+        }
+      },
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 2,
+        "faceCount": 13,
+        "edgeCount": 27,
+        "volumeMm3": 5730.3097998705,
+        "surfaceAreaMm2": 3412.035405699485,
+        "geometryKind": "solid",
+        "shellCount": 2,
+        "bbox": {
+          "min": [
+            -15,
+            0,
+            0
+          ],
+          "max": [
+            40,
+            30,
+            5
+          ],
+          "size": [
+            55,
+            30,
+            5
+          ]
+        },
+        "bboxLength": 55,
+        "bboxWidth": 30,
+        "bboxHeight": 5,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 2,
+            "radius": 7,
+            "diameter": 14,
+            "origin": [
+              20,
+              15,
+              0
+            ],
+            "axis": [
+              0,
+              0,
+              -1
+            ],
+            "area": 219.9114857512855
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 2,
+          "volumeMm3": 5730.309799870473,
+          "bbox": {
+            "min": [
+              -15,
+              0,
+              0
+            ],
+            "max": [
+              40,
+              30,
+              5
+            ],
+            "size": [
+              55,
+              30,
+              5
+            ]
+          }
+        }
+      },
+      "resolvedParameters": {},
+      "execution": {
+        "isolatedProcess": true,
+        "durationMs": 4211,
+        "timeoutSeconds": 120,
+        "memoryLimitMb": 4096,
+        "arbitraryCodeAllowed": false
+      },
+      "sharedDesign": null
+    },
+    {
+      "id": "feature_f25832ae7cb64ad3b2ac099bd5f6073f",
+      "revision": 2,
+      "name": "新零件 1",
+      "plan": {
+        "version": "cad-plan-v1",
+        "units": "mm",
+        "name": "新零件 1",
+        "parameters": {},
+        "features": [
+          {
+            "id": "profile_extrude1",
+            "op": "profile_extrude",
+            "label": "轮廓拉伸 1",
+            "plane": "XY",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "start": [
+              0,
+              0
+            ],
+            "segments": [
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  0
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "distance": 5,
+            "sketchConstraints": [
+              {
+                "id": "sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0
+              },
+              {
+                "id": "sketch_rect_1",
+                "type": "vertical",
+                "edge": 1
+              },
+              {
+                "id": "sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2
+              },
+              {
+                "id": "sketch_rect_3",
+                "type": "vertical",
+                "edge": 3
+              },
+              {
+                "id": "sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "contour1_sketch_circle_equal",
+                "type": "equal",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "contour1_sketch_circle_concentric",
+                "type": "concentric",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "sketch_radius_contour1_0",
+                "type": "radius",
+                "edge": {
+                  "contourId": "contour1",
+                  "edge": 0
+                },
+                "value": 7
+              },
+              {
+                "id": "contour2_sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_1",
+                "type": "vertical",
+                "edge": 1,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_3",
+                "type": "vertical",
+                "edge": 3,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  -15,
+                  0
+                ],
+                "contourId": "contour2"
+              }
+            ],
+            "contours": [
+              {
+                "id": "contour1",
+                "role": "hole",
+                "parent": "main",
+                "start": [
+                  27,
+                  15
+                ],
+                "segments": [
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      22
+                    ],
+                    "to": [
+                      13,
+                      15
+                    ]
+                  },
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      8
+                    ],
+                    "to": [
+                      27,
+                      15
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "contour2",
+                "role": "outer",
+                "start": [
+                  -15,
+                  0
+                ],
+                "segments": [
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      0
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      0
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "result": "profile_extrude1",
+        "references": [
+          {
+            "id": "plane1",
+            "kind": "plane",
+            "mode": "offset",
+            "label": "平面 1",
+            "parent": "XY",
+            "offset": 20,
+            "angle": 0,
+            "axis": "x"
+          }
+        ]
+      },
+      "suppressed": [],
+      "sourceRun": null,
+      "fileId": "file_0ea8fcd1-86a4-4514-9f26-e837d8a1271e",
+      "changeNote": "编辑参考几何",
+      "status": "built",
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "updatedAt": "2026-09-13T10:43:22.596203+00:00",
+      "artifacts": {
+        "step": {
+          "format": "step",
+          "mimeType": "application/step",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/2/artifacts/step"
+        },
+        "glb": {
+          "format": "glb",
+          "mimeType": "model/gltf-binary",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/2/artifacts/glb"
+        },
+        "plan": {
+          "format": "plan",
+          "mimeType": "application/json",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/2/artifacts/plan"
+        }
+      },
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 2,
+        "faceCount": 13,
+        "edgeCount": 27,
+        "volumeMm3": 5730.3097998705,
+        "surfaceAreaMm2": 3412.035405699485,
+        "geometryKind": "solid",
+        "shellCount": 2,
+        "bbox": {
+          "min": [
+            -15,
+            0,
+            0
+          ],
+          "max": [
+            40,
+            30,
+            5
+          ],
+          "size": [
+            55,
+            30,
+            5
+          ]
+        },
+        "bboxLength": 55,
+        "bboxWidth": 30,
+        "bboxHeight": 5,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 2,
+            "radius": 7,
+            "diameter": 14,
+            "origin": [
+              20,
+              15,
+              0
+            ],
+            "axis": [
+              0,
+              0,
+              -1
+            ],
+            "area": 219.9114857512855
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 2,
+          "volumeMm3": 5730.309799870473,
+          "bbox": {
+            "min": [
+              -15,
+              0,
+              0
+            ],
+            "max": [
+              40,
+              30,
+              5
+            ],
+            "size": [
+              55,
+              30,
+              5
+            ]
+          }
+        }
+      },
+      "resolvedParameters": {},
+      "execution": {
+        "isolatedProcess": true,
+        "durationMs": 3960,
+        "timeoutSeconds": 120,
+        "memoryLimitMb": 4096,
+        "arbitraryCodeAllowed": false
+      },
+      "sharedDesign": null
+    },
+    {
+      "id": "feature_f25832ae7cb64ad3b2ac099bd5f6073f",
+      "revision": 3,
+      "name": "新零件 1",
+      "plan": {
+        "version": "cad-plan-v1",
+        "units": "mm",
+        "name": "新零件 1",
+        "parameters": {},
+        "features": [
+          {
+            "id": "profile_extrude1",
+            "op": "profile_extrude",
+            "label": "轮廓拉伸 1",
+            "plane": "XY",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "start": [
+              0,
+              0
+            ],
+            "segments": [
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  0
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "distance": 5,
+            "sketchConstraints": [
+              {
+                "id": "sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0
+              },
+              {
+                "id": "sketch_rect_1",
+                "type": "vertical",
+                "edge": 1
+              },
+              {
+                "id": "sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2
+              },
+              {
+                "id": "sketch_rect_3",
+                "type": "vertical",
+                "edge": 3
+              },
+              {
+                "id": "sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "contour1_sketch_circle_equal",
+                "type": "equal",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "contour1_sketch_circle_concentric",
+                "type": "concentric",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "sketch_radius_contour1_0",
+                "type": "radius",
+                "edge": {
+                  "contourId": "contour1",
+                  "edge": 0
+                },
+                "value": 7
+              },
+              {
+                "id": "contour2_sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_1",
+                "type": "vertical",
+                "edge": 1,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_3",
+                "type": "vertical",
+                "edge": 3,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  -15,
+                  0
+                ],
+                "contourId": "contour2"
+              }
+            ],
+            "contours": [
+              {
+                "id": "contour1",
+                "role": "hole",
+                "parent": "main",
+                "start": [
+                  27,
+                  15
+                ],
+                "segments": [
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      22
+                    ],
+                    "to": [
+                      13,
+                      15
+                    ]
+                  },
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      8
+                    ],
+                    "to": [
+                      27,
+                      15
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "contour2",
+                "role": "outer",
+                "start": [
+                  -15,
+                  0
+                ],
+                "segments": [
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      0
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      0
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "result": "profile_extrude1",
+        "references": [
+          {
+            "id": "plane1",
+            "kind": "plane",
+            "mode": "offset",
+            "label": "平面 1",
+            "parent": "XY",
+            "offset": 20,
+            "angle": 0,
+            "axis": "x"
+          },
+          {
+            "id": "helix1",
+            "kind": "helix",
+            "mode": "coordinates",
+            "label": "螺旋线 1",
+            "radius": 8,
+            "pitch": 4,
+            "turns": 2,
+            "lefthand": false,
+            "frame": {
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "xDir": [
+                1,
+                0,
+                0
+              ],
+              "normal": [
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        ]
+      },
+      "suppressed": [],
+      "sourceRun": null,
+      "fileId": "file_0ea8fcd1-86a4-4514-9f26-e837d8a1271e",
+      "changeNote": "编辑参考几何",
+      "status": "built",
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "updatedAt": "2026-09-13T10:43:30.811185+00:00",
+      "artifacts": {
+        "step": {
+          "format": "step",
+          "mimeType": "application/step",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/3/artifacts/step"
+        },
+        "glb": {
+          "format": "glb",
+          "mimeType": "model/gltf-binary",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/3/artifacts/glb"
+        },
+        "plan": {
+          "format": "plan",
+          "mimeType": "application/json",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/3/artifacts/plan"
+        }
+      },
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 2,
+        "faceCount": 13,
+        "edgeCount": 27,
+        "volumeMm3": 5730.3097998705,
+        "surfaceAreaMm2": 3412.035405699485,
+        "geometryKind": "solid",
+        "shellCount": 2,
+        "bbox": {
+          "min": [
+            -15,
+            0,
+            0
+          ],
+          "max": [
+            40,
+            30,
+            5
+          ],
+          "size": [
+            55,
+            30,
+            5
+          ]
+        },
+        "bboxLength": 55,
+        "bboxWidth": 30,
+        "bboxHeight": 5,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 2,
+            "radius": 7,
+            "diameter": 14,
+            "origin": [
+              20,
+              15,
+              0
+            ],
+            "axis": [
+              0,
+              0,
+              -1
+            ],
+            "area": 219.9114857512855
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 2,
+          "volumeMm3": 5730.309799870473,
+          "bbox": {
+            "min": [
+              -15,
+              0,
+              0
+            ],
+            "max": [
+              40,
+              30,
+              5
+            ],
+            "size": [
+              55,
+              30,
+              5
+            ]
+          }
+        }
+      },
+      "resolvedParameters": {},
+      "execution": {
+        "isolatedProcess": true,
+        "durationMs": 3960,
+        "timeoutSeconds": 120,
+        "memoryLimitMb": 4096,
+        "arbitraryCodeAllowed": false
+      },
+      "sharedDesign": null
+    },
+    {
+      "id": "feature_f25832ae7cb64ad3b2ac099bd5f6073f",
+      "revision": 4,
+      "name": "新零件 1",
+      "plan": {
+        "version": "cad-plan-v1",
+        "units": "mm",
+        "name": "新零件 1",
+        "parameters": {},
+        "features": [
+          {
+            "id": "profile_extrude1",
+            "op": "profile_extrude",
+            "label": "轮廓拉伸 1",
+            "plane": "XY",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "start": [
+              0,
+              0
+            ],
+            "segments": [
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  0
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "distance": 5,
+            "sketchConstraints": [
+              {
+                "id": "sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0
+              },
+              {
+                "id": "sketch_rect_1",
+                "type": "vertical",
+                "edge": 1
+              },
+              {
+                "id": "sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2
+              },
+              {
+                "id": "sketch_rect_3",
+                "type": "vertical",
+                "edge": 3
+              },
+              {
+                "id": "sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "contour1_sketch_circle_equal",
+                "type": "equal",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "contour1_sketch_circle_concentric",
+                "type": "concentric",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "sketch_radius_contour1_0",
+                "type": "radius",
+                "edge": {
+                  "contourId": "contour1",
+                  "edge": 0
+                },
+                "value": 7
+              },
+              {
+                "id": "contour2_sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_1",
+                "type": "vertical",
+                "edge": 1,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_3",
+                "type": "vertical",
+                "edge": 3,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  -15,
+                  0
+                ],
+                "contourId": "contour2"
+              }
+            ],
+            "contours": [
+              {
+                "id": "contour1",
+                "role": "hole",
+                "parent": "main",
+                "start": [
+                  27,
+                  15
+                ],
+                "segments": [
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      22
+                    ],
+                    "to": [
+                      13,
+                      15
+                    ]
+                  },
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      8
+                    ],
+                    "to": [
+                      27,
+                      15
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "contour2",
+                "role": "outer",
+                "start": [
+                  -15,
+                  0
+                ],
+                "segments": [
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      0
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      0
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "surface_style1",
+            "op": "surface_style",
+            "label": "样式曲面 1",
+            "points": [
+              [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  10,
+                  0,
+                  0
+                ],
+                [
+                  20,
+                  0,
+                  0
+                ]
+              ],
+              [
+                [
+                  0,
+                  10,
+                  0
+                ],
+                [
+                  10.225495,
+                  11.362545,
+                  7.337706
+                ],
+                [
+                  20,
+                  10,
+                  0
+                ]
+              ],
+              [
+                [
+                  0,
+                  20,
+                  0
+                ],
+                [
+                  10,
+                  20,
+                  0
+                ],
+                [
+                  20,
+                  20,
+                  0
+                ]
+              ]
+            ],
+            "tolerance": 0.01
+          },
+          {
+            "id": "compound1",
+            "op": "compound",
+            "label": "多实体组合 1",
+            "inputs": [
+              "profile_extrude1",
+              "surface_style1"
+            ]
+          }
+        ],
+        "result": "compound1",
+        "references": [
+          {
+            "id": "plane1",
+            "kind": "plane",
+            "mode": "offset",
+            "label": "平面 1",
+            "parent": "XY",
+            "offset": 20,
+            "angle": 0,
+            "axis": "x"
+          },
+          {
+            "id": "helix1",
+            "kind": "helix",
+            "mode": "coordinates",
+            "label": "螺旋线 1",
+            "radius": 8,
+            "pitch": 4,
+            "turns": 2,
+            "lefthand": false,
+            "frame": {
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "xDir": [
+                1,
+                0,
+                0
+              ],
+              "normal": [
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        ]
+      },
+      "suppressed": [],
+      "sourceRun": null,
+      "fileId": "file_0ea8fcd1-86a4-4514-9f26-e837d8a1271e",
+      "changeNote": "新建样式曲面 1",
+      "status": "built",
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "updatedAt": "2026-09-13T10:43:39.089602+00:00",
+      "artifacts": {
+        "step": {
+          "format": "step",
+          "mimeType": "application/step",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/4/artifacts/step"
+        },
+        "glb": {
+          "format": "glb",
+          "mimeType": "model/gltf-binary",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/4/artifacts/glb"
+        },
+        "plan": {
+          "format": "plan",
+          "mimeType": "application/json",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/4/artifacts/plan"
+        }
+      },
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 2,
+        "faceCount": 14,
+        "edgeCount": 31,
+        "volumeMm3": 5730.3097998705,
+        "surfaceAreaMm2": 3939.9929613706677,
+        "geometryKind": "solid",
+        "shellCount": 2,
+        "bbox": {
+          "min": [
+            -15,
+            -1e-7,
+            -1e-7
+          ],
+          "max": [
+            40,
+            30,
+            7.358087290940704
+          ],
+          "size": [
+            55,
+            30.0000001,
+            7.358087390940704
+          ]
+        },
+        "bboxLength": 55,
+        "bboxWidth": 30.0000001,
+        "bboxHeight": 7.358087390940704,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 8,
+            "radius": 7,
+            "diameter": 14,
+            "origin": [
+              20,
+              15,
+              0
+            ],
+            "axis": [
+              0,
+              0,
+              -1
+            ],
+            "area": 219.9114857512855
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 2,
+          "volumeMm3": 5730.309799870473,
+          "bbox": {
+            "min": [
+              -15,
+              -1e-7,
+              -1e-7
+            ],
+            "max": [
+              40,
+              30,
+              7.35808729094075
+            ],
+            "size": [
+              55,
+              30.0000001,
+              7.35808739094075
+            ]
+          }
+        }
+      },
+      "resolvedParameters": {},
+      "execution": {
+        "isolatedProcess": true,
+        "durationMs": 4261,
+        "timeoutSeconds": 120,
+        "memoryLimitMb": 4096,
+        "arbitraryCodeAllowed": false
+      },
+      "sharedDesign": null
+    },
+    {
+      "id": "feature_f25832ae7cb64ad3b2ac099bd5f6073f",
+      "revision": 5,
+      "name": "新零件 1",
+      "plan": {
+        "version": "cad-plan-v1",
+        "units": "mm",
+        "name": "新零件 1",
+        "parameters": {},
+        "features": [
+          {
+            "id": "profile_extrude1",
+            "op": "profile_extrude",
+            "label": "轮廓拉伸 1",
+            "plane": "XY",
+            "origin": [
+              0,
+              0,
+              0
+            ],
+            "start": [
+              0,
+              0
+            ],
+            "segments": [
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  0
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  40,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  30
+                ]
+              },
+              {
+                "type": "line",
+                "to": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "distance": 5,
+            "sketchConstraints": [
+              {
+                "id": "sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0
+              },
+              {
+                "id": "sketch_rect_1",
+                "type": "vertical",
+                "edge": 1
+              },
+              {
+                "id": "sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2
+              },
+              {
+                "id": "sketch_rect_3",
+                "type": "vertical",
+                "edge": 3
+              },
+              {
+                "id": "sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  0,
+                  0
+                ]
+              },
+              {
+                "id": "contour1_sketch_circle_equal",
+                "type": "equal",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "contour1_sketch_circle_concentric",
+                "type": "concentric",
+                "edges": [
+                  0,
+                  1
+                ],
+                "contourId": "contour1"
+              },
+              {
+                "id": "sketch_radius_contour1_0",
+                "type": "radius",
+                "edge": {
+                  "contourId": "contour1",
+                  "edge": 0
+                },
+                "value": 7
+              },
+              {
+                "id": "contour2_sketch_rect_0",
+                "type": "horizontal",
+                "edge": 0,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_1",
+                "type": "vertical",
+                "edge": 1,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_2",
+                "type": "horizontal",
+                "edge": 2,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_3",
+                "type": "vertical",
+                "edge": 3,
+                "contourId": "contour2"
+              },
+              {
+                "id": "contour2_sketch_rect_origin",
+                "type": "fixed",
+                "points": [
+                  "start"
+                ],
+                "position": [
+                  -15,
+                  0
+                ],
+                "contourId": "contour2"
+              }
+            ],
+            "contours": [
+              {
+                "id": "contour1",
+                "role": "hole",
+                "parent": "main",
+                "start": [
+                  27,
+                  15
+                ],
+                "segments": [
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      22
+                    ],
+                    "to": [
+                      13,
+                      15
+                    ]
+                  },
+                  {
+                    "type": "arc",
+                    "through": [
+                      20,
+                      8
+                    ],
+                    "to": [
+                      27,
+                      15
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "contour2",
+                "role": "outer",
+                "start": [
+                  -15,
+                  0
+                ],
+                "segments": [
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      0
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -5,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      10
+                    ]
+                  },
+                  {
+                    "type": "line",
+                    "to": [
+                      -15,
+                      0
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "surface_style1",
+            "op": "surface_style",
+            "label": "样式曲面 1",
+            "points": [
+              [
+                [
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  10,
+                  0,
+                  0
+                ],
+                [
+                  20,
+                  0,
+                  0
+                ]
+              ],
+              [
+                [
+                  0,
+                  10,
+                  0
+                ],
+                [
+                  10.225495,
+                  11.362545,
+                  7.337706
+                ],
+                [
+                  20,
+                  10,
+                  0
+                ]
+              ],
+              [
+                [
+                  0,
+                  20,
+                  0
+                ],
+                [
+                  10,
+                  20,
+                  0
+                ],
+                [
+                  20,
+                  20,
+                  0
+                ]
+              ]
+            ],
+            "tolerance": 0.01
+          },
+          {
+            "id": "compound1",
+            "op": "compound",
+            "label": "多实体组合 1",
+            "inputs": [
+              "profile_extrude1",
+              "surface_style1"
+            ]
+          }
+        ],
+        "result": "compound1",
+        "references": [
+          {
+            "id": "plane1",
+            "kind": "plane",
+            "mode": "offset",
+            "label": "平面 1",
+            "parent": "XY",
+            "offset": 20,
+            "angle": 0,
+            "axis": "x"
+          },
+          {
+            "id": "helix1",
+            "kind": "helix",
+            "mode": "coordinates",
+            "label": "螺旋线 1",
+            "radius": 8,
+            "pitch": 4,
+            "turns": 2,
+            "lefthand": false,
+            "frame": {
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "xDir": [
+                1,
+                0,
+                0
+              ],
+              "normal": [
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        ],
+        "annotations": [
+          {
+            "id": "pmi1",
+            "kind": "distance",
+            "text": "板面测量",
+            "points": [
+              [
+                31.688498402555922,
+                24.28015043623667,
+                5
+              ],
+              [
+                31.688498402555922,
+                5.434303790859836,
+                5
+              ]
+            ],
+            "references": [
+              {
+                "kind": "face",
+                "sourceFeatureId": "compound1",
+                "geometryVersion": "4e499e5f63141be50b5d25c0946e9ed7ea82a8c01ad64a48f4170af46e376ea7",
+                "index": 7,
+                "signature": "1cba6942d1398771697bc89bf4b80264c5d09a509afba89622a2a2bd51f42b9c",
+                "binding": {
+                  "version": 1,
+                  "key": "c9adbfb564f7beb9d20b04553b3bcbe612c0b155001e259167d07710a65346e5"
+                }
+              },
+              {
+                "kind": "face",
+                "sourceFeatureId": "compound1",
+                "geometryVersion": "4e499e5f63141be50b5d25c0946e9ed7ea82a8c01ad64a48f4170af46e376ea7",
+                "index": 7,
+                "signature": "1cba6942d1398771697bc89bf4b80264c5d09a509afba89622a2a2bd51f42b9c",
+                "binding": {
+                  "version": 1,
+                  "key": "c9adbfb564f7beb9d20b04553b3bcbe612c0b155001e259167d07710a65346e5"
+                }
+              }
+            ],
+            "position": [
+              31.688498402555922,
+              5.434303790859836,
+              9.999999999999972
+            ],
+            "anchors": [
+              {
+                "version": 1,
+                "kind": "face",
+                "coordinates": [
+                  0.792212460063898,
+                  0.8093383478745557
+                ]
+              },
+              {
+                "version": 1,
+                "kind": "face",
+                "coordinates": [
+                  0.792212460063898,
+                  0.18114345969532789
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "suppressed": [],
+      "sourceRun": null,
+      "fileId": "file_0ea8fcd1-86a4-4514-9f26-e837d8a1271e",
+      "changeNote": "编辑 PMI 标注",
+      "status": "built",
+      "drawingAgreement": "not_checked",
+      "productionReady": false,
+      "updatedAt": "2026-09-13T10:43:48.851510+00:00",
+      "artifacts": {
+        "step": {
+          "format": "step",
+          "mimeType": "application/step",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/5/artifacts/step"
+        },
+        "glb": {
+          "format": "glb",
+          "mimeType": "model/gltf-binary",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/5/artifacts/glb"
+        },
+        "plan": {
+          "format": "plan",
+          "mimeType": "application/json",
+          "url": "/api/cad/features/feature_f25832ae7cb64ad3b2ac099bd5f6073f/versions/5/artifacts/plan"
+        }
+      },
+      "inspection": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 2,
+        "faceCount": 14,
+        "edgeCount": 31,
+        "volumeMm3": 5730.3097998705,
+        "surfaceAreaMm2": 3939.9929613706677,
+        "geometryKind": "solid",
+        "shellCount": 2,
+        "bbox": {
+          "min": [
+            -15,
+            -1e-7,
+            -1e-7
+          ],
+          "max": [
+            40,
+            30,
+            7.358087290940704
+          ],
+          "size": [
+            55,
+            30.0000001,
+            7.358087390940704
+          ]
+        },
+        "bboxLength": 55,
+        "bboxWidth": 30.0000001,
+        "bboxHeight": 7.358087390940704,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 8,
+            "radius": 7,
+            "diameter": 14,
+            "origin": [
+              20,
+              15,
+              0
+            ],
+            "axis": [
+              0,
+              0,
+              -1
+            ],
+            "area": 219.9114857512855
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+        "stepReadback": {
+          "valid": true,
+          "solidCount": 2,
+          "volumeMm3": 5730.309799870473,
+          "bbox": {
+            "min": [
+              -15,
+              -1e-7,
+              -1e-7
+            ],
+            "max": [
+              40,
+              30,
+              7.35808729094075
+            ],
+            "size": [
+              55,
+              30.0000001,
+              7.35808739094075
+            ]
+          }
+        }
+      },
+      "resolvedParameters": {},
+      "execution": {
+        "isolatedProcess": true,
+        "durationMs": 4361,
+        "timeoutSeconds": 120,
+        "memoryLimitMb": 4096,
+        "arbitraryCodeAllowed": false
+      },
+      "sharedDesign": null
+    }
+  ],
+  "errors": []
+}

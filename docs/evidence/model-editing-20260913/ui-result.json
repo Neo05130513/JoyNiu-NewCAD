@@ -1,0 +1,220 @@
+{
+  "fixture": "Explicit deterministic CAD plan; no AI/provider call. Tests generated real OCCT solids.",
+  "fileId": "file_d2005e48-369c-41d7-b857-a47127a45cd6",
+  "projectId": "project_82257692-068e-4429-89a1-c62f47b2879c",
+  "featureId": "feature_39a5a54d7cca489cb2929ae4fdb458d0",
+  "revision": 4,
+  "features": [
+    {
+      "size": [
+        "width",
+        50,
+        12
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "id": "base",
+      "op": "box",
+      "label": "底板"
+    },
+    {
+      "radius": 6,
+      "height": 12,
+      "origin": [
+        40,
+        25,
+        0
+      ],
+      "direction": [
+        0,
+        0,
+        1
+      ],
+      "id": "hole",
+      "op": "cylinder",
+      "label": "通孔工具"
+    },
+    {
+      "id": "body",
+      "op": "cut",
+      "label": "通孔",
+      "inputs": [
+        "base",
+        "hole"
+      ]
+    },
+    {
+      "plane": "XY",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "start": [
+        0,
+        0
+      ],
+      "segments": [
+        {
+          "type": "line",
+          "to": [
+            20,
+            0
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            24,
+            10
+          ]
+        },
+        {
+          "type": "line",
+          "to": [
+            0,
+            10
+          ]
+        }
+      ],
+      "distance": 12,
+      "id": "profile_extrude1",
+      "op": "profile_extrude",
+      "label": "轮廓拉伸 1"
+    },
+    {
+      "id": "cut1",
+      "op": "cut",
+      "label": "布尔切除 1",
+      "inputs": [
+        "body",
+        "profile_extrude1"
+      ]
+    }
+  ],
+  "parameters": {
+    "width": {
+      "value": 80,
+      "label": "底板长度",
+      "source": {
+        "type": "user",
+        "text": "手工构造验收样本"
+      }
+    }
+  },
+  "inspection": {
+    "engine": "cadquery-occt",
+    "kernelBacked": true,
+    "valid": true,
+    "solidCount": 1,
+    "faceCount": 9,
+    "edgeCount": 21,
+    "volumeMm3": 44002.83197364921,
+    "surfaceAreaMm2": 10963.438626429692,
+    "bbox": {
+      "min": [
+        0,
+        0,
+        0
+      ],
+      "max": [
+        80,
+        50,
+        12
+      ],
+      "size": [
+        80,
+        50,
+        12
+      ]
+    },
+    "bboxLength": 80,
+    "bboxWidth": 50,
+    "bboxHeight": 12,
+    "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+    "cylinders": [
+      {
+        "faceIndex": 8,
+        "radius": 6,
+        "diameter": 12,
+        "origin": [
+          40,
+          25,
+          0
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "area": 452.3893421169302
+      }
+    ],
+    "raySections": {},
+    "drawingAgreement": "not_checked",
+    "productionReady": false,
+    "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+    "stepReadback": {
+      "valid": true,
+      "solidCount": 1,
+      "volumeMm3": 44002.83197364911,
+      "bbox": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          80,
+          50,
+          12
+        ],
+        "size": [
+          80,
+          50,
+          12
+        ]
+      }
+    }
+  },
+  "expectedVolume": 44002.83197364921,
+  "artifacts": {
+    "step": {
+      "bytes": 25855,
+      "sha256": "2fd251e6693f83fd66edd97adac90c23e0c7e23bfc981e7ba205b4fa599968cc"
+    },
+    "glb": {
+      "bytes": 45376,
+      "sha256": "0ac299005323c37628e4dbe4354bcd693ba842794a8c3705f3b7fabf6f19a129"
+    }
+  },
+  "originalPlanPreserved": true,
+  "cloudRevision": 82,
+  "productionReady": false,
+  "drawingAgreement": "not_checked",
+  "uiFollowUp": {
+    "controlPointArrowKey": "24 to 25 mm, undo returns 24 mm",
+    "cloudDraftRevision": 5,
+    "editorRefreshRestoredDraft": true,
+    "rebuiltRevisionAfterRefresh": 6,
+    "finalVolumeMm3": 44002.83197364921,
+    "viewports": [
+      {
+        "width": 1440,
+        "layout": "tree, solid, properties"
+      },
+      {
+        "width": 1024,
+        "documentScrollWidth": 1024
+      },
+      {
+        "width": 489,
+        "documentScrollWidth": 489,
+        "primaryControlHeightPx": 40
+      }
+    ]
+  }
+}

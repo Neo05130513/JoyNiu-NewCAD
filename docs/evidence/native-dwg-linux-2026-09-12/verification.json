@@ -1,0 +1,49 @@
+{
+  "source": "inspection.dxf augmented with Chinese nonzero-base block, XYZ scaling, bulged variable-width polyline, angular DIMENSION and two paperspaces",
+  "buildMethod": "Official LibreDWG 0.14 archive with identical pinned SHA256; only download replaced by COPY in temporary Docker context",
+  "officialDockerfileSha256": "371ef6ccd6eb0e790d916031a87e3d6f6ab20d6291232ee04a5e96ce4c23dc80",
+  "runtimeImage": "sha256:574a65d178d25dc7cecf4356e8051200969e0227f55fa026c5261e2179054eed",
+  "runtimeBase": "python:3.12-slim-bookworm",
+  "networkDuringSmoke": "none",
+  "runtimeCompilerPresent": false,
+  "realDwg": {
+    "header": "AC1015",
+    "bytes": 23442,
+    "sha256": "3d8b089d8c4f9291d783d1636af48123116f2412bde5096432f4093e8bc9b179"
+  },
+  "fullDrawingSignatureMatched": true,
+  "baselineSignatureSha256": "ccea70dd743de58ba365b55d8a925e81d4f56d176306c5f5146ed340c8ed2ba2",
+  "transportSha256": "1d3a8a936ec3a1560aeb5843a902e3ad18a1a9dc93d6f0d6ab7bf520fd5af64c",
+  "dimension": {
+    "id": "8E",
+    "value": 150,
+    "toleranceUpper": 0.2,
+    "toleranceLower": 0.1,
+    "sourceEntity": "8D",
+    "sourceRefsPreserved": true
+  },
+  "inspectionBalloon": {
+    "number": 7,
+    "circleId": "B0",
+    "textId": "B1",
+    "leaderId": "B2",
+    "xdataPreserved": true
+  },
+  "layouts": [
+    "Model",
+    "Layout1",
+    "Linux第二张"
+  ],
+  "pdfReopenAndExportLayout": "Linux第二张",
+  "negativeInvalidHandlePatch": {
+    "rejected": true,
+    "outputFileCreated": false
+  },
+  "readbackAudit": {
+    "errors": 0,
+    "fixes": [
+      "three R2000 default material placeholders removed; custom materials remain unsupported"
+    ]
+  },
+  "boundary": "CLI logs contain known default-material/anonymous-block diagnostics; strict modeled geometry/style/association/layout comparison passed. No full API-image build or production deployment claimed."
+}

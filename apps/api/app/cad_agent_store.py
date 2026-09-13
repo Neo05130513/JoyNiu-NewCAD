@@ -15,7 +15,7 @@ from uuid import uuid4
 
 
 PROCESS_INSTANCE = uuid4().hex
-TERMINAL_RUN_STATUSES = {"needs_input", "review_required", "failed", "interrupted"}
+TERMINAL_RUN_STATUSES = {"needs_input", "review_required", "failed", "interrupted", "cancelled"}
 MAX_REVISION_REQUESTS = 128
 MAX_REVISION_REQUEST_CHARACTERS = 64000
 
@@ -199,7 +199,7 @@ class CadRunStore:
                 break
             except (OSError, ValueError):
                 continue
-        for key in ("observations", "trace", "sourceTranscription", "sourceSpatialContract", "sourceQuestionReviews", "comparisonPolicy", "retainedSourceDetails", "sourceFiles"):
+        for key in ("observations", "trace", "sourceTranscription", "sourceSpatialContract", "observationSpatialContract", "sourceQuestionReviews", "comparisonPolicy", "retainedSourceDetails", "sourceFiles"):
             if key in checkpoint:
                 state[key] = copy.deepcopy(checkpoint[key])
         state["sourceQuestionReviews"] = source_question_reviews(state.get("sourceQuestionReviews", record.get("sourceQuestionReviews")))

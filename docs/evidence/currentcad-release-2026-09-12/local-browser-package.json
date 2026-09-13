@@ -1,0 +1,226 @@
+{
+  "archive": {
+    "bytes": 28009,
+    "sha256": "75308e7aea8a33c0ccf027f184c8155e8cbe60fd9337dc2ad70629cced0cac34"
+  },
+  "createdAt": "2026-09-12T14:52:03.511874+00:00",
+  "files": [
+    {
+      "bytes": 32489,
+      "id": "file_1f351b0021964fef84536049",
+      "mimeType": "application/step",
+      "name": "model.step",
+      "sha256": "0e14ec9d33753d2545e880940b6995eb2a8b821fc80d59c63ba46e13577b4eb9"
+    },
+    {
+      "bytes": 2980,
+      "id": "file_cf455d4e64714c42b58d21f2",
+      "mimeType": "model/gltf-binary",
+      "name": "model.glb",
+      "sha256": "64b3f93c36c07bceab1b6d9f75526aee5d34e9ea010624761ce978cfc4cbead3"
+    },
+    {
+      "bytes": 93,
+      "id": "file_10e0b9adfedd44ba82a50476",
+      "mimeType": "text/csv;charset=utf-8",
+      "name": "bom.csv",
+      "sha256": "da9e9923e906a35e5739ad5cd0ffda715f2063857d0e98252a8c537d80b648e8"
+    },
+    {
+      "bytes": 1305,
+      "id": "file_db31f80f14474d8c96add37e",
+      "mimeType": "application/json",
+      "name": "engineering-design.json",
+      "sha256": "27c047d5bff4a1c494f886df5e185b94e7db9f8314784d1657ef5562d504ca6c"
+    },
+    {
+      "bytes": 35607,
+      "id": "file_1ab9ca07ea35467d9b1af3e3",
+      "mimeType": "application/dxf",
+      "name": "用户体验二维验收.dxf",
+      "sha256": "c695b40955f0b42ebfc1d94c37b21970a982dd47d2552e502e4b78abe2c4c004"
+    },
+    {
+      "bytes": 1029,
+      "id": "file_5330e9c459994a6b91a80d3a",
+      "mimeType": "application/json",
+      "name": "native-document.json",
+      "sha256": "183c82501523601932d0c22449c6a9ba9e00f724b9eb0ab1fb0e1e02d1777304"
+    },
+    {
+      "bytes": 15429,
+      "id": "file_f62bb5734a4c40108e451ba7",
+      "mimeType": "application/step",
+      "name": "model.step",
+      "sha256": "a8840fee3f57444ea93f26432dff799fe02ee8ef64b63ff29a610513eb483aec"
+    },
+    {
+      "bytes": 1972,
+      "id": "file_e7f0b2738df7411a9b430828",
+      "mimeType": "model/gltf-binary",
+      "name": "model.glb",
+      "sha256": "867ba6c16bbd9bfd5a081e2b217ad9dbb7d17bfff3beb5b7e29f69a82315b577"
+    },
+    {
+      "bytes": 524,
+      "id": "file_409371df87ca4d9f941ee630",
+      "mimeType": "application/json",
+      "name": "engineering-design.json",
+      "sha256": "febf8b4be3d0a0fe04e632d0043f7266f29afc60b93b11aee6d567155cf86ba5"
+    },
+    {
+      "bytes": 15429,
+      "id": "file_33b97fd5bb6847e99bb3b885",
+      "mimeType": "application/step",
+      "name": "model.step",
+      "sha256": "b5bc7921ffe740b258fa37a5ef37ceda086f9e368bff544059e0b7f4fadbefc8"
+    },
+    {
+      "bytes": 1988,
+      "id": "file_7d404292690347e288fea29e",
+      "mimeType": "model/gltf-binary",
+      "name": "model.glb",
+      "sha256": "03d88ba06ad8dfdb0c262198ee9c1189183d44bb001c53db4e29c5f1fc1ffd57"
+    },
+    {
+      "bytes": 222,
+      "id": "file_0132796b17fa4ab6b54ad1d4",
+      "mimeType": "application/json",
+      "name": "plan.json",
+      "sha256": "e8b730b2a4941680e4a2ee97dfd2051b0ceb9018446aaa7312f01c7a587bf7ba"
+    },
+    {
+      "bytes": 478,
+      "id": "file_832181398e8348a8b720037c",
+      "mimeType": "application/json",
+      "name": "feature-design.json",
+      "sha256": "03bcfe77fb508399593e504058f5785d2f2a72f75c99df2170071331c468a904"
+    }
+  ],
+  "id": "delivery_b7cbb105854f4f8b9c86ca8e00d1aa3f",
+  "manifest": {
+    "bytes": 4907,
+    "name": "manifest.json",
+    "sha256": "c4a816319abadffc117a5b3054e4424cab57b651644ccc745760f1c195cae272"
+  },
+  "notes": "验证：双长方体装配、子零件与原生二维图统一封存；后续修改不能改变本包。",
+  "sources": [
+    {
+      "fileIds": [
+        "file_1f351b0021964fef84536049",
+        "file_cf455d4e64714c42b58d21f2",
+        "file_10e0b9adfedd44ba82a50476",
+        "file_db31f80f14474d8c96add37e"
+      ],
+      "id": "design_6b331cbc664444d0aea3e01f1f186c2d",
+      "kind": "engineering",
+      "name": "用户体验双长方体装配",
+      "provenance": {
+        "drawingAgreement": "not_checked",
+        "fileId": "engineering-library",
+        "instances": [
+          {
+            "designId": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+            "fixed": true,
+            "id": "part17892191571630",
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              -0.0,
+              0.0
+            ]
+          },
+          {
+            "designId": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+            "fixed": false,
+            "id": "part17892191723681",
+            "position": [
+              60.0,
+              0.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              -0.0,
+              0.0
+            ]
+          }
+        ],
+        "manufacturingReleased": false,
+        "selected": true
+      },
+      "revision": null,
+      "status": "built"
+    },
+    {
+      "fileIds": [
+        "file_1ab9ca07ea35467d9b1af3e3",
+        "file_5330e9c459994a6b91a80d3a"
+      ],
+      "id": "nd_42f3cde33d984d29be23b64ce97a0d23",
+      "kind": "native",
+      "name": "用户体验二维验收",
+      "provenance": {
+        "drawingAgreement": "not_checked",
+        "manufacturingReleased": false,
+        "selected": true,
+        "sourceFile": {}
+      },
+      "revision": 7,
+      "status": "saved"
+    },
+    {
+      "fileIds": [
+        "file_f62bb5734a4c40108e451ba7",
+        "file_e7f0b2738df7411a9b430828",
+        "file_409371df87ca4d9f941ee630"
+      ],
+      "id": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2",
+      "kind": "engineering",
+      "name": "用户验收长方体",
+      "provenance": {
+        "drawingAgreement": "not_checked",
+        "fileId": "manual-design",
+        "instances": [],
+        "manufacturingReleased": false,
+        "selected": false,
+        "sourceFeature": {
+          "id": "feature_2887a2d0ce284d138ad79d1d16362874",
+          "revision": 5
+        }
+      },
+      "revision": null,
+      "status": "built"
+    },
+    {
+      "fileIds": [
+        "file_33b97fd5bb6847e99bb3b885",
+        "file_7d404292690347e288fea29e",
+        "file_0132796b17fa4ab6b54ad1d4",
+        "file_832181398e8348a8b720037c"
+      ],
+      "id": "feature_2887a2d0ce284d138ad79d1d16362874",
+      "kind": "feature",
+      "name": "用户验收长方体",
+      "provenance": {
+        "changeNote": "重建手工设计：重建手工设计：创建手工特征设计",
+        "drawingAgreement": "not_checked",
+        "fileId": "manual-design",
+        "manufacturingReleased": false,
+        "selected": false,
+        "sharedDesignId": "design_58638b5fd3f74f02b0d0b2ec3ae6e3b2"
+      },
+      "revision": 5,
+      "status": "built"
+    }
+  ],
+  "title": "上线验收 · 装配与二维图 · 0912",
+  "verification": {
+    "message": "文件已按来源版本封存；包含手工、工程或二维设计，未作制造确认。请核对尺寸、工程图和适用工况。",
+    "status": "requires_review"
+  }
+}

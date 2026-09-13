@@ -244,6 +244,14 @@ def running_record(letter="a"):
 
 
 def test_restart_recovers_abandoned_checkpoint_without_inheriting_artifacts_or_passed_flags(tmp_path):
+    from app.cad_agent import _source_manifest
+    from app.cad_source_spatial import reusable_spatial_contract
+    from tests.test_cad_agent import StubSourceReader, StubSpatialInterpreter, raster
+    files = [raster()]
+    sources = _source_manifest(files)
+    reading = StubSourceReader().read(files=files, source_files=sources)
+    baseline = StubSpatialInterpreter().interpret(files=files, source_files=sources, transcription=reading)
+    assert reusable_spatial_contract(baseline, baseline)
     store = CadRunStore(tmp_path / "cad")
     running = running_record()
     running["workerInstance"] = "previous-process-instance"
@@ -254,6 +262,8 @@ def test_restart_recovers_abandoned_checkpoint_without_inheriting_artifacts_or_p
                    "source": {"type": "user", "text": "one plate"}}], "trace": [{"action": "edit_plan"}],
                   "inspection": {"valid": True}, "artifacts": {"step": {"path": "untrusted"}},
                   "sourceTranscription": {"candidateEvidence": True, "verified": False},
+                  "sourceSpatialContract": {"status": "running", "contract": None},
+                  "observationSpatialContract": baseline,
                   "retainedSourceDetails": [{"sha256": "test-source-hash"}]}
     (build / "checkpoint.json").write_text(json.dumps(checkpoint))
     restarted = CadRunStore(store.root)
@@ -262,6 +272,8 @@ def test_restart_recovers_abandoned_checkpoint_without_inheriting_artifacts_or_p
     assert restored["plan"] == PLAN
     assert restored["state"]["retainedSourceDetails"] == checkpoint["retainedSourceDetails"]
     assert restored["observations"] == checkpoint["observations"]
+    assert restored["state"]["observationSpatialContract"] == baseline
+    assert restored["state"]["sourceSpatialContract"] == {"status": "running", "contract": None}
     assert restored["inspection"] is None and restored["artifacts"] == {}
     assert restored["drawingReview"]["humanConfirmed"] is False
     assert restored["trace"][-1]["code"] == "worker_interrupted"

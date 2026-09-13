@@ -1,0 +1,584 @@
+{
+  "checkedAt": "2026-09-12T10:54:56.535071+00:00",
+  "mode": "offline-existing-artifacts-only",
+  "modelCalls": 0,
+  "engines": {
+    "CadQuery": "2.8.0",
+    "OCP": "7.9.3.1"
+  },
+  "scope": "Source hash integrity and local STEP import/export/import. Does not assert drawing equivalence, customer CAD compatibility or delivery acceptance.",
+  "statuses": {
+    "review_required": 7,
+    "needs_input": 18,
+    "failed": 5
+  },
+  "sources": [
+    {
+      "sampleId": "simple-020",
+      "expectedSha256": "29ff5267aa221fafa76e6a418d6a157a96983a76e34546f9a99ca4e3e1548765",
+      "actualSha256": "29ff5267aa221fafa76e6a418d6a157a96983a76e34546f9a99ca4e3e1548765",
+      "unchanged": true
+    },
+    {
+      "sampleId": "simple-026",
+      "expectedSha256": "c548a41d865c59dba35280e36755e0b032d26d9a873f0b2e4516ec417b52c79d",
+      "actualSha256": "c548a41d865c59dba35280e36755e0b032d26d9a873f0b2e4516ec417b52c79d",
+      "unchanged": true
+    },
+    {
+      "sampleId": "medium-067",
+      "expectedSha256": "1cdc9a6a757a42e4b5ba9d1febae472e03851ed34420747fa6a061578084d2bb",
+      "actualSha256": "1cdc9a6a757a42e4b5ba9d1febae472e03851ed34420747fa6a061578084d2bb",
+      "unchanged": true
+    },
+    {
+      "sampleId": "medium-004",
+      "expectedSha256": "dbbcef1aff8d3e1332740e242d909584553f286576ea0544c4886d6c5650438b",
+      "actualSha256": "dbbcef1aff8d3e1332740e242d909584553f286576ea0544c4886d6c5650438b",
+      "unchanged": true
+    },
+    {
+      "sampleId": "medium-164",
+      "expectedSha256": "db27a838cbd118b11536c9552bec6ad1bf237fc8e44f2ca7bd330c2858451447",
+      "actualSha256": "db27a838cbd118b11536c9552bec6ad1bf237fc8e44f2ca7bd330c2858451447",
+      "unchanged": true
+    },
+    {
+      "sampleId": "medium-008",
+      "expectedSha256": "675ef5101bd622f8d841a9f716ac6a2406632473eda1c21e8b54084ca5faed79",
+      "actualSha256": "675ef5101bd622f8d841a9f716ac6a2406632473eda1c21e8b54084ca5faed79",
+      "unchanged": true
+    },
+    {
+      "sampleId": "complex-028",
+      "expectedSha256": "2f5a761e3896c0becce53e12db5808ddbdda5095cb9275fd44fe31d7a78142f7",
+      "actualSha256": "2f5a761e3896c0becce53e12db5808ddbdda5095cb9275fd44fe31d7a78142f7",
+      "unchanged": true
+    },
+    {
+      "sampleId": "complex-018",
+      "expectedSha256": "69a6b936f73e7efb839d303e883a5f2f110319aca8f1118a4a82c18e176348d0",
+      "actualSha256": "69a6b936f73e7efb839d303e883a5f2f110319aca8f1118a4a82c18e176348d0",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-01",
+      "expectedSha256": "df59c93bfa37abba6cf1fdbfa99837a9d33abec739529f4e8cc3493abf49a028",
+      "actualSha256": "df59c93bfa37abba6cf1fdbfa99837a9d33abec739529f4e8cc3493abf49a028",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-02",
+      "expectedSha256": "14dc6a8629e2691ac1cd7fff15b825a5bd2d544c8ba45b9821208c78d3cfb783",
+      "actualSha256": "14dc6a8629e2691ac1cd7fff15b825a5bd2d544c8ba45b9821208c78d3cfb783",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-03",
+      "expectedSha256": "9d921994c03671ad44a537eb9cd031863d53f554cc49989960fcf87345f4ed4e",
+      "actualSha256": "9d921994c03671ad44a537eb9cd031863d53f554cc49989960fcf87345f4ed4e",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-04",
+      "expectedSha256": "f2b6a014419b6c6026a2893af1cdeaefb3734e3dd98c2d5f367ae00f7f53330e",
+      "actualSha256": "f2b6a014419b6c6026a2893af1cdeaefb3734e3dd98c2d5f367ae00f7f53330e",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-05",
+      "expectedSha256": "fe913baae09e3db2ddbede8e8ff9f06189146091699bb772816c4f97b4ebec60",
+      "actualSha256": "fe913baae09e3db2ddbede8e8ff9f06189146091699bb772816c4f97b4ebec60",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-06",
+      "expectedSha256": "aa21647bb2295381f734da043250f30803e181ac933c0490d903087660eb67de",
+      "actualSha256": "aa21647bb2295381f734da043250f30803e181ac933c0490d903087660eb67de",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-07",
+      "expectedSha256": "5774bba98b381269e9e91a03febc4087dde256b740c4d859d56d5cf945e5cb64",
+      "actualSha256": "5774bba98b381269e9e91a03febc4087dde256b740c4d859d56d5cf945e5cb64",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-08",
+      "expectedSha256": "38d32e19925412e155be758de7fe8348f752180ab032a073dcf42636b6e3d9f3",
+      "actualSha256": "38d32e19925412e155be758de7fe8348f752180ab032a073dcf42636b6e3d9f3",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-09",
+      "expectedSha256": "8e79cc93413531adbc2d62a6b384a6f4216fbbbdf7c6b3f52704d46943f65d69",
+      "actualSha256": "8e79cc93413531adbc2d62a6b384a6f4216fbbbdf7c6b3f52704d46943f65d69",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-10",
+      "expectedSha256": "0dfb5be7aff1bddd280cfbfcb355481d3f340fe293dfacaf4e3a08656b4ce6ab",
+      "actualSha256": "0dfb5be7aff1bddd280cfbfcb355481d3f340fe293dfacaf4e3a08656b4ce6ab",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-11",
+      "expectedSha256": "6002a9d2eba13f69769040370d84c2c0fa6be21e018830b7cc9c328818a89028",
+      "actualSha256": "6002a9d2eba13f69769040370d84c2c0fa6be21e018830b7cc9c328818a89028",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-12",
+      "expectedSha256": "e82e6703ecdcf92255c6ca918394980d01fb2575049f26018fc9eac89a3ebef6",
+      "actualSha256": "e82e6703ecdcf92255c6ca918394980d01fb2575049f26018fc9eac89a3ebef6",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-13",
+      "expectedSha256": "64aafe634ecc1d63a639f1b6da517f52f1d289b5eeddde19653caee5ea506257",
+      "actualSha256": "64aafe634ecc1d63a639f1b6da517f52f1d289b5eeddde19653caee5ea506257",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-14",
+      "expectedSha256": "7b9b411f8989814bac2f51136a80dd2164bf9187b3f896c3a98da86b29305680",
+      "actualSha256": "7b9b411f8989814bac2f51136a80dd2164bf9187b3f896c3a98da86b29305680",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-15",
+      "expectedSha256": "6ceafbb4d1ea675fac1766490f76aa8ac3cccd1574a5c6719446f0344c9eaae5",
+      "actualSha256": "6ceafbb4d1ea675fac1766490f76aa8ac3cccd1574a5c6719446f0344c9eaae5",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-16",
+      "expectedSha256": "8ad7832b1859f6c71b3c3b3d63e57cbf9cb2ea9d9d557e4cab81dfd71814b1af",
+      "actualSha256": "8ad7832b1859f6c71b3c3b3d63e57cbf9cb2ea9d9d557e4cab81dfd71814b1af",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-17",
+      "expectedSha256": "360d13065e399bbb2935fab9ffc4fd9babfdb5940448908ccd15101c4f12ecaa",
+      "actualSha256": "360d13065e399bbb2935fab9ffc4fd9babfdb5940448908ccd15101c4f12ecaa",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-18",
+      "expectedSha256": "0176d291d02cb4f4ac44eefc4cf3389e109ef4ef60587ec4713f2e1731377653",
+      "actualSha256": "0176d291d02cb4f4ac44eefc4cf3389e109ef4ef60587ec4713f2e1731377653",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-19",
+      "expectedSha256": "8811aba657b465adbb3c9f0fae6748281c12b82f5cf144930ca45c2f388b4530",
+      "actualSha256": "8811aba657b465adbb3c9f0fae6748281c12b82f5cf144930ca45c2f388b4530",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-20",
+      "expectedSha256": "6dba0fb237f96b78075c910c0a2427b44e03fdb9fce6be7542c6b4277df86f29",
+      "actualSha256": "6dba0fb237f96b78075c910c0a2427b44e03fdb9fce6be7542c6b4277df86f29",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-21",
+      "expectedSha256": "b05291281a282d680207850fb4bac7e34ec977a37505c8f57301c461dd631425",
+      "actualSha256": "b05291281a282d680207850fb4bac7e34ec977a37505c8f57301c461dd631425",
+      "unchanged": true
+    },
+    {
+      "sampleId": "random-22",
+      "expectedSha256": "5c22cd05c4db75b3a498ea0dd79d1a7166d27975d93cd7f400c1f3726db525a1",
+      "actualSha256": "5c22cd05c4db75b3a498ea0dd79d1a7166d27975d93cd7f400c1f3726db525a1",
+      "unchanged": true
+    }
+  ],
+  "artifacts": [
+    {
+      "sampleId": "simple-020",
+      "taskStatus": "review_required",
+      "humanVerified": false,
+      "stepPath": "runs/simple-020/agent/iteration-8/model.step",
+      "stepSha256": "9058ab02abe3d89656e0da97d53bc7149cf76eafceb3d604be1fcdb2fc6f017b",
+      "stepBytes": 49049,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 154000.0,
+        "bounds": [
+          0.0,
+          0.0,
+          0.0,
+          80.0,
+          60.0,
+          50.0
+        ],
+        "size": [
+          80.0,
+          60.0,
+          50.0
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 154000.0,
+        "bounds": [
+          0.0,
+          0.0,
+          0.0,
+          80.0,
+          60.0,
+          50.0
+        ],
+        "size": [
+          80.0,
+          60.0,
+          50.0
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 0.0,
+      "passed": true,
+      "sourceStepUnchanged": true
+    },
+    {
+      "sampleId": "simple-026",
+      "taskStatus": "needs_input",
+      "humanVerified": false,
+      "stepPath": "runs/simple-026/agent/iteration-9/model.step",
+      "stepSha256": "ef8e8f5854894ead7437d5ba8e0990f78928fc9f8d999e331d00e59658898d6d",
+      "stepBytes": 26327,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 24006.914585622817,
+        "bounds": [
+          -17.888543819998215,
+          -18.0,
+          0.0,
+          17.88854381999831,
+          18.0,
+          70.0
+        ],
+        "size": [
+          35.77708763999652,
+          36.0,
+          70.0
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 24006.914585623486,
+        "bounds": [
+          -17.888543819998215,
+          -18.0,
+          0.0,
+          17.88854381999831,
+          18.0,
+          70.0
+        ],
+        "size": [
+          35.77708763999652,
+          36.0,
+          70.0
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 6.693881005048752e-10,
+      "passed": true,
+      "sourceStepUnchanged": true
+    },
+    {
+      "sampleId": "medium-067",
+      "taskStatus": "review_required",
+      "humanVerified": false,
+      "stepPath": "runs/medium-067/agent/iteration-8/model.step",
+      "stepSha256": "4cc5e4d6c20ac4b799c8d9a61c26314493efd9f4d782616265ff87c889c0852e",
+      "stepBytes": 88204,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 33289.47730660391,
+        "bounds": [
+          -37.5,
+          -12.500000000000002,
+          0.0,
+          37.5,
+          32.5,
+          32.0
+        ],
+        "size": [
+          75.0,
+          45.0,
+          32.0
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 33289.47730660364,
+        "bounds": [
+          -37.5,
+          -12.500000000000002,
+          0.0,
+          37.5,
+          32.5,
+          32.0
+        ],
+        "size": [
+          75.0,
+          45.0,
+          32.0
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 2.6921043172478676e-10,
+      "passed": true,
+      "sourceStepUnchanged": true
+    },
+    {
+      "sampleId": "medium-164",
+      "taskStatus": "review_required",
+      "humanVerified": false,
+      "stepPath": "runs/medium-164/agent/iteration-9/model.step",
+      "stepSha256": "f66af797f3514442757e021c93a09515e363b7fd14e1940ab6bec45e5d14b2bf",
+      "stepBytes": 73976,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 198978.30847351818,
+        "bounds": [
+          0.0,
+          -50.0,
+          0.0,
+          72.0,
+          50.0,
+          150.0
+        ],
+        "size": [
+          72.0,
+          100.0,
+          150.0
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 198978.3084735174,
+        "bounds": [
+          0.0,
+          -50.0,
+          0.0,
+          72.0,
+          50.0,
+          150.0
+        ],
+        "size": [
+          72.0,
+          100.0,
+          150.0
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 7.8580342233181e-10,
+      "passed": true,
+      "sourceStepUnchanged": true
+    },
+    {
+      "sampleId": "medium-008",
+      "taskStatus": "review_required",
+      "humanVerified": false,
+      "stepPath": "runs/medium-008/agent/iteration-7/model.step",
+      "stepSha256": "85d9b822d00b33ce865380d85d7edc109e0ce10875a172b55959a46ba51515d4",
+      "stepBytes": 215719,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 241094.6679883307,
+        "bounds": [
+          0.0,
+          -42.0000001,
+          -1e-07,
+          155.0,
+          42.0000001,
+          74.00000000000001
+        ],
+        "size": [
+          155.0,
+          84.0000002,
+          74.00000010000001
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 241094.66798834296,
+        "bounds": [
+          0.0,
+          -42.0000001,
+          -1e-07,
+          155.0,
+          42.0000001,
+          74.00000000000001
+        ],
+        "size": [
+          155.0,
+          84.0000002,
+          74.00000010000001
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 1.225271262228489e-08,
+      "passed": true,
+      "sourceStepUnchanged": true
+    },
+    {
+      "sampleId": "random-03",
+      "taskStatus": "review_required",
+      "humanVerified": false,
+      "stepPath": "runs/random-03/agent/iteration-6/model.step",
+      "stepSha256": "890794d5e34d4a6ea72e5ff0f583d2b71dec216b437f062de57d354b975e1361",
+      "stepBytes": 104792,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 53590.57011617041,
+        "bounds": [
+          0.0,
+          0.0,
+          0.0,
+          76.0,
+          38.0,
+          35.0
+        ],
+        "size": [
+          76.0,
+          38.0,
+          35.0
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 53590.57011617117,
+        "bounds": [
+          0.0,
+          0.0,
+          0.0,
+          76.0,
+          38.0,
+          35.0
+        ],
+        "size": [
+          76.0,
+          38.0,
+          35.0
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 7.566995918750763e-10,
+      "passed": true,
+      "sourceStepUnchanged": true
+    },
+    {
+      "sampleId": "random-12",
+      "taskStatus": "review_required",
+      "humanVerified": false,
+      "stepPath": "runs/random-12/agent/iteration-9/model.step",
+      "stepSha256": "d59e7245135fb88fbb3ce0b0d3c3385c16d5552d430acf48da529047a5d48abe",
+      "stepBytes": 105529,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 197710.26165229958,
+        "bounds": [
+          -160.0,
+          -30.0,
+          0.0,
+          48.0,
+          30.000000000000007,
+          46.0
+        ],
+        "size": [
+          208.0,
+          60.00000000000001,
+          46.0
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 197710.26165229714,
+        "bounds": [
+          -160.0,
+          -30.0,
+          0.0,
+          48.0,
+          30.000000000000007,
+          46.0
+        ],
+        "size": [
+          208.0,
+          60.00000000000001,
+          46.0
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 2.444721758365631e-09,
+      "passed": true,
+      "sourceStepUnchanged": true
+    },
+    {
+      "sampleId": "random-13",
+      "taskStatus": "review_required",
+      "humanVerified": false,
+      "stepPath": "runs/random-13/agent/iteration-6/model.step",
+      "stepSha256": "01511fd147a8927905c945c056faa81a4ec5a6a5454d6699269fb6f0505c77aa",
+      "stepBytes": 65646,
+      "before": {
+        "valid": true,
+        "solids": 1,
+        "volume": 25873.562397066988,
+        "bounds": [
+          -5.265716198978148e-16,
+          -5.671577653280929e-16,
+          0.0,
+          50.0,
+          30.0,
+          36.0
+        ],
+        "size": [
+          50.0,
+          30.0,
+          36.0
+        ]
+      },
+      "after": {
+        "valid": true,
+        "solids": 1,
+        "volume": 25873.562397066988,
+        "bounds": [
+          -5.265716198978148e-16,
+          -5.671577653280929e-16,
+          0.0,
+          50.0,
+          30.0,
+          36.0
+        ],
+        "size": [
+          50.0,
+          30.0,
+          36.0
+        ]
+      },
+      "maxBoundsError": 0.0,
+      "volumeError": 0.0,
+      "passed": true,
+      "sourceStepUnchanged": true
+    }
+  ],
+  "allLocalChecksPassed": true
+}

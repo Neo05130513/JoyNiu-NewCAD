@@ -1,0 +1,31 @@
+{
+  "format": "joyniu-sanitized-review-evidence-v1",
+  "files": {
+    "result.json": {
+      "bytes": 303,
+      "sha256": "37c1a6e4f4c2675b39f5843760ad08490cceb68bbcb03f1a936c7253915bfdbc"
+    },
+    "test-summary.json": {
+      "bytes": 2648,
+      "sha256": "746d8cf3c088b339c92e8c7d7c51013ef6e4cfb9b62c5c29d7991bd09b3338c1"
+    }
+  },
+  "sourceEvidenceHashes": {
+    "independentResultJson": "24457abe3b246f839e3a3a82e640af8e6c2274e3ed5c15800b614b26f0eaed21",
+    "backendJunitXml": "884eab6533a84ca30818443463aeec32e354a629635c6ea9310d39742d9acc33",
+    "frontendTestLog": "b64573fdcb8c3b0ebfb41c4481b6fb44cb0db8ff8303e9c037cefae82232d288",
+    "independentVerificationScript": "e385e3dccf9c62a00637fdd4de1cd5789c4999a896c54eb808018fd350d177be"
+  },
+  "reviewedSourceHashes": {
+    "apps/api/app/cad_community.py": "288ec970e6a546fb036796070edf31fd58a666ebcb3260984ec80a2eea569ec9",
+    "apps/api/app/cad_community_api.py": "e675284b5acda826f8c44f3be421d8590618de5fa00c0795ace0dc74b42ddeca",
+    "src/CadCommunityPanel.jsx": "a41148a670d9f5952b8be31864bb4dafe95d5a4c4c7fe14855e3d829e651518b",
+    "src/cadCommunityClient.js": "885a8dbc31cdb44c0ea82dd00fea0a9227096e8f014eccc77cf9241df4b0b34b",
+    "src/App.jsx": "352bda6da4b28e347aae61dbda044c87fdee24de9a1b53055e708b75d665d827",
+    "src/DirectFeatureWorkspace.jsx": "f2ead2a563081d3e96fc4bf426c6adeed04e4549edb462bb9662394f2c686a66",
+    "apps/api/app/operations_gate.py": "1e9f7cd696aa553376f8a430ca7a9b885a9d064798f5efe9c223f140dccff6fe",
+    "deploy/commercial_backup.py": "d18668b8c4e4b427407373ca57361b8934181f8a10e2d030e48330488e958e59",
+    "compose.yaml": "51ad4a866084c162daf0473c9224fcbb594453980f806d0973479929e9e131e2",
+    "deploy/compose.operations.yaml": "c11cc980749b409d91fcbb89e03d35aaf772ee7d452887725dffe9baac548d48"
+  }
+}

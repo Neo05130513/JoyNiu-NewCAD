@@ -1,11 +1,13 @@
 """Independent visual explanations guide repair without erasing pixel evidence."""
 import json
 from pathlib import Path
+import threading
 
 import pytest
 
 from app.cad_agent import _comparison_images, _digest
-from tests.test_cad_agent import Executor, Provider, context, execute, finish, raster, record, run
+from app.ai_proxy import _prepare_provider_attachments
+from tests.test_cad_agent import Executor, Provider, StubSourceReader, StubSpatialInterpreter, context, execute, finish, raster, record, run
 
 
 def pixel_report(status="mismatch"):
@@ -17,6 +19,13 @@ def pixel_report(status="mismatch"):
 
 def test_pixel_mismatch_gets_visual_explanation_before_repair_and_fresh_review_after_execution(tmp_path):
     compared, reviewed = [], []
+    files = [raster()]
+    # This test exercises a known source-view region. Supply a validated,
+    # source-bound candidate instead of racing the optional background reader.
+    # Slow/missing spatial candidates have a separate nonblocking test below.
+    prepared, _, sources = _prepare_provider_attachments(files)
+    reading = StubSourceReader().read(files=prepared, source_files=sources)
+    spatial = StubSpatialInterpreter().interpret(files=prepared, source_files=sources, transcription=reading)
     explanation = {"sourceImageId": "source-0", "sourceLocation": "中央开口",
                    "modelImageId": "projection-front", "modelLocation": "中部连接面",
                    "finding": "实体中多出的连接面封闭了开口", "repair": "移除开口内的连接材料，保留侧壁", "confidence": "high"}
@@ -56,7 +65,7 @@ def test_pixel_mismatch_gets_visual_explanation_before_repair_and_fresh_review_a
         return action
     events = []
     result = run(Provider([record(), execute(), repair, finish()]), Executor(), tmp_path,
-                 files=[raster()], projection_comparer=compare, drawing_reviewer=review, progress=events.append)
+                 files=files, state={"sourceSpatialContract": spatial}, projection_comparer=compare, drawing_reviewer=review, progress=events.append)
     assert result["status"] == "review_required"
     assert len(compared) == len(reviewed) == 2
     independent_calls = [item for item in result["trace"] if item["action"] == "independent_drawing_review"]
@@ -68,6 +77,40 @@ def test_pixel_mismatch_gets_visual_explanation_before_repair_and_fresh_review_a
     assert result["drawingReview"]["projectionComparison"]["planHash"] == _digest(result["plan"])
     assert any(event["stage"] == "geometry_repair" for event in events)
     assert any(item["action"] == "projection_compare" for item in result["trace"])
+    assert any(item["action"] == "interpret_source_spatial" and item["reused"] for item in result["trace"])
+
+
+def test_pending_optional_spatial_views_do_not_block_comparison_or_invent_pixel_agreement(tmp_path):
+    started, release, completed = threading.Event(), threading.Event(), threading.Event()
+    comparisons = []
+
+    class PendingSpatial(StubSpatialInterpreter):
+        def interpret(self, **kwargs):
+            started.set()
+            try:
+                assert release.wait(5), "main run must complete without waiting for this auxiliary result"
+                return super().interpret(**kwargs)
+            finally:
+                completed.set()
+
+    def compare(**kwargs):
+        assert not release.is_set()
+        assert kwargs["source_views"] == []
+        comparisons.append(kwargs)
+        return {"scope": "original_drawing", "status": "uncertain", "views": [], "errorCode": "source_view_regions_pending"}
+
+    try:
+        result = run(Provider([record(), execute(), finish()]), Executor(), tmp_path,
+                     files=[raster()], spatial_interpreter=PendingSpatial(), projection_comparer=compare)
+        assert result["status"] == "review_required"
+        assert len(comparisons) == 1
+        assert result["projectionComparison"]["status"] == "uncertain"
+        assert result["projectionComparison"]["errorCode"] == "source_view_regions_pending"
+        assert result["sourceSpatialContract"]["status"] == "not_completed"
+        assert started.wait(1) and not release.is_set()
+    finally:
+        release.set()
+        assert completed.wait(1)
 
 
 @pytest.mark.parametrize("review_failed", [False, True])

@@ -5,6 +5,8 @@ import {
   getActiveProject, getActiveFile, getProjectFile, getFileSnapshot, selectProject, selectProjectFile,
   updateFileSnapshot, saveFileVersion, restoreFileVersion, renameProject, renameProjectFile,
   sanitizeWorkspaceSnapshot, recoverWorkspaceSnapshot, createWorkspaceSnapshot, projectStatistics,
+  duplicateProjectFile, deleteProjectFile, deleteProject, restoreTrashedItem,
+  exportProjectBackup, importProjectBackup, importProjectBackupFile, PROJECT_BACKUP_FORMAT, MAX_BACKUP_BYTES,
 } from './projectStore.js'
 
 function memoryStorage(initial = {}) {
@@ -245,6 +247,22 @@ test('File/Blob, preview URLs, attachment bytes and credentials never persist', 
   assert.equal(clean.generation.artifacts[0].downloadUrl, 'http://localhost:8011/artifact/glb')
 })
 
+test('durable artifact capability tokens survive while account credentials are removed', () => {
+  const clean = sanitizeWorkspaceSnapshot({ token: 'login-secret', auth: { token: 'auth-secret' },
+    model: { name: 'part', token: 'model-capability', accessToken: 'login-secret' },
+    generation: { artifacts: [{ token: 'download-capability', downloadUrl: 'https://cad.test/model.glb' }] },
+    drawingJob: { cadTask: { requestId: 'request-accepted', status: 'queued' } },
+  })
+  assert.equal(clean.token, undefined)
+  assert.equal(clean.auth.token, undefined)
+  assert.equal(clean.model.accessToken, undefined)
+  assert.equal(clean.model.token, 'model-capability')
+  assert.equal(clean.generation.artifacts[0].token, 'download-capability')
+  const restored = recoverWorkspaceSnapshot(clean)
+  assert.equal(restored.drawingJob.cadTask.status, 'queued')
+  assert.equal(restored.drawingJob.requiresFileReselection, false)
+})
+
 test('interrupted persisted work becomes an actionable error requiring source reselection', () => {
   const source = { drawingJob: { status: 'generating', fileMeta: { name: 'part.dwg' } }, generation: { pendingDrawing: true }, messages: [{ role: 'ai', status: 'streaming', text: '' }], aiConversation: { previousResponseId: 'old', turnStatus: 'streaming' }, isGenerating: true }
   const recovered = recoverWorkspaceSnapshot(source)
@@ -330,4 +348,280 @@ test('storage failure is surfaced to the caller and valid source store stays int
   const store = fresh(shaftModel)
   assert.throws(() => persistProjectStore(store, { setItem() { throw new Error('Quota exceeded') } }), /Quota exceeded/)
   assert.equal(getActiveFile(store).snapshot.model.outerDiameter, 24)
+})
+
+test('duplicate creates an independent draft and new version history while retaining drawing references', () => {
+  let store = fresh(shaftModel)
+  const projectId = store.activeProjectId, originalId = store.activeFileId
+  store = updateFileSnapshot(store, projectId, originalId, { model: shaftModel, prompt: '待发送要求', drawingJob: { fileMeta: { name: 'drawing.pdf' } } })
+  store = saveFileVersion(store, projectId, originalId, { note: '原文件版本' })
+  const copy = duplicateProjectFile(store, projectId, originalId)
+  assert.notEqual(copy.activeFileId, originalId)
+  assert.equal(getActiveFile(copy).name, '零件 01（副本）')
+  assert.equal(getActiveFile(copy).snapshot.model.name, '零件 01（副本）')
+  assert.equal(getActiveFile(copy).snapshot.prompt, '待发送要求')
+  assert.equal(getActiveFile(copy).snapshot.drawingJob.fileMeta.name, 'drawing.pdf')
+  assert.equal(getActiveFile(copy).versions.length, 0)
+  const edited = updateFileSnapshot(copy, projectId, copy.activeFileId, { model: { ...shaftModel, length: 125 } })
+  assert.equal(getProjectFile(edited, projectId, originalId).snapshot.model.length, 70)
+  assert.equal(getProjectFile(edited, projectId, originalId).versions.length, 1)
+  const another = duplicateProjectFile(copy, projectId, originalId)
+  assert.equal(getActiveFile(another).name, '零件 01（副本 2）')
+})
+
+test('creating another project remembers the previous project last-opened file after reload', () => {
+  let store = fresh(shaftModel)
+  const projectId = store.activeProjectId
+  store = createProjectFile(store, projectId, { name: '最后打开的说明', type: '文档' })
+  const fileId = store.activeFileId
+  store = createProject(store, { name: '另一个项目' })
+  const storage = memoryStorage(); persistProjectStore(store, storage)
+  store = selectProject(loadProjectStore(storage), projectId)
+  assert.equal(store.activeFileId, fileId)
+})
+
+test('file deletion is reversible with snapshots and versions preserved across local persistence', () => {
+  let store = fresh(shaftModel)
+  const projectId = store.activeProjectId, removedId = store.activeFileId
+  store = saveFileVersion(store, projectId, removedId, { note: '已核对尺寸' })
+  store = createProjectFile(store, projectId, { name: '说明', type: '文档', snapshot: { documentText: '安装说明' } })
+  const nextId = store.activeFileId
+  store = selectProjectFile(store, projectId, removedId)
+  store = deleteProjectFile(store, projectId, removedId)
+  assert.equal(store.activeFileId, nextId)
+  assert.equal(getProjectFile(store, projectId, removedId), null)
+  assert.equal(store.trash[0].item.versions.length, 1)
+  const storage = memoryStorage(); persistProjectStore(store, storage)
+  const recovered = restoreTrashedItem(loadProjectStore(storage), store.trash[0].id)
+  assert.equal(recovered.activeFileId, removedId)
+  assert.equal(getActiveFile(recovered).snapshot.model.length, 70)
+  assert.equal(getActiveFile(recovered).versions[0].note, '已核对尺寸')
+  assert.equal(recovered.trash.length, 0)
+})
+
+test('deleting the last file keeps a usable empty project and deleting the last project creates a blank workspace', () => {
+  let store = fresh(shaftModel)
+  const projectId = store.activeProjectId, fileId = store.activeFileId
+  store = deleteProjectFile(store, projectId, fileId)
+  assert.equal(getActiveProject(store).files.length, 0)
+  assert.equal(store.activeFileId, null)
+  store = deleteProject(store, projectId)
+  assert.equal(store.projects.length, 1)
+  assert.equal(getActiveFile(store).snapshot.model, null)
+  assert.equal(store.trash.length, 2)
+  const restored = restoreTrashedItem(store, store.trash.find((item) => item.kind === 'file').id)
+  assert.equal(getActiveFile(restored).snapshot.model.length, 70)
+})
+
+test('workspace backup appends independent projects, documents and immutable version history', () => {
+  let original = fresh(shaftModel)
+  original = saveFileVersion(original, original.activeProjectId, original.activeFileId, { note: '版本 A' })
+  original = createProjectFile(original, original.activeProjectId, { name: '设计说明', type: '文档', snapshot: { documentText: '核对孔距', token: 'private', controller: {} } })
+  const backup = exportProjectBackup(original)
+  assert.equal(backup.format, PROJECT_BACKUP_FORMAT)
+  assert.equal(JSON.stringify(backup).includes('private'), false)
+  const before = JSON.stringify(original)
+  const imported = importProjectBackup(original, JSON.stringify(backup))
+  assert.equal(JSON.stringify(original), before)
+  assert.equal(imported.projects.length, 2)
+  const project = getActiveProject(imported)
+  assert.notEqual(project.id, original.activeProjectId)
+  assert.equal(project.name, '我的第一个项目（导入）')
+  assert.equal(project.files[1].snapshot.documentText, '核对孔距')
+  assert.notEqual(project.files[0].id, original.projects[0].files[0].id)
+  assert.notEqual(project.files[0].versions[0].id, original.projects[0].files[0].versions[0].id)
+  assert.equal(project.files[0].versions[0].note, '版本 A')
+  const restored = restoreFileVersion(imported, project.id, project.files[0].id, project.files[0].versions[0].id)
+  assert.equal(getProjectFile(restored, project.id, project.files[0].id).snapshot.model.length, 70)
+})
+
+test('backup includes recoverable deleted files and reconnects them to the imported project', () => {
+  let store = fresh(shaftModel)
+  store = deleteProjectFile(store, store.activeProjectId, store.activeFileId)
+  const imported = importProjectBackup(fresh(), exportProjectBackup(store))
+  const importedProjectId = imported.activeProjectId
+  const record = imported.trash[0]
+  assert.equal(record.projectId, importedProjectId)
+  const restored = restoreTrashedItem(imported, record.id)
+  assert.equal(restored.activeProjectId, importedProjectId)
+  assert.equal(restored.projects.length, imported.projects.length)
+  assert.equal(getActiveFile(restored).snapshot.model.length, 70)
+})
+
+test('backup reconnects a separately deleted file after its deleted parent project is restored', () => {
+  let store = fresh(shaftModel)
+  store = deleteProjectFile(store, store.activeProjectId, store.activeFileId)
+  store = deleteProject(store, store.activeProjectId)
+  let imported = importProjectBackup(fresh(), exportProjectBackup(store))
+  const fileRecord = imported.trash.find((item) => item.kind === 'file')
+  const projectRecord = imported.trash.find((item) => item.kind === 'project')
+  assert.equal(fileRecord.projectId, projectRecord.item.id)
+  imported = restoreTrashedItem(imported, projectRecord.id)
+  const restored = restoreTrashedItem(imported, fileRecord.id)
+  assert.equal(restored.activeProjectId, projectRecord.item.id)
+  assert.equal(getActiveFile(restored).snapshot.model.length, 70)
+})
+
+test('existing individual JSON downloads can be imported as independent files', () => {
+  const store = fresh()
+  const imported = importProjectBackup(store, { schemaVersion: 1, name: '说明', type: '文档', snapshot: { documentText: '装配要求' } })
+  assert.equal(getActiveFile(imported).name, '说明')
+  assert.equal(getActiveFile(imported).snapshot.documentText, '装配要求')
+  assert.equal(store.projects.length, 1)
+})
+
+test('older settings backups without a format marker remain importable', () => {
+  let original = fresh(shaftModel)
+  original = saveFileVersion(original, original.activeProjectId, original.activeFileId, { note: '旧版备份' })
+  const bareBackup = JSON.parse(JSON.stringify(original))
+  assert.equal(bareBackup.format, undefined)
+  const imported = importProjectBackup(fresh(), bareBackup)
+  assert.equal(getActiveFile(imported).snapshot.model.length, 70)
+  assert.equal(getActiveFile(imported).versions[0].note, '旧版备份')
+})
+
+test('restoring a same-named file keeps the draft model name aligned without renaming historical versions', () => {
+  let store = fresh(shaftModel)
+  const originalName = getActiveFile(store).name
+  store = saveFileVersion(store, store.activeProjectId, store.activeFileId)
+  store = deleteProjectFile(store, store.activeProjectId, store.activeFileId)
+  store = createProjectFile(store, store.activeProjectId, { name: originalName })
+  store = restoreTrashedItem(store, store.trash[0].id)
+  assert.equal(getActiveFile(store).name, `${originalName}（恢复）`)
+  assert.equal(getActiveFile(store).snapshot.model.name, getActiveFile(store).name)
+  assert.equal(getActiveFile(store).versions[0].snapshot.model.name, originalName)
+})
+
+test('malformed model collections are rejected before they can crash the workspace', () => {
+  for (const model of [{}, { kind: 8 }, { kind: 'feature_model', cadPlan: { parameters: 'bad' } },
+    { kind: 'feature_model', cadPlan: { parameters: [null] } }, { kind: 'feature_model', cadPlan: { features: {} } },
+    { kind: 'feature_model', cadPlan: { features: [null] } },
+    { kind: 'feature_model', agentRun: { sourceTranscription: { annotations: [null] } } }]) {
+    assert.throws(() => importProjectBackup(fresh(), { schemaVersion: 1, name: '错误模型', type: '零件', snapshot: { model } }))
+  }
+  const model = { kind: 'feature_model', cadPlan: { parameters: { length: { value: 20, label: '长度' } },
+    features: [{ id: 'body', op: 'box', size: ['length', 10, 10] }], result: 'body' } }
+  assert.deepEqual(getActiveFile(importProjectBackup(fresh(), { schemaVersion: 1, name: '有效模型', type: '零件', snapshot: { model } })).snapshot.model, model)
+})
+
+test('malformed or oversized backup leaves existing projects untouched', () => {
+  const store = fresh(shaftModel), before = JSON.stringify(store)
+  for (const input of ['not json', { schemaVersion: 9 }, { schemaVersion: 1, projects: [] },
+    { schemaVersion: 1, name: 'bad', type: '文档', snapshot: { model: 'not a model' } },
+    { format: PROJECT_BACKUP_FORMAT, schemaVersion: 1, projects: [{ name: 'bad', files: [null] }] },
+    ' '.repeat(MAX_BACKUP_BYTES + 1)]) {
+    assert.throws(() => importProjectBackup(store, input))
+    assert.equal(JSON.stringify(store), before)
+  }
+  assert.equal(sanitizeWorkspaceSnapshot(null).model, null)
+})
+
+test('deleted siblings and parent restore into one project in any order, including after reload or backup import', () => {
+  const orders = [['零件 01', '说明', 'project'], ['零件 01', 'project', '说明'], ['说明', '零件 01', 'project'],
+    ['说明', 'project', '零件 01'], ['project', '零件 01', '说明'], ['project', '说明', '零件 01']]
+  for (const mode of ['memory', 'reload', 'backup']) for (const order of orders) {
+    let store = fresh(shaftModel)
+    const parent = store.activeProjectId, part = store.activeFileId
+    store = saveFileVersion(store, parent, part, { note: '保留的尺寸版本' })
+    store = createProjectFile(store, parent, { name: '说明', type: '文档', snapshot: { documentText: '保留公差说明' } })
+    const document = store.activeFileId
+    store = createProjectFile(store, parent, { name: '草图', type: '工程图' })
+    store = deleteProjectFile(store, parent, part)
+    store = deleteProjectFile(store, parent, document)
+    store = deleteProject(store, parent)
+    const before = JSON.stringify(store)
+    for (const [index, item] of order.entries()) {
+      const record = store.trash.find((record) => item === 'project' ? record.kind === 'project' : record.kind === 'file' && record.item.name === item)
+      const original = JSON.stringify(store)
+      const restored = restoreTrashedItem(store, record.id)
+      assert.equal(JSON.stringify(store), original, 'restoring must not mutate the prior snapshot')
+      store = restored
+      if (index === 0 && mode === 'reload') {
+        const storage = memoryStorage(); persistProjectStore(store, storage); store = loadProjectStore(storage)
+      }
+      if (index === 0 && mode === 'backup') store = importProjectBackup(fresh(), exportProjectBackup(store))
+    }
+    const result = store.projects.find((project) => project.files.some((file) => file.name === '说明'))
+    assert.deepEqual(result.files.map((file) => file.name).sort(), ['草图', '零件 01', '说明'].sort(), `${mode}: ${order}`)
+    assert.equal(result.files.find((file) => file.name === '说明').snapshot.documentText, '保留公差说明')
+    assert.equal(result.files.find((file) => file.name === '零件 01').versions[0].note, '保留的尺寸版本')
+    assert.equal(store.trash.length, 0)
+    assert.equal(new Set(store.projects.map((project) => project.id)).size, store.projects.length)
+    assert.ok(before.includes('保留公差说明'))
+  }
+})
+
+test('restoring a parent keeps edits and new files made after a child was recovered', () => {
+  let store = fresh(shaftModel)
+  const parent = store.activeProjectId, part = store.activeFileId
+  store = createProjectFile(store, parent, { name: '项目原说明', type: '文档', snapshot: { documentText: '旧内容' } })
+  store = deleteProjectFile(store, parent, part)
+  store = deleteProject(store, parent)
+  store = restoreTrashedItem(store, store.trash.find((record) => record.kind === 'file').id)
+  store = updateFileSnapshot(store, parent, part, { model: { ...shaftModel, length: 150 } })
+  store = createProjectFile(store, parent, { name: '恢复后新增', type: '文档', snapshot: { documentText: '新内容' } })
+  store = restoreTrashedItem(store, store.trash.find((record) => record.kind === 'project').id)
+  assert.equal(getProjectFile(store, parent, part).snapshot.model.length, 150)
+  assert.equal(getActiveProject(store).files.length, 3)
+  assert.equal(getActiveProject(store).files.find((file) => file.name === '恢复后新增').snapshot.documentText, '新内容')
+  assert.equal(getActiveProject(store).files.find((file) => file.name === '项目原说明').snapshot.documentText, '旧内容')
+})
+
+test('empty cloud project lists retain trash and account migration metadata on normalization', () => {
+  let store = fresh(shaftModel)
+  store = deleteProjectFile(store, store.activeProjectId, store.activeFileId)
+  store = { ...store, projects: [], activeProjectId: null, activeFileId: null, legacyImportState: 'completed' }
+  const storage = memoryStorage(); persistProjectStore(store, storage)
+  const loaded = loadProjectStore(storage)
+  assert.equal(loaded.projects.length, 1)
+  assert.equal(getActiveFile(loaded).snapshot.model, null)
+  assert.equal(loaded.legacyImportState, 'completed')
+  assert.deepEqual(loaded.trash, store.trash)
+  assert.equal(getActiveFile(restoreTrashedItem(loaded, loaded.trash[0].id)).snapshot.model.length, 70)
+})
+
+test('reload selects a usable remembered file instead of unavailable legacy metadata', () => {
+  let store = fresh()
+  const unavailableId = store.activeFileId
+  store.projects[0].files[0].contentUnavailable = true
+  store = createProjectFile(store, store.activeProjectId, { name: '可编辑说明', type: '文档', snapshot: { documentText: '仍可编辑' } })
+  const availableId = store.activeFileId
+  for (const selected of [unavailableId, 'missing-file']) {
+    const storage = memoryStorage(); persistProjectStore({ ...store, activeFileId: selected }, storage)
+    const loaded = loadProjectStore(storage)
+    assert.equal(loaded.activeFileId, availableId)
+    assert.equal(getFileSnapshot(loaded).documentText, '仍可编辑')
+  }
+})
+
+test('backup refuses ambiguous duplicate live project identities without changing existing data', () => {
+  const store = fresh(), before = JSON.stringify(store)
+  const backup = exportProjectBackup(store)
+  backup.projects.push({ ...backup.projects[0], name: '同标识的另一项目' })
+  assert.throws(() => importProjectBackup(store, backup), /标识重复/)
+  assert.equal(JSON.stringify(store), before)
+})
+
+test('backup file finishing after account or page exit cannot invoke the importer', async () => {
+  let finish, imports = 0
+  const file = { name: '设计备份.json', size: 10, text: () => new Promise((resolve) => { finish = resolve }) }
+  const controller = new AbortController()
+  const pending = importProjectBackupFile(file, () => { imports++; return true }, { signal: controller.signal })
+  controller.abort()
+  finish(JSON.stringify(exportProjectBackup(fresh(shaftModel))))
+  await assert.rejects(pending, { name: 'AbortError' })
+  assert.equal(imports, 0)
+})
+
+test('backup file import propagates a rejected action and validates before reading', async () => {
+  const payload = exportProjectBackup(fresh())
+  const file = { name: '项目.JSON', size: 10, text: async () => JSON.stringify(payload) }
+  let imported
+  await importProjectBackupFile(file, (value) => { imported = value; return true })
+  assert.deepEqual(imported, payload)
+  await assert.rejects(importProjectBackupFile(file, () => false), /尚未导入/)
+  for (const invalid of [{ ...file, name: '项目.txt' }, { ...file, size: MAX_BACKUP_BYTES + 1 }]) {
+    await assert.rejects(importProjectBackupFile({ ...invalid, text: () => { assert.fail('invalid file must not be read') } }, () => true))
+  }
+  await assert.rejects(importProjectBackupFile({ ...file, text: async () => '{' }, () => true), /有效的 JSON/)
 })

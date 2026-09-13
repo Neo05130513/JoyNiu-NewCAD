@@ -1,0 +1,9 @@
+# Append to the existing Compose combination after deploying gate-enabled code.
+# The existing ./data:/data bind provides a shared host/API admission lock.
+services:
+  api:
+    environment:
+      JOYNIU_OPERATIONS_DIR: /data/operations
+      JOYNIU_OPERATIONS_REPORT: /var/lib/joyniu-cad-operations/status.json
+    volumes:
+      - /var/lib/joyniu-cad-operations:/var/lib/joyniu-cad-operations:ro

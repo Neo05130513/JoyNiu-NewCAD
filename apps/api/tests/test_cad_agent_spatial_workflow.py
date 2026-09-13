@@ -2,6 +2,7 @@
 import copy
 import json
 import threading
+import pytest
 
 from tests.test_cad_agent import (
     Executor, Provider, StubSourceReader, StubSpatialInterpreter, context,
@@ -188,7 +189,7 @@ def test_text_only_requests_do_not_use_spatial_vision(tmp_path):
     assert result["sourceSpatialContract"] is None
 
 
-def test_source_spatial_version_change_invalidates_ledger_but_preserves_editable_plan(tmp_path):
+def test_source_spatial_version_change_preserves_ledger_when_frame_is_unchanged(tmp_path):
     interpreter = ObservedSpatial()
     def observe(body):
         interpreter.settle()
@@ -199,7 +200,7 @@ def test_source_spatial_version_change_invalidates_ledger_but_preserves_editable
     old["sourceSpatialContract"]["version"] = "obsolete-spatial-reader"
     def check(body):
         current = context(body)
-        assert current["sourceObservations"] == []
+        assert current["sourceObservations"] == first["observations"]
         assert current["currentPlan"]["features"] == first["plan"]["features"]
         interpreter.settle(2)
         return {"action": "ask_user", "message": "请说明要求", "questions": ["需要改什么？"]}
@@ -208,4 +209,109 @@ def test_source_spatial_version_change_invalidates_ledger_but_preserves_editable
     assert len(interpreter.calls) == 2
     assert result["status"] == "needs_input"
     assert result["plan"] == first["plan"]
-    assert result["observations"] == []
+    assert result["observations"] == first["observations"]
+    assert not any(item.get("reason") == "spatial_interpretation_changed" for item in result["trace"])
+
+
+@pytest.mark.parametrize("previous_status", ["failed", "running", "not_completed", None])
+def test_auxiliary_retry_does_not_discard_same_source_ledger(tmp_path, previous_status):
+    first_spatial = ObservedSpatial()
+    def initial(body):
+        first_spatial.settle()
+        return record()
+    first = run(Provider([initial]), Executor(), tmp_path / "first", files=[raster()],
+                spatial_interpreter=first_spatial, max_turns=1)
+    old = copy.deepcopy(first["state"])
+    old.pop("observationSpatialContract", None)  # Existing production state.
+    old["sourceSpatialContract"] = ({"status": previous_status, "contract": None, "errorCode": "timeout"}
+                                    if previous_status else None)
+    failed = ObservedSpatial(lambda **_: {"status": "failed", "contract": None, "errorCode": "timeout"})
+    def build(body):
+        assert context(body)["sourceObservations"] == first["observations"]
+        assert context(body)["sourceTranscription"]
+        failed.settle()
+        return execute()
+    provider, executor = Provider([build, finish()]), Executor()
+    result = run(provider, executor, tmp_path / "retry", files=[raster()], state=old, spatial_interpreter=failed)
+    assert result["status"] == "review_required"
+    assert result["observations"] == first["observations"]
+    assert result["sourceSpatialContract"]["status"] == "failed"
+    assert not any(item.get("reason") == "spatial_interpretation_changed" for item in result["trace"])
+    assert len(executor.calls) == 1
+
+
+def test_changed_valid_frame_arriving_at_finish_cannot_publish_invalidated_geometry(tmp_path):
+    original = ObservedSpatial()
+    def initial(body):
+        original.settle()
+        return record()
+    first = run(Provider([initial]), Executor(), tmp_path / "first", files=[raster()],
+                spatial_interpreter=original, max_turns=1)
+    old = copy.deepcopy(first["state"])
+    old["sourceSpatialContract"]["version"] = "old-version"
+    release = threading.Event()
+    def changed(**kwargs):
+        assert release.wait(3)
+        candidate = StubSpatialInterpreter().interpret(**kwargs)
+        candidate["contract"]["coordinateFrame"]["origin"] = "top face instead of the bottom face"
+        return candidate
+    interpreter = ObservedSpatial(changed)
+    def final(body):
+        assert context(body)["currentExecutionSummary"]["hasFreshValidGeometry"] is True
+        release.set()
+        interpreter.settle()
+        return finish()
+    try:
+        result = run(Provider([execute(), final]), Executor(), tmp_path / "changed", files=[raster()],
+                     state=old, spatial_interpreter=interpreter)
+    finally:
+        release.set()
+    assert result["status"] == "failed"
+    assert result["observations"] == [] and result["artifacts"] == {}
+    assert result["plan"] == plan()
+    assert result["drawingReview"]["status"] == "unverified"
+    event = next(item for item in result["trace"] if item.get("reason") == "spatial_interpretation_changed")
+    assert event["previousObservations"] == first["observations"]
+    assert event["previousPlanDiscarded"] is False
+
+
+@pytest.mark.parametrize("refresh_status", ["failed", "uncertain"])
+def test_failed_refresh_preserves_frame_baseline_across_continuations(tmp_path, refresh_status):
+    interpreter = ObservedSpatial()
+    def initial(body):
+        interpreter.settle()
+        return record()
+    first = run(Provider([initial]), Executor(), tmp_path / "first", files=[raster()],
+                spatial_interpreter=interpreter, max_turns=1)
+    old = copy.deepcopy(first["state"])
+    old["sourceSpatialContract"]["version"] = "old-version"
+    def refresh(**kwargs):
+        if refresh_status == "failed":
+            return {"status": "failed", "contract": None, "errorCode": "timeout"}
+        candidate = StubSpatialInterpreter().interpret(**kwargs)
+        candidate["contract"]["coordinateFrame"].update({"origin": "possibly another origin", "confidence": "uncertain"})
+        candidate["contract"]["questions"] = ["原点尚未明确"]
+        candidate["status"] = "needs_input"
+        return candidate
+    failed = ObservedSpatial(refresh)
+    def wait_and_ask(body):
+        failed.settle()
+        return {"action": "ask_user", "message": "查看已存依据", "questions": ["还需修改哪里？"]}
+    retry = run(Provider([wait_and_ask]), Executor(), tmp_path / "retry", files=[raster()],
+                state=old, spatial_interpreter=failed)
+    assert retry["state"]["observationSpatialContract"] == first["state"]["observationSpatialContract"]
+    assert retry["observations"] == first["observations"]
+    def changed(**kwargs):
+        candidate = StubSpatialInterpreter().interpret(**kwargs)
+        candidate["contract"]["coordinateFrame"]["origin"] = "changed physical origin"
+        return candidate
+    newer = ObservedSpatial(changed)
+    def wait_for_new(body):
+        newer.settle()
+        return {"action": "ask_user", "message": "核对新基准", "questions": ["请确认原点？"]}
+    next_state = copy.deepcopy(retry["state"])
+    next_state["sourceSpatialContract"]["version"] = "another-refresh-version"
+    final = run(Provider([wait_for_new]), Executor(), tmp_path / "final", files=[raster()],
+                state=next_state, spatial_interpreter=newer)
+    assert final["observations"] == []
+    assert any(item.get("reason") == "spatial_interpretation_changed" for item in final["trace"])

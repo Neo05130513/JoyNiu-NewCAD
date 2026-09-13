@@ -1,0 +1,1806 @@
+{
+  "checkedAt": "2026-09-12T11:10:54.680834+00:00",
+  "source": "src/mechanicalCases.js",
+  "scope": "validate_plan, direct build_plan_shape, isolated executor, delivered STEP OCCT reimport; no AI provider called",
+  "artifactDirectory": "/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6",
+  "passed": 12,
+  "total": 12,
+  "cases": [
+    {
+      "id": "spacer",
+      "name": "带通孔隔套",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 3
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 4,
+        "edgeCount": 6,
+        "volumeMm3": 28274.33388230876,
+        "surfaceAreaMm2": 7539.822368615877,
+        "bbox": {
+          "min": [
+            -20.0,
+            -20.0,
+            0.0
+          ],
+          "max": [
+            20.0,
+            20.0,
+            30.0
+          ],
+          "size": [
+            40.0,
+            40.0,
+            30.0
+          ]
+        },
+        "bboxLength": 40.0,
+        "bboxWidth": 40.0,
+        "bboxHeight": 30.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 0,
+            "radius": 20.0,
+            "diameter": 40.0,
+            "origin": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 3769.9111843080004
+          },
+          {
+            "faceIndex": 3,
+            "radius": 10.0,
+            "diameter": 20.0,
+            "origin": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 1884.9555921540002
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/spacer/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/spacer/model.glb"
+      },
+      "elapsedSeconds": 3.282
+    },
+    {
+      "id": "flange",
+      "name": "四孔法兰",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 6
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 8,
+        "edgeCount": 18,
+        "volumeMm3": 52477.16368556505,
+        "surfaceAreaMm2": 13873.273158252869,
+        "bbox": {
+          "min": [
+            -40.0,
+            -40.0,
+            0.0
+          ],
+          "max": [
+            40.0,
+            40.0,
+            12.0
+          ],
+          "size": [
+            80.0,
+            80.0,
+            12.0
+          ]
+        },
+        "bboxLength": 80.0,
+        "bboxWidth": 80.0,
+        "bboxHeight": 12.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 0,
+            "radius": 40.0,
+            "diameter": 80.0,
+            "origin": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 3015.9289474464003
+          },
+          {
+            "faceIndex": 3,
+            "radius": 4.0,
+            "diameter": 8.0,
+            "origin": [
+              -6.439293542826e-15,
+              -29.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 301.59289474464003
+          },
+          {
+            "faceIndex": 4,
+            "radius": 4.0,
+            "diameter": 8.0,
+            "origin": [
+              -29.0,
+              3.551475717527e-15,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 301.59289474464003
+          },
+          {
+            "faceIndex": 5,
+            "radius": 12.0,
+            "diameter": 24.0,
+            "origin": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 904.7786842339199
+          },
+          {
+            "faceIndex": 6,
+            "radius": 4.0,
+            "diameter": 8.0,
+            "origin": [
+              29.0,
+              0.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 301.59289474464003
+          },
+          {
+            "faceIndex": 7,
+            "radius": 4.0,
+            "diameter": 8.0,
+            "origin": [
+              3.219646771413e-15,
+              29.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 301.59289474464003
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/flange/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/flange/model.glb"
+      },
+      "elapsedSeconds": 1.96
+    },
+    {
+      "id": "shaft",
+      "name": "三级阶梯轴",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 4
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 7,
+        "edgeCount": 9,
+        "volumeMm3": 48569.02242449829,
+        "surfaceAreaMm2": 9047.786842339036,
+        "bbox": {
+          "min": [
+            -20.0,
+            -20.0,
+            0.0
+          ],
+          "max": [
+            20.0,
+            20.0,
+            75.0
+          ],
+          "size": [
+            40.0,
+            40.0,
+            75.0
+          ]
+        },
+        "bboxLength": 40.0,
+        "bboxWidth": 40.0,
+        "bboxHeight": 75.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 0,
+            "radius": 20.0,
+            "diameter": 40.0,
+            "origin": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 1884.9555921540002
+          },
+          {
+            "faceIndex": 3,
+            "radius": 14.0,
+            "diameter": 28.0,
+            "origin": [
+              0.0,
+              0.0,
+              15.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 3518.5837720208
+          },
+          {
+            "faceIndex": 5,
+            "radius": 9.0,
+            "diameter": 18.0,
+            "origin": [
+              0.0,
+              0.0,
+              55.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 1130.9733552924004
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/shaft/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/shaft/model.glb"
+      },
+      "elapsedSeconds": 1.861
+    },
+    {
+      "id": "bracket",
+      "name": "L 形支架",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 3
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 9,
+        "edgeCount": 21,
+        "volumeMm3": 30731.681469281903,
+        "surfaceAreaMm2": 10286.247779607711,
+        "bbox": {
+          "min": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "max": [
+            70.0,
+            35.0,
+            50.0
+          ],
+          "size": [
+            70.0,
+            35.0,
+            50.0
+          ]
+        },
+        "bboxLength": 70.0,
+        "bboxWidth": 35.0,
+        "bboxHeight": 50.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 5,
+            "radius": 5.0,
+            "diameter": 10.0,
+            "origin": [
+              49.0,
+              17.5,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 251.32741228720002
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/bracket/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/bracket/model.glb"
+      },
+      "elapsedSeconds": 1.88
+    },
+    {
+      "id": "gear",
+      "name": "渐开线直齿轮",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 1
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 147,
+        "edgeCount": 435,
+        "volumeMm3": 24934.832344047245,
+        "surfaceAreaMm2": 8617.444700583645,
+        "bbox": {
+          "min": [
+            -26.000000099999998,
+            -26.000000099999937,
+            -1e-07
+          ],
+          "max": [
+            26.000000099999998,
+            26.0000001,
+            15.0000001
+          ],
+          "size": [
+            52.000000199999995,
+            52.00000019999994,
+            15.000000199999999
+          ]
+        },
+        "bboxLength": 52.000000199999995,
+        "bboxWidth": 52.00000019999994,
+        "bboxHeight": 15.000000199999999,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 1,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              -2.426228363771e-12,
+              3.078062935205e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821552
+          },
+          {
+            "faceIndex": 6,
+            "radius": 26.0,
+            "diameter": 52.0,
+            "origin": [
+              -2.337157425809e-15,
+              2.254927012531e-17,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              0.0,
+              -1.0
+            ],
+            "area": 21.466513005510308
+          },
+          {
+            "faceIndex": 9,
+            "radius": 26.000000000004,
+            "diameter": 52.000000000008,
+            "origin": [
+              -4.148110142706e-12,
+              1.078325388039e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005509803
+          },
+          {
+            "faceIndex": 12,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              -2.400940438265e-12,
+              -3.374756590474e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821552
+          },
+          {
+            "faceIndex": 15,
+            "radius": 21.500000000001,
+            "diameter": 43.000000000002,
+            "origin": [
+              -1.326971407511e-12,
+              5.433299397202e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821398
+          },
+          {
+            "faceIndex": 18,
+            "radius": 26.000000000004,
+            "diameter": 52.000000000008,
+            "origin": [
+              -3.798577615987e-12,
+              -9.509025035684e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.4665130055098
+          },
+          {
+            "faceIndex": 21,
+            "radius": 26.000000000008,
+            "diameter": 52.000000000016,
+            "origin": [
+              -6.702187505362e-12,
+              3.819584652063e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005508947
+          },
+          {
+            "faceIndex": 24,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              -1.986406946851e-12,
+              -8.224291106365e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821551
+          },
+          {
+            "faceIndex": 27,
+            "radius": 21.499999999999,
+            "diameter": 42.999999999998,
+            "origin": [
+              4.840000540781e-13,
+              -3.792705743462e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821096
+          },
+          {
+            "faceIndex": 30,
+            "radius": 25.999999999998,
+            "diameter": 51.999999999996,
+            "origin": [
+              1.774793227205e-12,
+              1.11966180484e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005508656
+          },
+          {
+            "faceIndex": 33,
+            "radius": 26.000000000003,
+            "diameter": 52.000000000006,
+            "origin": [
+              -2.051012522571e-12,
+              1.914023299292e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.46651300550897
+          },
+          {
+            "faceIndex": 36,
+            "radius": 21.500000000004,
+            "diameter": 43.000000000008,
+            "origin": [
+              -3.307821494631e-12,
+              -2.533277571602e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.601823688218545
+          },
+          {
+            "faceIndex": 39,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              -1.051254961177e-12,
+              1.367155360502e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821552
+          },
+          {
+            "faceIndex": 42,
+            "radius": 25.999999999994,
+            "diameter": 51.999999999988,
+            "origin": [
+              4.127890594334e-12,
+              4.129333747622e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.46651300550916
+          },
+          {
+            "faceIndex": 45,
+            "radius": 25.999999999995,
+            "diameter": 51.99999999999,
+            "origin": [
+              2.54521821033e-12,
+              -4.389159191506e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005509988
+          },
+          {
+            "faceIndex": 48,
+            "radius": 21.500000000004,
+            "diameter": 43.000000000008,
+            "origin": [
+              -2.639298385462e-12,
+              -3.430955477221e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.601823688218545
+          },
+          {
+            "faceIndex": 51,
+            "radius": 21.500000000003,
+            "diameter": 43.000000000006,
+            "origin": [
+              -1.058335205169e-12,
+              2.590623387084e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821703
+          },
+          {
+            "faceIndex": 54,
+            "radius": 25.999999999993,
+            "diameter": 51.999999999986,
+            "origin": [
+              3.746645172556e-12,
+              6.475545499779e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005508336
+          },
+          {
+            "faceIndex": 57,
+            "radius": 26.000000000004,
+            "diameter": 52.000000000008,
+            "origin": [
+              -9.330257111295e-13,
+              3.510628011981e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.4665130055098
+          },
+          {
+            "faceIndex": 60,
+            "radius": 21.500000000005,
+            "diameter": 43.00000000001,
+            "origin": [
+              -1.814777548082e-12,
+              -4.35068350704e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368822006
+          },
+          {
+            "faceIndex": 63,
+            "radius": 21.500000000001,
+            "diameter": 43.000000000002,
+            "origin": [
+              -2.094883717904e-13,
+              1.460186431189e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.601823688214
+          },
+          {
+            "faceIndex": 66,
+            "radius": 26.000000000007,
+            "diameter": 52.000000000014,
+            "origin": [
+              -1.706611437888e-12,
+              -6.475209283787e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005508116
+          },
+          {
+            "faceIndex": 69,
+            "radius": 25.999999999997,
+            "diameter": 51.999999999994,
+            "origin": [
+              5.976205209273e-14,
+              -2.935145686265e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.46651300550784
+          },
+          {
+            "faceIndex": 72,
+            "radius": 21.499999999999,
+            "diameter": 42.999999999998,
+            "origin": [
+              1.199976530197e-13,
+              1.087428738444e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821096
+          },
+          {
+            "faceIndex": 75,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              3.026832858264e-13,
+              2.375165178457e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821552
+          },
+          {
+            "faceIndex": 78,
+            "radius": 26.0,
+            "diameter": 52.0,
+            "origin": [
+              1.632372655832e-15,
+              1.215219898547e-15,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005510308
+          },
+          {
+            "faceIndex": 81,
+            "radius": 26.000000000004,
+            "diameter": 52.000000000008,
+            "origin": [
+              1.044275495996e-12,
+              4.017719488617e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005509796
+          },
+          {
+            "faceIndex": 84,
+            "radius": 21.499999999999,
+            "diameter": 42.999999999998,
+            "origin": [
+              -6.090532136722e-14,
+              6.860341373945e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821096
+          },
+          {
+            "faceIndex": 87,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              6.488519878668e-13,
+              1.503575379515e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821552
+          },
+          {
+            "faceIndex": 90,
+            "radius": 26.000000000015,
+            "diameter": 52.00000000003,
+            "origin": [
+              3.766351446652e-12,
+              -1.414568169726e-11,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005510915
+          },
+          {
+            "faceIndex": 93,
+            "radius": 26.000000000014,
+            "diameter": 52.000000000028,
+            "origin": [
+              6.875406233548e-12,
+              1.187834295542e-11,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005510095
+          },
+          {
+            "faceIndex": 96,
+            "radius": 21.499999999998,
+            "diameter": 42.999999999996,
+            "origin": [
+              -9.499357532077e-13,
+              2.262642404369e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368820944
+          },
+          {
+            "faceIndex": 99,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              1.035387691617e-12,
+              1.340130074405e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821551
+          },
+          {
+            "faceIndex": 102,
+            "radius": 26.000000000013,
+            "diameter": 52.000000000026,
+            "origin": [
+              6.365974636473e-12,
+              -1.090892649756e-11,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.46651300550926
+          },
+          {
+            "faceIndex": 105,
+            "radius": 26.000000000007,
+            "diameter": 52.000000000014,
+            "origin": [
+              4.84461402108e-12,
+              4.932648557954e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.46651300550812
+          },
+          {
+            "faceIndex": 108,
+            "radius": 21.500000000001,
+            "diameter": 43.000000000002,
+            "origin": [
+              8.813115578458e-13,
+              -1.137625570681e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.601823688214
+          },
+          {
+            "faceIndex": 111,
+            "radius": 21.5,
+            "diameter": 43.0,
+            "origin": [
+              7.382147060911e-14,
+              3.570335671982e-14,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821248
+          },
+          {
+            "faceIndex": 114,
+            "radius": 26.000000000007,
+            "diameter": 52.000000000014,
+            "origin": [
+              4.919880838876e-12,
+              -4.981200888088e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005508112
+          },
+          {
+            "faceIndex": 117,
+            "radius": 25.999999999997,
+            "diameter": 51.999999999994,
+            "origin": [
+              -2.949556470407e-12,
+              -1.65251798305e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005507835
+          },
+          {
+            "faceIndex": 120,
+            "radius": 21.500000000003,
+            "diameter": 43.000000000006,
+            "origin": [
+              2.201506880019e-12,
+              -1.697405406524e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821703
+          },
+          {
+            "faceIndex": 123,
+            "radius": 21.500000000004,
+            "diameter": 43.000000000008,
+            "origin": [
+              3.682497687509e-12,
+              1.539599319167e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821854
+          },
+          {
+            "faceIndex": 126,
+            "radius": 26.000000000003,
+            "diameter": 52.000000000006,
+            "origin": [
+              2.171320694533e-12,
+              -1.303114027203e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005508975
+          },
+          {
+            "faceIndex": 129,
+            "radius": 26.000000000001,
+            "diameter": 52.000000000002,
+            "origin": [
+              1.073463556589e-12,
+              3.275648660803e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005507323
+          },
+          {
+            "faceIndex": 132,
+            "radius": 21.500000000003,
+            "diameter": 43.000000000006,
+            "origin": [
+              2.570286585772e-12,
+              -1.064545353352e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.601823688217024
+          },
+          {
+            "faceIndex": 135,
+            "radius": 21.499999999997,
+            "diameter": 42.999999999994,
+            "origin": [
+              -2.761784395122e-12,
+              -3.396592051234e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.601823688207936
+          },
+          {
+            "faceIndex": 138,
+            "radius": 26.00000000001,
+            "diameter": 52.00000000002,
+            "origin": [
+              9.525131949018e-12,
+              -2.510050964293e-12,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005510603
+          },
+          {
+            "faceIndex": 141,
+            "radius": 26.0,
+            "diameter": 52.0,
+            "origin": [
+              2.337157425809e-15,
+              3.146792655547e-15,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 21.466513005510308
+          },
+          {
+            "faceIndex": 144,
+            "radius": 21.500000000002,
+            "diameter": 43.000000000004,
+            "origin": [
+              1.967833464514e-12,
+              -2.773407667131e-13,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 32.60182368821552
+          },
+          {
+            "faceIndex": 146,
+            "radius": 6.0,
+            "diameter": 12.0,
+            "origin": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 565.4866776462
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/gear/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/gear/model.glb"
+      },
+      "elapsedSeconds": 4.168
+    },
+    {
+      "id": "spring",
+      "name": "等螺距弹簧",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 1
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 3,
+        "edgeCount": 3,
+        "volumeMm3": 2679.75222810759,
+        "surfaceAreaMm2": 3587.1395034848615,
+        "bbox": {
+          "min": [
+            -13.500003049169418,
+            -13.500003049149626,
+            -1.491627297267385
+          ],
+          "max": [
+            13.500003049173085,
+            13.500003049162988,
+            41.491627297267584
+          ],
+          "size": [
+            27.000006098342503,
+            27.000006098312614,
+            42.98325459453497
+          ]
+        },
+        "bboxLength": 27.000006098342503,
+        "bboxWidth": 27.000006098312614,
+        "bboxHeight": 42.98325459453497,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/spring/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/spring/model.glb"
+      },
+      "elapsedSeconds": 11.558
+    },
+    {
+      "id": "shell",
+      "name": "开口壳体",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 2
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 11,
+        "edgeCount": 24,
+        "volumeMm3": 32088.0,
+        "surfaceAreaMm2": 22172.0,
+        "bbox": {
+          "min": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "max": [
+            80.0,
+            50.0,
+            30.0
+          ],
+          "size": [
+            80.0,
+            50.0,
+            30.0
+          ]
+        },
+        "bboxLength": 80.0,
+        "bboxWidth": 50.0,
+        "bboxHeight": 30.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/shell/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/shell/model.glb"
+      },
+      "elapsedSeconds": 2.196
+    },
+    {
+      "id": "chamfer",
+      "name": "倒角垫块",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 2
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 26,
+        "edgeCount": 48,
+        "volumeMm3": 17835.33333333334,
+        "surfaceAreaMm2": 4297.8196889401725,
+        "bbox": {
+          "min": [
+            -1.46862709510808e-16,
+            -1.46862709510808e-16,
+            -7.3431354755404e-17
+          ],
+          "max": [
+            40.0,
+            30.0,
+            15.0
+          ],
+          "size": [
+            40.0,
+            30.0,
+            15.0
+          ]
+        },
+        "bboxLength": 40.0,
+        "bboxWidth": 30.0,
+        "bboxHeight": 15.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/chamfer/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/chamfer/model.glb"
+      },
+      "elapsedSeconds": 2.389
+    },
+    {
+      "id": "sweep",
+      "name": "折线管状实心件",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 1
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 5,
+        "edgeCount": 13,
+        "volumeMm3": 2354.807292295172,
+        "surfaceAreaMm2": 1626.4201960281584,
+        "bbox": {
+          "min": [
+            -3.0,
+            -3.0,
+            0.0
+          ],
+          "max": [
+            45.0,
+            3.0,
+            53.0
+          ],
+          "size": [
+            48.0,
+            6.0,
+            53.0
+          ]
+        },
+        "bboxLength": 48.0,
+        "bboxWidth": 6.0,
+        "bboxHeight": 53.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 0,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 565.4866776461404
+          },
+          {
+            "faceIndex": 1,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              0.0,
+              0.0,
+              30.0
+            ],
+            "axis": [
+              0.7071067811865476,
+              0.0,
+              0.7071067811865476
+            ],
+            "area": 533.145952578962
+          },
+          {
+            "faceIndex": 2,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              20.0,
+              0.0,
+              50.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "area": 471.23889803843986
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/sweep/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/sweep/model.glb"
+      },
+      "elapsedSeconds": 1.887
+    },
+    {
+      "id": "loft",
+      "name": "多截面放样体",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 1
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 3,
+        "edgeCount": 3,
+        "volumeMm3": 43647.19407768494,
+        "surfaceAreaMm2": 6143.894573440706,
+        "bbox": {
+          "min": [
+            -20.022727370070967,
+            -20.022727342933372,
+            -1e-07
+          ],
+          "max": [
+            20.022727372727296,
+            20.022727342936978,
+            50.0000001
+          ],
+          "size": [
+            40.04545474279826,
+            40.045454685870354,
+            50.0000002
+          ]
+        },
+        "bboxLength": 40.04545474279826,
+        "bboxWidth": 40.045454685870354,
+        "bboxHeight": 50.0000002,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/loft/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/loft/model.glb"
+      },
+      "elapsedSeconds": 1.945
+    },
+    {
+      "id": "linear",
+      "name": "五孔安装板",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 4
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 11,
+        "edgeCount": 27,
+        "volumeMm3": 11293.141652942282,
+        "surfaceAreaMm2": 6388.495559215421,
+        "bbox": {
+          "min": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "max": [
+            120.0,
+            20.0,
+            5.0
+          ],
+          "size": [
+            120.0,
+            20.0,
+            5.0
+          ]
+        },
+        "bboxLength": 120.0,
+        "bboxWidth": 20.0,
+        "bboxHeight": 5.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 6,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              20.0,
+              10.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 94.2477796077
+          },
+          {
+            "faceIndex": 7,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              40.0,
+              10.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 94.2477796077
+          },
+          {
+            "faceIndex": 8,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              60.0,
+              10.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 94.2477796077
+          },
+          {
+            "faceIndex": 9,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              80.0,
+              10.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 94.2477796077
+          },
+          {
+            "faceIndex": 10,
+            "radius": 3.0,
+            "diameter": 6.0,
+            "origin": [
+              100.0,
+              10.0,
+              -1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 94.2477796077
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/linear/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/linear/model.glb"
+      },
+      "elapsedSeconds": 2.066
+    },
+    {
+      "id": "revolve",
+      "name": "旋转轴套",
+      "planValid": true,
+      "directBuild": {
+        "valid": true,
+        "featureCount": 1
+      },
+      "executorStatus": "succeeded",
+      "errors": [],
+      "roundTrip": {
+        "engine": "cadquery-occt",
+        "kernelBacked": true,
+        "valid": true,
+        "solidCount": 1,
+        "faceCount": 6,
+        "edgeCount": 9,
+        "volumeMm3": 36153.4482575114,
+        "surfaceAreaMm2": 9594.42396406306,
+        "bbox": {
+          "min": [
+            -25.0,
+            -25.0,
+            0.0
+          ],
+          "max": [
+            25.0,
+            25.0,
+            35.0
+          ],
+          "size": [
+            50.0,
+            50.0,
+            35.0
+          ]
+        },
+        "bboxLength": 50.0,
+        "bboxWidth": 50.0,
+        "bboxHeight": 35.0,
+        "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+        "cylinders": [
+          {
+            "faceIndex": 1,
+            "radius": 25.0,
+            "diameter": 50.0,
+            "origin": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 1256.6370614358343
+          },
+          {
+            "faceIndex": 3,
+            "radius": 18.0,
+            "diameter": 36.0,
+            "origin": [
+              0.0,
+              0.0,
+              8.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "area": 3053.6280592890776
+          },
+          {
+            "faceIndex": 5,
+            "radius": 8.0,
+            "diameter": 16.0,
+            "origin": [
+              0.0,
+              0.0,
+              35.0
+            ],
+            "axis": [
+              -0.0,
+              -0.0,
+              -1.0
+            ],
+            "area": 1759.2918860103998
+          }
+        ],
+        "raySections": {},
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification."
+      },
+      "passed": true,
+      "artifacts": {
+        "step": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/revolve/model.step",
+        "glb": "/private/var/folders/7l/7gm7qtgj14d4gyp7f34q1yl40000gn/T/joyniu-case-validation-n7hmfwn6/revolve/model.glb"
+      },
+      "elapsedSeconds": 1.891
+    }
+  ]
+}

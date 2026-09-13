@@ -258,3 +258,17 @@ directly in the workbench and continue through `/drawings/{id}/accept`. CAM's
 deterministic pre-check and generic postprocessor are workflow gates/design
 drafts, not machine-specific material removal simulation or certified
 production NC.
+
+## 原生二维 DWG 写入与兼容适配
+
+`/api/cad/drawings` 的 DWG 导出生成真实 **R2000 / AC1015** 二进制。它对转换后的文件重新读取，逐项核对实体几何、文字与字高、公差、线型/线宽、图层、块及各纸空间的视口和打印参数。普通线性、对齐、半径、直径、角度标注保持 `DIMENSION`，块保持 `INSERT`；不会靠炸开图元或改扩展名生成“DWG”。XDATA 中的本应用标注关联、检验气泡与视口状态也会核验。
+
+服务需要 `dxf2dwg`、`dwgread` 和兼容适配器 `joyniu-native-dwg-adapter`。适配器是单独运行的 LibreDWG CLI，修复已在 **LibreDWG 0.14** 实测的 DXF 数值字段/多应用 XDATA 解析问题；API 进程不链接该 C 库。优先使用 PATH 中预编译的适配器。本地未安装适配器时，服务可使用 `cc`、与 `dxf2dwg` 同一安装前缀的 `include/dwg.h` 和 `lib/libredwg`，在私有临时目录编译随 wheel 分发的 `app/native_drawing_libredwg.c`。此本地后备路径要求开发头文件和库，只有转换器可执行文件并不够。
+
+`deploy/Dockerfile.api` 在已有 LibreDWG 构建阶段编译适配器并静态链接 `libredwg`，最终镜像复制三个读写工具和预编译适配器，不安装运行时编译器。`deploy/Dockerfile.commercial` 是薄发布层，其 `CURRENT_CAD_IMAGE` 必须改用包含这些工具的新基础镜像；仅替换 Python 文件不能给旧基础镜像补上 DWG 写入能力。本次改动不自动部署或重启服务。
+
+已完成本机真实往返验证：五类标注、公差、中文块名/图层/文字、非零块基点、旋转及 X/Y/Z 缩放、逐段宽度/圆弧凸度、多纸空间、重新导入后的关联标注编辑、检验气泡编号 7。完整证据和剩余格式边界见 `docs/native-dwg-compatibility-2026-09-12.md`。
+
+Linux ARM 的同版本/同 SHA256 官方源码缓存也已完成实际构建和静态链接；四工具复制进无编译器的 slim runtime 后，`ldd`、版本检查以及真实 DWG 往返均通过，尺寸/公差/气泡关联/中文块/多布局回读一致。证据在 `docs/evidence/native-dwg-linux-2026-09-12/`。这次缓存验证仅替换临时构建上下文的下载步骤，正式 Dockerfile 仍要求 GNU 源码下载可用；未运行生产部署。
+
+R2000 写入器不能完整承接所有较新或专有定义。当前会具体指出并拒绝未覆盖的 `ATTDEF/ATTRIB` 属性块、`HATCH`、代理实体、扩展字典、自定义对象/材质等；其原定义仍保留于 DXF，原上传 DWG 也可另行下载。任何实际回读差异都阻止 DWG 交付。完整的任意版本 DWG 兼容仍需另外验证或接入兼容范围更广的写入器。

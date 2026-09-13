@@ -3,12 +3,47 @@ import assert from 'node:assert/strict'
 import { Euler, Vector3 } from 'three'
 import {
   applyPartTransform, assemblyFingerprint, boundsOverlap, checkAssembly,
-  createPartInstance, duplicatePartInstance, initialPartPosition, instanceBounds,
+  createPartInstance, duplicatePartInstance, filterStandardParts, initialPartPosition, instanceBounds,
   mainModelEnvelope, rotateVector, standardParts, validatePartDefinition, validateTransform,
 } from './assemblyModel.js'
 
 const shaft = { kind: 'shaft', name: '自定义动力轴', outerDiameter: 24, length: 70 }
 const bearing = (catalogId = 'bearing-6204', position = { x: 35, y: 0, z: 0 }, rotation = { x: 0, y: 0, z: 0 }) => createPartInstance(standardParts.find((part) => part.catalogId === catalogId), { position, rotation })
+
+test('standard part searches accept common specification separators and multiple terms', () => {
+  for (const query of ['M8 30', 'm8x30', 'M8 × 30', 'M8*30', '螺钉 30']) assert.deepEqual(filterStandardParts(query).map((part) => part.catalogId), ['socket-m8-30'])
+  assert.equal(filterStandardParts('6204', '轴承').length, 1)
+  assert.equal(filterStandardParts('6204', '紧固件').length, 0)
+  assert.equal(filterStandardParts('   ').length, standardParts.length)
+})
+
+test('feature model envelopes use the current measured bounds including their actual origin', () => {
+  const model = { kind: 'feature_model', agentRun: { status: 'ready', dirty: false, inspection: { valid: true, kernelBacked: true, bbox: { min: [10, 20, -58], max: [110, 88, 0] } } } }
+  const bounds = mainModelEnvelope(model)
+  assert.deepEqual(bounds.min, { x: 10, y: 20, z: -58 })
+  assert.deepEqual(bounds.max, { x: 110, y: 88, z: 0 })
+  assert.deepEqual([bounds.length, bounds.width, bounds.height], [100, 68, 58])
+  const position = initialPartPosition(model, [], standardParts[0])
+  assert.equal(position.x, 60)
+  assert.equal(position.z, -29)
+  assert.ok(position.y > 88)
+  const insert = bearing('bearing-6204', { x: 60, y: 54, z: -29 })
+  assert.ok(checkAssembly(model, [insert]).issues.some((issue) => issue.code === 'envelope-overlap'))
+  assert.equal(checkAssembly(model, []).instanceCount, 1)
+  assert.equal(mainModelEnvelope({ ...model, stale: true }), null)
+  for (const patch of [{ stale: true }, { dirty: true }, { status: 'failed' }, { inspection: { valid: true, kernelBacked: true, bbox: { min: [0, 0, 0], max: [10, 10, Infinity] } } }, { inspection: { valid: true, kernelBacked: false } }]) {
+    assert.equal(mainModelEnvelope({ ...model, agentRun: { ...model.agentRun, ...patch } }), null)
+  }
+})
+
+test('insertion respects bolt heads and duplication respects rotated long components', () => {
+  const largeHeadBolt = { name: '大头螺钉', shape: 'bolt', dimensions: { outerDiameter: 6, length: 20, headDiameter: 100, headLength: 8 } }
+  const insert = createPartInstance(largeHeadBolt, { position: initialPartPosition(shaft, [], largeHeadBolt) })
+  assert.equal(boundsOverlap(instanceBounds(insert), mainModelEnvelope(shaft)), false)
+  const longPart = createPartInstance({ name: '长销', shape: 'cylinder', dimensions: { outerDiameter: 6, length: 100 } }, { rotation: { x: 0, y: 0, z: 90 } })
+  assert.equal(boundsOverlap(instanceBounds(longPart), instanceBounds(duplicatePartInstance(longPart))), false)
+  assert.ok(validatePartDefinition({ ...largeHeadBolt, dimensions: { ...largeHeadBolt.dimensions, headDiameter: 100001 } }).length)
+})
 
 test('catalog inserts have independent IDs, dimension snapshots, and persisted provenance', () => {
   const first = bearing(); const second = bearing()

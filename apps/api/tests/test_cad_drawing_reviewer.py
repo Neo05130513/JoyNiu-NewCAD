@@ -74,7 +74,7 @@ def test_request_has_only_pixels_user_instruction_actual_numbers_and_coordinate_
     assert result["status"] == "consistent"
     body, timeout = provider.requests[0]
     assert 0 < timeout <= 60
-    assert body["model"] == ai_proxy._model() and body["reasoning"]["effort"] == ai_proxy._reasoning_effort()
+    assert body["model"] == ai_proxy._model() and body["reasoning"]["effort"] == reviewer._review_effort()
     assert len(body["input"]) == 1 and body["store"] is False
     content = body["input"][0]["content"]
     assert len([part for part in content if part["type"] == "input_image"]) == 4
@@ -245,3 +245,186 @@ def test_inputs_are_never_mutated():
     before = copy.deepcopy(actual)
     review(inspection=actual)
     assert actual == before
+
+
+class SequenceProvider:
+    def __init__(self, *outcomes):
+        self.outcomes = outcomes
+        self.requests = []
+
+    def __call__(self, body, timeout, **kwargs):
+        self.requests.append((copy.deepcopy(body), timeout))
+        outcome = self.outcomes[len(self.requests) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def envelope(value):
+    return {"status": "completed", "output": [{"type": "message", "role": "assistant", "phase": None,
+            "channel": None, "content": [{"type": "output_text", "text": json.dumps(value)}]}]}
+
+
+def test_schema_enumerates_only_actual_images_and_is_compatible_with_codex(tmp_path):
+    from app.cad_codex_provider import _prepare
+
+    provider = Provider()
+    result = review(provider, spatial_files=[raster("generated-isometric.png")],
+                    comparison_files=[raster("comparison-front.png")])
+    assert result["status"] == "consistent"
+    body = provider.requests[0][0]
+    format_ = body["text"]["format"]
+    assert format_["type"] == "json_schema" and format_["strict"] is True
+    assert body["max_output_tokens"] == reviewer.MAX_OUTPUT_TOKENS
+    schema = format_["schema"]
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == {"status", "observations", "differences", "questions"}
+    for field in ("observations", "differences"):
+        item = schema["properties"][field]["items"]
+        assert item["additionalProperties"] is False
+        assert set(item["required"]) == set(item["properties"])
+        assert item["properties"]["sourceImageId"]["enum"] == ["source-0"]
+        assert set(item["properties"]["modelImageId"]["enum"]) == {"projection-front", "projection-top", "projection-right", "spatial-isometric"}
+    _prompt, images, _effort, schema_path = _prepare(body, tmp_path)
+    assert len(images) == 6
+    assert json.loads(schema_path.read_text()) == schema
+
+
+def test_invalid_json_retries_once_with_identical_independent_pixels_and_no_old_answer():
+    malformed = {"status": "completed", "output_text": '{"PRIVATE_FAILED_RESPONSE": "invalid\\q"}'}
+    provider = SequenceProvider(malformed, envelope(response()))
+    actual = inspection()
+    actual["plan"] = "PRIVATE_PLANNER_CLAIM"
+    result = review(provider, inspection=actual)
+    assert result["status"] == "consistent" and "errorCode" not in result
+    assert result["humanConfirmed"] is False
+    assert result["providerMetrics"]["requestCount"] == 2
+    first, second = (item[0] for item in provider.requests)
+    assert first["input"] == second["input"]
+    assert first["text"] == second["text"]
+    assert all(item["store"] is False for item in (first, second))
+    assert "previous_response_id" not in second
+    assert "PRIVATE_FAILED_RESPONSE" not in json.dumps(second) + json.dumps(result)
+    assert "PRIVATE_PLANNER_CLAIM" not in json.dumps(second)
+    assert result["providerMetrics"]["attempts"][0]["validationCode"] == "invalid_final_json"
+
+
+def test_invalid_stream_retries_as_non_stream_json_and_schema_rejection_uses_compatibility_format():
+    provider = SequenceProvider(ai_proxy.AIProxyError("AI provider returned an invalid streaming event"), envelope(response()))
+    result = review(provider)
+    assert result["status"] == "consistent"
+    assert [body["stream"] for body, _ in provider.requests] == [True, False]
+    assert all(body["text"]["format"]["type"] == "json_schema" for body, _ in provider.requests)
+    provider = SequenceProvider(ai_proxy.AIProviderHTTPError(400), envelope(response()))
+    result = review(provider)
+    assert result["status"] == "consistent"
+    assert [body["text"]["format"]["type"] for body, _ in provider.requests] == ["json_schema", "json_object"]
+    assert provider.requests[0][0]["input"] == provider.requests[1][0]["input"]
+    assert '"projection-front"' in provider.requests[1][0]["instructions"]
+
+
+@pytest.mark.parametrize("value,code", [
+    (response(extra="PRIVATE_FIELD"), "invalid_review_fields"),
+    (response(observations=[evidence(modelImageId="comparison-front")]), "unknown_evidence_image"),
+    (response(differences=[evidence()]), "invalid_evidence_fields"),
+    (response(status="mismatch"), "missing_difference_evidence"),
+    (response(observations=[evidence(finding="x" * 701)]), "invalid_evidence_text"),
+])
+def test_two_malformed_results_never_bypass_evidence_validation(value, code):
+    provider = SequenceProvider(envelope(value), envelope(value))
+    result = review(provider)
+    assert len(provider.requests) == 2
+    assert result["status"] == "uncertain"
+    assert result["errorCode"] == "invalid_drawing_review"
+    assert result["validationCode"] == code
+    assert result["observations"] == result["differences"] == []
+    assert "PRIVATE_FIELD" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("value,expected", [
+    (response(status="mismatch", differences=[evidence(repair="保持原图要求，修正缺失材料")]), "mismatch"),
+    (response(questions=["需要核对未看清的底部开口"]), "uncertain"),
+    (response(observations=[evidence()]), "uncertain"),
+])
+def test_valid_mismatch_or_uncertainty_is_never_retried_for_a_more_favorable_answer(value, expected):
+    provider = SequenceProvider(envelope(value))
+    result = review(provider)
+    assert result["status"] == expected
+    assert len(provider.requests) == 1
+    assert "errorCode" not in result
+
+
+def test_missing_final_and_incomplete_final_have_safe_distinct_codes_and_no_retry():
+    provider = SequenceProvider({"status": "completed", "output": [{"type": "reasoning"}], "output_text": json.dumps(response())})
+    result = review(provider)
+    assert result["status"] == "uncertain" and result["validationCode"] == "missing_final_output"
+    assert len(provider.requests) == 1
+    provider = SequenceProvider({**envelope(response()), "status": "incomplete"})
+    result = review(provider)
+    assert result["validationCode"] == "incomplete_final_response"
+    assert result["errorCode"] == "incomplete"
+    assert len(provider.requests) == 1
+
+
+def test_retry_uses_only_remaining_wall_budget_and_rejects_late_success(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(reviewer.time, "monotonic", lambda: clock[0])
+    calls = []
+
+    def provider(body, timeout, **kwargs):
+        calls.append(timeout)
+        clock[0] += 7 if len(calls) == 1 else 14
+        return {"status": "completed", "output_text": "{"} if len(calls) == 1 else envelope(response())
+
+    result = review(provider, timeout_seconds=20)
+    assert calls == [20, 13]
+    assert result["status"] == "uncertain" and result["errorCode"] == "timeout"
+    assert result["observations"] == []
+
+
+def test_short_remaining_budget_does_not_start_another_review(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(reviewer.time, "monotonic", lambda: clock[0])
+    calls = []
+
+    def provider(body, timeout, **kwargs):
+        calls.append(timeout)
+        clock[0] += 28
+        return {"status": "completed", "output_text": "{"}
+
+    result = review(provider, timeout_seconds=31)
+    assert calls == [31]
+    assert result["errorCode"] == "invalid_json" and result["status"] == "uncertain"
+
+
+def test_image_preparation_is_included_in_review_deadline(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(reviewer.time, "monotonic", lambda: clock[0])
+    original = reviewer._image_content
+
+    def prepare(*args):
+        value = original(*args)
+        clock[0] += 4
+        return value
+
+    monkeypatch.setattr(reviewer, "_image_content", prepare)
+    provider = Provider()
+    result = review(provider, timeout_seconds=3)
+    assert provider.requests == []
+    assert result["errorCode"] == "timeout"
+
+
+@pytest.mark.parametrize("configured,expected", [(None, "medium"), (" LOW ", "low"), ("high", "high"),
+    ("xhigh", "xhigh"), ("max", "max"), ("ultra", "ultra"), ("invalid", "medium"), ("", "medium")])
+def test_review_effort_is_independent_configured_and_validated(monkeypatch, configured, expected):
+    monkeypatch.setenv("JOYNIU_LLM_REASONING_EFFORT", "high")
+    if configured is None:
+        monkeypatch.delenv("JOYNIU_CAD_REVIEW_REASONING_EFFORT", raising=False)
+    else:
+        monkeypatch.setenv("JOYNIU_CAD_REVIEW_REASONING_EFFORT", configured)
+    provider = Provider()
+    result = review(provider)
+    assert result["status"] == "consistent"
+    assert provider.requests[0][0]["reasoning"]["effort"] == expected
+    assert result["providerMetrics"]["attempts"][0]["reasoningEffort"] == expected
+    assert ai_proxy._reasoning_effort() == "high"

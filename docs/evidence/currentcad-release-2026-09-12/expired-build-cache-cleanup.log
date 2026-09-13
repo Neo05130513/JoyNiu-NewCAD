@@ -1,0 +1,16 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Deleted build cache objects:
+07yabybkn0brszs4v1xqoktzk
+8xiv4qcjedjgbmmftre5epovu
+4c8nk5kulkrcwgrdkxaktesww
+96radvz8cx12sisxx6vcd8547
+g53bajqehqr2nlvqheslf2d42
+s21rr3d4mmgiswh37uv0puhbf
+ic9cpjprxisdvm3lzcppa5cx4
+n5krbm3s76o51k1do5cu7rne1
+f0bacy42w1uraivzat2q54744
+
+Total reclaimed space: 8.932GB

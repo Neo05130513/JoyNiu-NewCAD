@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { buildDrawingScene, drawingScaleFactor, formatDimension, dxfForModel, isDrawingKernelReady } from './drawingGeometry.js'
+import { buildDrawingScene, drawingScaleFactor, formatDimension, dxfForModel, isDrawingKernelReady, isDrawingDataPending } from './drawingGeometry.js'
 import { validateModelParameters, validationParameterKeys } from './modelValidation.js'
 import './drawing-workspace.css'
 
@@ -47,9 +47,11 @@ export default function DrawingWorkspace({ model, generation, drawingJob, drawin
   useEffect(() => { setDimensionCheck(null) }, [modelSignature])
   const [exportError, setExportError] = useState('')
   const evidence = drawingJob?.evidence
-  const pending = Boolean(evidence && evidence.status !== 'confirmed') || ['queued', 'analyzing', 'generating'].includes(drawingJob?.status)
+  const pending = isDrawingDataPending(generation, drawingJob)
   const kernelReady = isDrawingKernelReady(generation, pending)
   const visibleEntities = scene.entities.filter((e) => layers[e.layer] !== false && (selectedView === 'all' || e.view === selectedView || e.view === 'sheet'))
+  const canExport = scene.valid && !pending && scene.entities.some((entity) => layers[entity.layer] !== false)
+  const [exporting, setExporting] = useState(false)
   const selectedBounds = scene.views.find((view) => view.id === selectedView)?.bounds
   const viewport = selectedBounds
     ? { x: selectedBounds.x - 10, y: scene.height - selectedBounds.y - selectedBounds.height - 12, width: selectedBounds.width + 20, height: selectedBounds.height + 28 }
@@ -63,7 +65,8 @@ export default function DrawingWorkspace({ model, generation, drawingJob, drawin
   }
   const exportDrawing = async () => {
     setExportError('')
-    if (!scene.valid || pending) return
+    if (!canExport || exporting) return
+    setExporting(true)
     try {
       if (onExport) return await onExport('dxf', { scene, scale, layers })
       const blob = new Blob([dxfForModel(model, { scene, layers })], { type: 'application/dxf;charset=utf-8' })
@@ -72,16 +75,19 @@ export default function DrawingWorkspace({ model, generation, drawingJob, drawin
       setTimeout(() => URL.revokeObjectURL(url), 1000)
       showToast('DXF 已导出：三视图、中心剖面和当前可见图层，模型空间 1:1')
     } catch (error) { setExportError(error.message || '导出失败，请重试。') }
+    finally { setExporting(false) }
   }
   return <div className="technical-drawing-workspace">
     <header className="technical-drawing-heading"><div><span className="eyebrow">PARAMETRIC DRAWING</span><h1>{model?.name || '当前零件'} · 工程图</h1><p>三视图与中心剖面随参数更新，图形与 DXF 使用同一份几何数据。</p></div><div className="technical-drawing-actions">
       {onSaveVersion && <button type="button" className="secondary-button" onClick={onSaveVersion}>保存图纸版本</button>}
-      <button type="button" className="primary-button" onClick={exportDrawing} disabled={!scene.valid || pending}>导出 DXF ↓</button>
+      {onEditParameters && <button type="button" className="secondary-button" onClick={onEditParameters}>返回 3D 建模</button>}
+      <button type="button" className="primary-button" onClick={exportDrawing} disabled={!canExport || exporting}>{exporting ? '正在导出…' : '导出 DXF ↓'}</button>
     </div></header>
     {exportError && <p className="drawing-validation-error" role="alert">{exportError}</p>}
     <div className={`drawing-validation-banner ${scene.valid ? 'valid' : 'invalid'}`} role="status"><b>{!scene.valid ? '尺寸存在问题，暂不生成工程图' : pending ? '候选参数图 · 数据尚未确认' : '参数尺寸检查通过'}</b><span>{scene.valid ? `${scene.views.length} 个视图 · ${scene.dimensions.length} 处尺寸/引线 · ${kernelReady ? '当前生产实体已通过内核校验' : '生产实体内核校验另行进行'}` : `${scene.errors.length} 个问题需要修正`}</span></div>
     {!scene.valid ? <section className="drawing-errors-card"><h2>{scene.unsupported ? '此零件尚无工程图配方' : '请先修正参数'}</h2><ul>{scene.errors.map((error, index) => <li key={`${error.field}-${index}`}><b>{labels[error.field] || error.field}</b>：{error.message}</li>)}</ul>{onEditParameters && <button type="button" className="primary-button" onClick={onEditParameters}>返回参数编辑</button>}</section> : <div className="technical-drawing-layout">
       <section className="technical-drawing-canvas"><div className="technical-drawing-toolbar"><label>显示比例 <select aria-label="工程图显示比例" value={scale} onChange={(event) => changeScale(event.target.value)}><option>1:2</option><option>1:1</option><option>2:1</option></select></label><label>视图 <select aria-label="工程图视图" value={selectedView} onChange={(event) => setSelectedView(event.target.value)}><option value="all">全部视图</option>{scene.views.map((view) => <option key={view.id} value={view.id}>{view.title}</option>)}</select></label><button type="button" onClick={() => { changeScale('1:1'); setSelectedView('all'); setLayers({}) }}>重置图纸视图</button></div>
+        {!visibleEntities.length && <div className="drawing-empty-layers" role="status"><p>当前视图的图层均已隐藏。</p><button type="button" onClick={() => setLayers({})}>显示全部图层</button></div>}
         <div className="technical-drawing-scroll" tabIndex={0} aria-label="工程图画布，可滚动查看"><svg className="technical-drawing-svg" role="img" aria-label={`${model.name}参数工程图，包含三视图和中心剖面`} viewBox={`${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`} width={viewport.width * 2.4 * zoom} height={viewport.height * 2.4 * zoom} data-drawing-scale={scale} data-entity-count={visibleEntities.length}>
           <rect x={viewport.x} y={viewport.y} width={viewport.width} height={viewport.height} fill="#101925" />
           <g transform={`translate(0 ${scene.height}) scale(1 -1)`}>{scene.layers.filter((layer) => layers[layer.id] !== false).map((layer) => <g key={layer.id} data-layer={layer.id} fill="none" stroke={layer.color} color={layer.color} strokeWidth={layer.id === 'SECTION' ? .65 : 1.05} strokeDasharray={layer.dash || undefined}>{visibleEntities.filter((entity) => entity.layer === layer.id).map((entity) => <Entity key={entity.id} entity={entity} />)}</g>)}</g>

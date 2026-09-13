@@ -1,0 +1,192 @@
+{
+  "originalRevision": 9,
+  "bossCentroidBefore": [
+    29.339738510104144,
+    15.114826443423162,
+    14.5
+  ],
+  "bossCentroidAfter": [
+    31.839738510104144,
+    15.114826443423162,
+    14.5
+  ],
+  "semanticVersion": "1-frozen-20260913",
+  "isolatedLegacyId": "feature_6fe935e07e85402b98ed97c6c04b68ad",
+  "previewDidNotPublish": true,
+  "commitIdempotent": true,
+  "failedCommitPreserved": true,
+  "sourceJsonUnchanged": true,
+  "beforeVolumeMm3": 47399.06501092595,
+  "afterVolumeMm3": 50399.06501092596,
+  "bounds": {
+    "min": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "max": [
+      90.0,
+      50.0,
+      17.0
+    ]
+  },
+  "centroid": [
+    46.81072919406996,
+    25.961831713114066,
+    6.06665627041648
+  ],
+  "faceCount": 16,
+  "solidCount": 1,
+  "attachment": {
+    "version": 1,
+    "origin": [
+      1.839738510104148,
+      1.1148264434231656,
+      1.7763568394002505e-15
+    ],
+    "xDir": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "normal": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "traceBefore": [
+    {
+      "featureId": "base",
+      "operation": "profile_extrude",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 51000.0,
+      "durationMs": 643
+    },
+    {
+      "featureId": "hole",
+      "operation": "cylinder",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 1357.1680263507906,
+      "durationMs": 125
+    },
+    {
+      "featureId": "body",
+      "operation": "cut",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 49642.831973649205,
+      "durationMs": 924
+    },
+    {
+      "featureId": "profile_extrude1",
+      "operation": "profile_extrude",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 2640.0,
+      "durationMs": 640
+    },
+    {
+      "featureId": "cut1",
+      "operation": "cut",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 47002.8319736492,
+      "durationMs": 1620
+    },
+    {
+      "featureId": "profile_extrude2",
+      "operation": "profile_extrude",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 400.0,
+      "durationMs": 796
+    },
+    {
+      "featureId": "union1",
+      "operation": "union",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 47402.831973649205,
+      "durationMs": 3583
+    },
+    {
+      "featureId": "fillet1",
+      "operation": "fillet",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 47399.06501092595,
+      "durationMs": 4773
+    }
+  ],
+  "traceAfter": [
+    {
+      "featureId": "base",
+      "operation": "profile_extrude",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 54000.0,
+      "durationMs": 692
+    },
+    {
+      "featureId": "hole",
+      "operation": "cylinder",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 1357.1680263507906,
+      "durationMs": 129
+    },
+    {
+      "featureId": "body",
+      "operation": "cut",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 52642.831973649205,
+      "durationMs": 946
+    },
+    {
+      "featureId": "profile_extrude1",
+      "operation": "profile_extrude",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 2640.0,
+      "durationMs": 660
+    },
+    {
+      "featureId": "cut1",
+      "operation": "cut",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 50002.831973649205,
+      "durationMs": 1541
+    },
+    {
+      "featureId": "profile_extrude2",
+      "operation": "profile_extrude",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 400.0,
+      "durationMs": 657
+    },
+    {
+      "featureId": "union1",
+      "operation": "union",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 50402.831973649205,
+      "durationMs": 3415
+    },
+    {
+      "featureId": "fillet1",
+      "operation": "fillet",
+      "state": "succeeded",
+      "solidCount": 1,
+      "volumeMm3": 50399.06501092606,
+      "durationMs": 4340
+    }
+  ],
+  "stepPath": "/private/tmp/joyniu-r9-history-transaction-20260913/workspace/feature_6fe935e07e85402b98ed97c6c04b68ad/commit-6a75649e28d54a6c9a9637a98ee79970/model.step",
+  "boundPlanPath": "/tmp/joyniu-r9-history-transaction-20260913/bound-plan.json"
+}

@@ -1,0 +1,59 @@
+{
+  "baseUrl": "http://127.0.0.1:5186",
+  "providerCalls": 0,
+  "sourceBuildChanged": false,
+  "interaction": "Real headless Chromium UI login, mouse drawing, controls, atomic save and browser download; no plan/API injection",
+  "passed": true,
+  "commits": 2,
+  "pageErrors": [],
+  "httpErrors": [],
+  "readback": {
+    "method": "Independent CadQuery/OCCT import of actual UI downloads",
+    "results": [
+      {
+        "file": "loft-rectangle-ellipse.step",
+        "bytes": 26326,
+        "sha256": "f19490cd6140e8ec16af6b0fc35cd6745641e58f78e3276c266376b6dcbfe1ef",
+        "valid": true,
+        "solids": 1,
+        "volumeMm3": 759.2814491838773,
+        "bboxMm": [
+          9.998000200000003,
+          8.0270002,
+          15.000000199999999
+        ],
+        "designId": "feature_f40441b8836b44ffb7348cb961d15705",
+        "revision": 1
+      },
+      {
+        "file": "sweep-rectangle-line-arc.step",
+        "bytes": 30781,
+        "sha256": "f831821250b06448b5c06498ea2f6d20c9670c7647bdbbe5966a1b80a69595b2",
+        "valid": true,
+        "solids": 1,
+        "volumeMm3": 114.5355724789045,
+        "bboxMm": [
+          12.0,
+          1.028,
+          26.0
+        ],
+        "designId": "feature_eae190daed044d19be9276787fe2c92b",
+        "revision": 1,
+        "sectionAreaMm2": 2.056,
+        "pathLengthMm": 55.70796326794897,
+        "analyticVolumeMm3": 114.53557247890308
+      }
+    ]
+  },
+  "screenshots": [
+    "01-loft-section-rectangle.png",
+    "02-loft-section-ellipse.png",
+    "03-loft-settings.png",
+    "04-loft-saved.png",
+    "05-sweep-rectangle-section.png",
+    "06-sweep-graphical-path.png",
+    "07-sweep-exact-path.png",
+    "08-sweep-saved.png"
+  ],
+  "scope": "Local existing dist acceptance. Pointer-drawn coordinates retained as measured; only path coordinates explicitly calibrated through visible inputs. Not production or arbitrary-input success-rate proof."
+}

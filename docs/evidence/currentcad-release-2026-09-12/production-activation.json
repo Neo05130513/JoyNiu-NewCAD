@@ -1,0 +1,70 @@
+{
+  "stage": "completed",
+  "release": "currentcad-delivery-20260912",
+  "sourceAndBuildSha256": "c37d318523b594109f30f56cfdd241ca680bbf69e89f4c556c0caa2dd5e5a355",
+  "backup": "/opt/joyniu-backups/scheduled/currentcad-639579dd8daf428a99485bad49b20ddf",
+  "backupManifestSha256": "e6ac50cd93cbdb64c604aa7077c5b90dc13665dbe672adb02c790928448c7354",
+  "createdAt": "2026-09-12T15:50:13.773948+00:00",
+  "updatedAt": "2026-09-12T15:50:29.772314+00:00",
+  "oldImages": {
+    "api": {
+      "tag": "joyniu-cad-api-codex:offline-credits-20260912",
+      "id": "sha256:bed56d48945238eb7bdec6d1ca8ca75a023bf7e658a37ebf89ac75f5dfb03c41",
+      "os": "linux",
+      "architecture": "amd64"
+    },
+    "web": {
+      "tag": "joyniu-cad-web:offline-credits-20260912",
+      "id": "sha256:bfbdd4088a9dcc83be7b09ffe6f2bcbfcd32604b6a3345c38113e0a25ec0647e",
+      "os": "linux",
+      "architecture": "amd64"
+    }
+  },
+  "newImages": {
+    "apiImage": {
+      "tag": "joyniu-cad-api-codex:currentcad-delivery-20260912",
+      "id": "sha256:458c1d7bf39cb2e017e6b012f4644f2929eb98e2abe90014eccf6aaaa377dde3",
+      "architecture": "amd64"
+    },
+    "webImage": {
+      "tag": "joyniu-cad-web:currentcad-delivery-20260912-r3",
+      "id": "sha256:8df193ec0165d7550c464d4a2d858c506be107cbb4b9fa1a001edeab21d76270",
+      "architecture": "amd64"
+    },
+    "baseImage": {
+      "tag": "joyniu-cad-api-codex:offline-credits-20260912",
+      "id": "sha256:bed56d48945238eb7bdec6d1ca8ca75a023bf7e658a37ebf89ac75f5dfb03c41",
+      "architecture": "amd64"
+    },
+    "toolsImage": {
+      "tag": "joyniu-currentcad-tools:20260912-amd64",
+      "id": "sha256:689cfa61d5abdc1bbe68fbd799539cc5de779b5e92402217e7c469fe374ed042",
+      "architecture": "amd64"
+    }
+  },
+  "backupVerified": true,
+  "backupFileCount": 1042,
+  "backupDatabaseCount": 4,
+  "maintenanceMarkerPresent": false,
+  "containers": [
+    "joyniu-cad-web-1 Up 3 minutes",
+    "joyniu-cad-api-1 Up 3 minutes (healthy)",
+    "joyniu-cad-cad-egress-1 Up 3 days"
+  ],
+  "currentcad-activation-first-failure.json": {
+    "stage": "recovery_required",
+    "failure": "TimeoutExpired",
+    "recoveryFailure": "recovery_container_scope_mismatch",
+    "createdAt": "2026-09-12T15:39:13.917012+00:00",
+    "updatedAt": "2026-09-12T15:42:17.269031+00:00",
+    "backup": "/opt/joyniu-backups/scheduled/currentcad-5a2b97063d1d4f538bebb27e1a353a20"
+  },
+  "currentcad-activation-first-recovered.json": {
+    "stage": "rolled_back",
+    "failure": "TimeoutExpired",
+    "recoveryFailure": "recovery_container_scope_mismatch",
+    "createdAt": "2026-09-12T15:39:13.917012+00:00",
+    "updatedAt": "2026-09-12T15:45:57.141722+00:00",
+    "backup": "/opt/joyniu-backups/scheduled/currentcad-5a2b97063d1d4f538bebb27e1a353a20"
+  }
+}

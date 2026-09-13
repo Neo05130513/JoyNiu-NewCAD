@@ -457,9 +457,14 @@ def _load_fixture_documents(directory: Path = _FIXTURE_DIR) -> dict[str, dict[st
     if not directory.exists():
         return fixtures
     for path in sorted(directory.glob("*.json")):
+        # macOS archives may carry binary AppleDouble sidecars (._name.json).
+        # They and other hidden metadata are not fixture documents. Do not
+        # suppress decoding/parsing errors in genuine, visible fixtures.
+        if path.name.startswith("."):
+            continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except OSError:
             continue
         fixture_id = str(data.get("fixture_id") or path.stem)
         fixtures[fixture_id] = data

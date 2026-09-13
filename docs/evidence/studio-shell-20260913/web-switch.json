@@ -1,0 +1,86 @@
+{
+  "status": "completed",
+  "before": {
+    "api": {
+      "id": "d537bbba7d61d0908e1109ce1cda1054b8c61f8a526732664e753a25527120df",
+      "imageId": "sha256:458c1d7bf39cb2e017e6b012f4644f2929eb98e2abe90014eccf6aaaa377dde3",
+      "state": "running",
+      "startedAt": "2026-09-12T15:50:16.701804565Z",
+      "service": "api",
+      "project": "joyniu-cad",
+      "workdir": "/opt/joyniu-cad"
+    },
+    "web": {
+      "id": "8b3803e21e689f7ce3cbef7fb752b49acb4481c62c9579b0f8c63aca14894c93",
+      "imageId": "sha256:8df193ec0165d7550c464d4a2d858c506be107cbb4b9fa1a001edeab21d76270",
+      "state": "running",
+      "startedAt": "2026-09-12T15:50:17.364691172Z",
+      "service": "web",
+      "project": "joyniu-cad",
+      "workdir": "/opt/joyniu-cad"
+    },
+    "cad-egress": {
+      "id": "72871074282b3ce3e2a0979fafcc5cb13d1abd7816395a080f71d03982a6a917",
+      "imageId": "sha256:35bbedf2336301678a6b64f4ef892311f55550251ae0b52a23a4b97d62725545",
+      "state": "running",
+      "startedAt": "2026-09-09T16:15:16.480250042Z",
+      "service": "cad-egress",
+      "project": "joyniu-cad",
+      "workdir": "/opt/joyniu-cad"
+    }
+  },
+  "newImage": {
+    "tag": "joyniu-cad-web:studio-shell-20260913",
+    "id": "sha256:c171d1b82ba7fc76689b484c674409c572dfde99b3019958c60c56641a4399bc",
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "oldWebTag": "joyniu-cad-web:currentcad-delivery-20260912-r3",
+  "oldWebImageId": "sha256:8df193ec0165d7550c464d4a2d858c506be107cbb4b9fa1a001edeab21d76270",
+  "oldEnvSha256": "5f44bb0dbe1905d16a7dcd794f4159c044e325f631e044e62db665a954c9e5af",
+  "policySha256": "6e7ccd523a8e022e713420d0ae36912f55ee5f4ecb7647b26071cb598c03fb4a",
+  "envMode": 436,
+  "verification": {
+    "indexSha256": "d3df1b2e20d7f7b1ea24d609dcd07128c4e4d4681c7cc99fac2bb9d17ee164f5",
+    "assets": {
+      "/assets/index-CJ647Fby.js": "9ba0d035b13925ccb5ba6550c043bd8a55ce57662e232cc3bdff7125104355c4",
+      "/assets/index-B5UWJeBE.css": "5b2b380499212fc79b793572cc9d5800d87637f5eaed4ed2445bc588315fbb1a"
+    },
+    "workspaceAnonymousStatus": 401
+  },
+  "format": "joyniu-studio-web-switch-20260913-v1",
+  "root": "/opt/joyniu-cad",
+  "attemptId": "36322d6f50054f1db7e0a3cd39a69289",
+  "stage": "completed",
+  "updatedAt": "2026-09-12T16:59:12Z",
+  "newEnvSha256": "4dd2c9546961bba97f3d0a19ef39d5f745bbacc4a2e3e1ec2cf150f479e28851",
+  "after": {
+    "api": {
+      "id": "d537bbba7d61d0908e1109ce1cda1054b8c61f8a526732664e753a25527120df",
+      "imageId": "sha256:458c1d7bf39cb2e017e6b012f4644f2929eb98e2abe90014eccf6aaaa377dde3",
+      "state": "running",
+      "startedAt": "2026-09-12T15:50:16.701804565Z",
+      "service": "api",
+      "project": "joyniu-cad",
+      "workdir": "/opt/joyniu-cad"
+    },
+    "web": {
+      "id": "68b28c5479c8a19444531a92e16dc7c747f7883a62edf6539af1fbe5bc708309",
+      "imageId": "sha256:c171d1b82ba7fc76689b484c674409c572dfde99b3019958c60c56641a4399bc",
+      "state": "running",
+      "startedAt": "2026-09-12T16:59:11.887772686Z",
+      "service": "web",
+      "project": "joyniu-cad",
+      "workdir": "/opt/joyniu-cad"
+    },
+    "cad-egress": {
+      "id": "72871074282b3ce3e2a0979fafcc5cb13d1abd7816395a080f71d03982a6a917",
+      "imageId": "sha256:35bbedf2336301678a6b64f4ef892311f55550251ae0b52a23a4b97d62725545",
+      "state": "running",
+      "startedAt": "2026-09-09T16:15:16.480250042Z",
+      "service": "cad-egress",
+      "project": "joyniu-cad",
+      "workdir": "/opt/joyniu-cad"
+    }
+  }
+}

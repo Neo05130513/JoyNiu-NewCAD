@@ -1,0 +1,11 @@
+[Unit]
+Description=JoyNiu CAD local service disk queue and backup monitor
+After=docker.service joyniu-cad-recovery.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0027
+WorkingDirectory=/opt/joyniu-cad
+ExecStart=/usr/bin/python3 /opt/joyniu-cad/deploy/commercial_operations.py monitor --config /etc/joyniu-cad/operations.json
+TimeoutStartSec=3min

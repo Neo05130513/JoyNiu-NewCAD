@@ -4,6 +4,9 @@ import App from './App'
 import './styles.css'
 import './currentcad-theme.css'
 import './usability.css'
+import './workbench-layout.css'
+import './customer.css'
+import './studio-shell.css'
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

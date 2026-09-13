@@ -1,0 +1,77 @@
+{
+  "environment": "isolated headless Chromium; local 5186 / API8016",
+  "account": "dedicated synthetic import QA",
+  "outcome": "real upload, standard insertion, precise PDM save, independent copy edit, STEP download and reload passed",
+  "files": [
+    {
+      "name": "04-standard-committed.png",
+      "bytes": 88671,
+      "sha256": "0b68b32f552cf9371ef98c4b35d52425e6887f78c1a29ea92eec7268e3eda717"
+    },
+    {
+      "name": "05-pdm-save-form.png",
+      "bytes": 109106,
+      "sha256": "c1f84fccf1022604ef0da8355fce2badef227ecd140fa441a431b89671830410"
+    },
+    {
+      "name": "07-pdm-opened-copy.png",
+      "bytes": 100604,
+      "sha256": "78c4568afe557c8e0683f493c058241822e3f43f0f24f2a79a5f503321537714"
+    },
+    {
+      "name": "03-standard-form.png",
+      "bytes": 83206,
+      "sha256": "a3ad59d56113fddd560b627b91d9d44daac4eb559a950f50e9e56d36127ced06"
+    },
+    {
+      "name": "08-copy-parameter-edit.png",
+      "bytes": 165039,
+      "sha256": "c0fcc35cb5c5973184d3eb972763f4a168ad792592253b984b7e5a2819151564"
+    },
+    {
+      "name": "01-import-form.png",
+      "bytes": 97965,
+      "sha256": "3b83c4e1d27e700c2e7a10f4b72fbe19e7f8779d0c6bed9784c7905042dcab28"
+    },
+    {
+      "name": "06-pdm-version.png",
+      "bytes": 112049,
+      "sha256": "3defa6ad60b9e4b0f9003038d42aab08271f8fab406aa97a6d082aa0da31f999"
+    },
+    {
+      "name": "10-reopened-after-refresh.png",
+      "bytes": 125992,
+      "sha256": "f1ac551fee25d56ea35fabfa0437919e4f8c0aa7d733d4406461a6b3f0a1e9c1"
+    },
+    {
+      "name": "09-modified-copy.png",
+      "bytes": 95203,
+      "sha256": "f3f221abd961eef83fe502c2a3831a44f1018d2abcf095783835b8ecd108dcb0"
+    },
+    {
+      "name": "02-import-preview.png",
+      "bytes": 82380,
+      "sha256": "e011a9eabbc6103f92d49b66f663f6dedecdae3b79ef6f6b34be1d769dff2dae"
+    },
+    {
+      "name": "browser-verification.json",
+      "bytes": 58743,
+      "sha256": "0d961d096ecbd39d612d2a157fd1e1ad1598a3a5c6ed04d94543294b51b8fe3a"
+    },
+    {
+      "name": "step-readback.json",
+      "bytes": 731,
+      "sha256": "be7803122633b0700743a033051a5d613fd3e381be700859bcb6cdbc30ccc67c"
+    },
+    {
+      "name": "actual-no-history.step",
+      "bytes": 15402,
+      "sha256": "da7fd103b1da18997a483e422e2491707e517acf9a3dcd556cff3df09a34adb8"
+    },
+    {
+      "name": "modified-copy.step",
+      "bytes": 922443,
+      "sha256": "cb8e2ff65ce1d496e944fdc2cdde894efedff89a2f5afb08eb0b9b6fce96e82c"
+    }
+  ]
+}

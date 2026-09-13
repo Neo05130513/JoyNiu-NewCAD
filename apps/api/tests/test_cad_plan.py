@@ -74,4 +74,6 @@ def test_plans_reject_unsupported_operations_references_and_hidden_code(patch):
 def test_schema_covers_only_executable_operations():
     schema = cad_plan_schema()
     operations = {item["properties"]["op"]["const"] for item in schema["properties"]["features"]["items"]["oneOf"]}
-    assert operations == {"box", "cylinder", "profile_extrude", "profile_revolve", "union", "cut", "intersect", "translate", "fillet"}
+    assert operations == {"box", "cylinder", "profile_extrude", "profile_revolve", "union", "cut", "intersect", "compound", "translate", "fillet",
+                          "gear", "spring", "rotate", "mirror", "linear_pattern", "circular_pattern", "chamfer", "shell", "sweep", "loft", "profile_sweep", "profile_loft",
+                          "surface_offset", "move_face", "surface_boundary", "surface_style", "surface_join", "surface_thicken", "body_edit", "mesh_body", "standard_part", "import_step"}

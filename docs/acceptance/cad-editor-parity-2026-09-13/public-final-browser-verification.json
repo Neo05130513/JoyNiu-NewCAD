@@ -1,0 +1,22 @@
+{
+  "sourceAndBuildSha256": "e3f3e4774b2b2d72b34f6b0999aabccd81ce409225ce522afde3b7f8c5d4baf6",
+  "rapidFinishSavedRevision": 6,
+  "cancelWaitNoLateCommit": true,
+  "invalidFilletCode": "feature_failed",
+  "reopenedFromResultPage": 6,
+  "bodyCount": 2,
+  "narrowViewport": 390,
+  "horizontalOverflow": false,
+  "pageErrors": [],
+  "independentStepReadback": {
+    "valid": true,
+    "solidCount": 2,
+    "volumeMm3": 7244.981334525807,
+    "bodyVolumesMm3": [
+      3244.981334526111,
+      3999.999999999999
+    ]
+  },
+  "url": "http://122.51.168.205/",
+  "syntheticAccount": true
+}

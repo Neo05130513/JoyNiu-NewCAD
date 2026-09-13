@@ -1,0 +1,447 @@
+{
+  "environment": "local browser at 192.168.1.8:5186; API8016",
+  "synthetic": true,
+  "operations": [
+    "box 50x30x10",
+    "actual top face picked; shell thickness -2mm",
+    "mirror YZ with keep original"
+  ],
+  "commits": [
+    {
+      "status": 200,
+      "body": {
+        "id": "feature_83a6e589c9854efeb61c758c70f3a360",
+        "revision": 1,
+        "name": "新零件 3",
+        "plan": {
+          "version": "cad-plan-v1",
+          "units": "mm",
+          "name": "新零件 3",
+          "parameters": {},
+          "features": [
+            {
+              "id": "box1",
+              "op": "box",
+              "label": "长方体 1",
+              "size": [
+                50,
+                30,
+                10
+              ],
+              "origin": [
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "result": "box1"
+        },
+        "suppressed": [],
+        "sourceRun": null,
+        "fileId": "file_c74b0722-d1d1-4789-a5b4-c4113027120f",
+        "changeNote": "新建长方体 1",
+        "status": "built",
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "updatedAt": "2026-09-13T03:47:28.845659+00:00",
+        "artifacts": {
+          "step": {
+            "format": "step",
+            "mimeType": "application/step",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/1/artifacts/step"
+          },
+          "glb": {
+            "format": "glb",
+            "mimeType": "model/gltf-binary",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/1/artifacts/glb"
+          },
+          "plan": {
+            "format": "plan",
+            "mimeType": "application/json",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/1/artifacts/plan"
+          }
+        },
+        "inspection": {
+          "engine": "cadquery-occt",
+          "kernelBacked": true,
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 6,
+          "edgeCount": 12,
+          "volumeMm3": 15000,
+          "surfaceAreaMm2": 4600,
+          "bbox": {
+            "min": [
+              0,
+              0,
+              0
+            ],
+            "max": [
+              50,
+              30,
+              10
+            ],
+            "size": [
+              50,
+              30,
+              10
+            ]
+          },
+          "bboxLength": 50,
+          "bboxWidth": 30,
+          "bboxHeight": 10,
+          "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+          "cylinders": [],
+          "raySections": {},
+          "drawingAgreement": "not_checked",
+          "productionReady": false,
+          "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+          "stepReadback": {
+            "valid": true,
+            "solidCount": 1,
+            "volumeMm3": 15000,
+            "bbox": {
+              "min": [
+                0,
+                0,
+                0
+              ],
+              "max": [
+                50,
+                30,
+                10
+              ],
+              "size": [
+                50,
+                30,
+                10
+              ]
+            }
+          }
+        },
+        "resolvedParameters": {},
+        "execution": {
+          "isolatedProcess": true,
+          "durationMs": 2118,
+          "timeoutSeconds": 120,
+          "memoryLimitMb": 4096,
+          "arbitraryCodeAllowed": false
+        },
+        "sharedDesign": null
+      }
+    },
+    {
+      "status": 200,
+      "body": {
+        "id": "feature_83a6e589c9854efeb61c758c70f3a360",
+        "revision": 2,
+        "name": "新零件 3",
+        "plan": {
+          "version": "cad-plan-v1",
+          "units": "mm",
+          "name": "新零件 3",
+          "parameters": {},
+          "features": [
+            {
+              "id": "box1",
+              "op": "box",
+              "label": "长方体 1",
+              "size": [
+                50,
+                30,
+                10
+              ],
+              "origin": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "id": "shell1",
+              "op": "shell",
+              "label": "抽壳 1",
+              "input": "box1",
+              "thickness": -2,
+              "faces": [
+                {
+                  "kind": "face",
+                  "sourceFeatureId": "box1",
+                  "geometryVersion": "e1c2b95e8dd5bfb97c4c53461633d6ee7b94becdc59b7e73ad1e04433c1c3346",
+                  "index": 5,
+                  "signature": "feb4517e77bd33b1e7ec78250b120705a7cf04247af97f36c839ad9a2f92a53b",
+                  "binding": {
+                    "version": 1,
+                    "key": "b049d27855a60bd83e602a6f74414c91fcd30e3e459f4bc743fb493145615d65"
+                  }
+                }
+              ]
+            }
+          ],
+          "result": "shell1"
+        },
+        "suppressed": [],
+        "sourceRun": null,
+        "fileId": "file_c74b0722-d1d1-4789-a5b4-c4113027120f",
+        "changeNote": "新建抽壳 1",
+        "status": "built",
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "updatedAt": "2026-09-13T03:48:14.972280+00:00",
+        "artifacts": {
+          "step": {
+            "format": "step",
+            "mimeType": "application/step",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/2/artifacts/step"
+          },
+          "glb": {
+            "format": "glb",
+            "mimeType": "model/gltf-binary",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/2/artifacts/glb"
+          },
+          "plan": {
+            "format": "plan",
+            "mimeType": "application/json",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/2/artifacts/plan"
+          }
+        },
+        "inspection": {
+          "engine": "cadquery-occt",
+          "kernelBacked": true,
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 11,
+          "edgeCount": 24,
+          "volumeMm3": 5432.000000000003,
+          "surfaceAreaMm2": 5752,
+          "bbox": {
+            "min": [
+              0,
+              0,
+              0
+            ],
+            "max": [
+              50,
+              30,
+              10
+            ],
+            "size": [
+              50,
+              30,
+              10
+            ]
+          },
+          "bboxLength": 50,
+          "bboxWidth": 30,
+          "bboxHeight": 10,
+          "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+          "cylinders": [],
+          "raySections": {},
+          "drawingAgreement": "not_checked",
+          "productionReady": false,
+          "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+          "stepReadback": {
+            "valid": true,
+            "solidCount": 1,
+            "volumeMm3": 5432.000000000003,
+            "bbox": {
+              "min": [
+                0,
+                0,
+                0
+              ],
+              "max": [
+                50,
+                30,
+                10
+              ],
+              "size": [
+                50,
+                30,
+                10
+              ]
+            }
+          }
+        },
+        "resolvedParameters": {},
+        "execution": {
+          "isolatedProcess": true,
+          "durationMs": 2642,
+          "timeoutSeconds": 120,
+          "memoryLimitMb": 4096,
+          "arbitraryCodeAllowed": false
+        },
+        "sharedDesign": null
+      }
+    },
+    {
+      "status": 200,
+      "body": {
+        "id": "feature_83a6e589c9854efeb61c758c70f3a360",
+        "revision": 3,
+        "name": "新零件 3",
+        "plan": {
+          "version": "cad-plan-v1",
+          "units": "mm",
+          "name": "新零件 3",
+          "parameters": {},
+          "features": [
+            {
+              "id": "box1",
+              "op": "box",
+              "label": "长方体 1",
+              "size": [
+                50,
+                30,
+                10
+              ],
+              "origin": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "id": "shell1",
+              "op": "shell",
+              "label": "抽壳 1",
+              "input": "box1",
+              "thickness": -2,
+              "faces": [
+                {
+                  "kind": "face",
+                  "sourceFeatureId": "box1",
+                  "geometryVersion": "e1c2b95e8dd5bfb97c4c53461633d6ee7b94becdc59b7e73ad1e04433c1c3346",
+                  "index": 5,
+                  "signature": "feb4517e77bd33b1e7ec78250b120705a7cf04247af97f36c839ad9a2f92a53b",
+                  "binding": {
+                    "version": 1,
+                    "key": "b049d27855a60bd83e602a6f74414c91fcd30e3e459f4bc743fb493145615d65"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "mirror1",
+              "op": "mirror",
+              "label": "镜像 1",
+              "input": "shell1",
+              "plane": "YZ",
+              "origin": [
+                0,
+                0,
+                0
+              ],
+              "keepOriginal": true
+            }
+          ],
+          "result": "mirror1"
+        },
+        "suppressed": [],
+        "sourceRun": null,
+        "fileId": "file_c74b0722-d1d1-4789-a5b4-c4113027120f",
+        "changeNote": "新建镜像 1",
+        "status": "built",
+        "drawingAgreement": "not_checked",
+        "productionReady": false,
+        "updatedAt": "2026-09-13T03:48:39.711141+00:00",
+        "artifacts": {
+          "step": {
+            "format": "step",
+            "mimeType": "application/step",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/3/artifacts/step"
+          },
+          "glb": {
+            "format": "glb",
+            "mimeType": "model/gltf-binary",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/3/artifacts/glb"
+          },
+          "plan": {
+            "format": "plan",
+            "mimeType": "application/json",
+            "url": "/api/cad/features/feature_83a6e589c9854efeb61c758c70f3a360/versions/3/artifacts/plan"
+          }
+        },
+        "inspection": {
+          "engine": "cadquery-occt",
+          "kernelBacked": true,
+          "valid": true,
+          "solidCount": 1,
+          "faceCount": 16,
+          "edgeCount": 36,
+          "volumeMm3": 10864.000000000004,
+          "surfaceAreaMm2": 10904,
+          "bbox": {
+            "min": [
+              -50,
+              0,
+              0
+            ],
+            "max": [
+              50,
+              30,
+              10
+            ],
+            "size": [
+              100,
+              30,
+              10
+            ]
+          },
+          "bboxLength": 100,
+          "bboxWidth": 30,
+          "bboxHeight": 10,
+          "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
+          "cylinders": [],
+          "raySections": {},
+          "drawingAgreement": "not_checked",
+          "productionReady": false,
+          "scope": "Measured from actual OCCT solid. Geometry validity is not drawing agreement or manufacturing certification.",
+          "stepReadback": {
+            "valid": true,
+            "solidCount": 1,
+            "volumeMm3": 10864.000000000004,
+            "bbox": {
+              "min": [
+                -50,
+                0,
+                0
+              ],
+              "max": [
+                50,
+                30,
+                10
+              ],
+              "size": [
+                100,
+                30,
+                10
+              ]
+            }
+          }
+        },
+        "resolvedParameters": {},
+        "execution": {
+          "isolatedProcess": true,
+          "durationMs": 3153,
+          "timeoutSeconds": 120,
+          "memoryLimitMb": 4096,
+          "arbitraryCodeAllowed": false
+        },
+        "sharedDesign": null
+      }
+    }
+  ],
+  "download": "shell-mirror.step",
+  "independentStepReadback": {
+    "valid": true,
+    "solidCount": 1,
+    "volumeMm3": 10864.000000000004,
+    "sizeMm": [
+      100,
+      30,
+      10
+    ]
+  }
+}

@@ -697,7 +697,7 @@ def _sse_event(name: str, payload: Mapping[str, Any]) -> str:
     return f"event: {name}\ndata: {json.dumps(dict(payload), ensure_ascii=True, separators=(',', ':'))}\n\n"
 
 
-def create_platform_router(services: PlatformServices, *, prefix: str = ""):
+def create_platform_router(services: PlatformServices, *, prefix: str = "", billing_provider=None):
     """Return an ``APIRouter`` with auth, PDM, OCR and CAM endpoints.
 
     The import is lazy so service users do not need FastAPI installed.  Routes
@@ -715,6 +715,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
         ) from exc
 
     router = APIRouter(prefix=prefix, tags=["platform"])
+    from .commercial_ai_boundary import LEGACY_AI_NOTICE, legacy_ai_available, require_legacy_ai
 
     @router.get("/health")
     async def health() -> dict[str, Any]:
@@ -724,7 +725,9 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
     async def ai_status() -> dict[str, Any]:
         """Return non-secret provider capability information for the UI."""
 
-        return services.ai.status()
+        available = legacy_ai_available(billing_provider)
+        return {**services.ai.status(), "legacyConversationAvailable": available,
+                "legacyConversationNotice": "" if available else LEGACY_AI_NOTICE}
 
     @router.post("/ai/conversation")
     async def ai_conversation(
@@ -759,6 +762,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 services.auth.require(actor, Permission.AI_CHAT)
             elif not services.ai.allow_anonymous or not _anonymous_ai_request_allowed(request):
                 raise AuthenticationError("bearer token is required")
+            require_legacy_ai(billing_provider)
             model_state: Mapping[str, Any] | None = None
             effective_previous_response_id = previous_response_id or previous_response_id_alias
             effective_model_state = model_state_json or model_state_alias
@@ -950,6 +954,7 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
                 services.auth.require(actor, Permission.AI_CHAT)
             elif not services.ai.allow_anonymous or not _anonymous_ai_request_allowed(request):
                 raise AuthenticationError("bearer token is required")
+            require_legacy_ai(billing_provider)
 
             effective_previous_response_id = previous_response_id or previous_response_id_alias
             effective_model_state = model_state_json or model_state_alias
@@ -1079,23 +1084,36 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             authorization=authorization,
         )
 
+    def account_initialization_status() -> dict[str, bool]:
+        initialized = services.auth.count_users() > 0
+        production = os.environ.get("JOYNIU_ENV", "").strip().casefold() in {"production", "prod"}
+        return {"initialized": initialized, "bootstrapAllowed": not initialized and not production}
+
+    @router.get("/auth/status")
+    async def auth_status():
+        """Expose initialization availability without disclosing any accounts."""
+        return JSONResponse(account_initialization_status(), headers={"Cache-Control": "no-store"})
+
     @router.post("/auth/users", status_code=201)
     async def create_user(
         payload: dict[str, Any] = Body(...),
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         data = _require_dict(payload)
-        # First account is a deliberately explicit local bootstrap.  Once an
-        # account exists, only an admin may create another account.
-        if services.auth.count_users() > 0:
+        # Production's initial administrator is provisioned by deployment.
+        # Local bootstrap is available only while the account store is empty.
+        initialization = account_initialization_status()
+        if initialization["initialized"]:
             actor = _token_user(services, authorization)
             try:
                 services.auth.require(actor, Permission.USER_MANAGE)
             except PlatformError as exc:
                 raise _domain_http_exception(exc)
             actor_id = actor.id
-        else:
+        elif initialization["bootstrapAllowed"]:
             actor_id = "bootstrap"
+        else:
+            raise _domain_http_exception(AuthorizationError("生产环境尚未初始化管理员，请联系部署管理员。"))
         try:
             roles = data.get("roles", [Role.VIEWER.value])
             user = services.auth.create_user(
@@ -1110,13 +1128,9 @@ def create_platform_router(services: PlatformServices, *, prefix: str = ""):
             raise _domain_http_exception(exc)
 
     @router.post("/auth/login")
-    async def login(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-        data = _require_dict(payload)
-        try:
-            token = services.auth.authenticate(str(data.get("email", "")), str(data.get("password", "")))
-            return token.to_dict()
-        except PlatformError as exc:
-            raise _domain_http_exception(exc)
+    async def login(request: Request, payload: dict[str, Any] = Body(...)):
+        from .auth_account_api import account_login
+        return account_login(services, request, _require_dict(payload))
 
     @router.get("/auth/me")
     async def me(authorization: str | None = Header(default=None)) -> dict[str, Any]:

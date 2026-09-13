@@ -1,3 +1,6 @@
+import { cadParameterLabel, cadParameterUnit } from './cadParameterLabels.js'
+import { drawingPreprocessFailure } from './drawingPreprocessFailure.js'
+
 export const isFeatureModel = (model) => model?.kind === 'feature_model'
 export const shouldUseCadAgent = (model, files = []) => files.length > 0 || !model?.kind || isFeatureModel(model)
 export const isLegacyDrawingDraft = (model, drawingJob) => Boolean(!isFeatureModel(model) && drawingJob?.evidence)
@@ -28,6 +31,7 @@ export function cadProgressFromEvent(payload = {}, previous = {}) {
   previous ||= {}
   const stage = payload.stage || previous.stage || 'started'
   const labels = {
+    queued: '正在排队', cancel_requested: '正在取消任务', cancelled: '任务已取消',
     started: '正在准备图纸与建模要求', preparing: '正在准备原始图纸',
     source_transcription: '正在读取原图标注', source_transcription_waiting: '正在等待原图转录',
     source_region_transcribed: '已取得部分区域的标注候选 · 待核对',
@@ -58,17 +62,51 @@ export function cadProgressFromEvent(payload = {}, previous = {}) {
   return { stage, phase, label: labels[stage] || '正在处理本轮建模', message: payload.message || payload.summary || labels[stage] || '正在处理本轮建模' }
 }
 
-export function cadRunPresentation(run = {}, busy = false) {
-  const titles = { needs_input: '等待补充信息', review_required: '待确认与交付', ready: '已确认并生成', failed: '本轮未完成' }
+export function cadRunPresentation(run = {}, busy = false, plan) {
+  const titles = { needs_input: '等待补充信息', review_required: '待确认与交付', ready: '已确认并生成', failed: '本轮未完成', cancelled: '任务已取消' }
   return {
-    title: busy ? '本轮仍在处理' : run.deliveryBlockedReason ? '需重新检查' : titles[run.status] || '特征建模',
+    title: busy ? '本轮仍在处理' : run.deliveryBlockedReason ? '需重新检查' : incompleteDrawingReview(run) ? '图纸复核未完成' : titles[run.status] || '特征建模',
     confirmed: !busy && !run.dirty && !run.deliveryBlockedReason && run.status === 'ready',
     savedResult: busy,
     message: busy
       ? `下方显示已保存的第 ${run.revision || 1} 版内容，本轮尚未完成；新的检查结果返回后会更新。`
       : run.deliveryBlockedReason ? `${run.deliveryBlockedReason} 请重新检查当前模型后再确认交付。`
-        : run.dirty ? '参数已修改；先检查并更新预览，再确认交付文件。' : run.message,
+        : run.dirty ? '参数已修改；先检查并更新预览，再确认交付文件。' : run.status === 'failed' ? cadFailureSummary(run, plan) : run.message,
   }
+}
+
+export function cadFailureSummary(run = {}, plan = run.plan) {
+  // A fresh upload may fail before replaying an older draft or source reading.
+  // Its source error must not be replaced by a stale model/review failure.
+  const sourceFailure = drawingPreprocessFailure(run.provider?.lastErrorCode)
+  if (sourceFailure) {
+    const sourceSaved = Boolean(run.sourceFiles?.length || run.sourceDocuments?.length)
+    return `${sourceFailure.message}${sourceSaved ? '原图与处理记录已保留。' : ''}`
+  }
+  const reviewFailed = incompleteDrawingReview(run)
+  const readingFailed = run.sourceTranscription?.status === 'failed'
+    || (Array.isArray(run.trace) && run.trace.some((item) => item.action === 'read_source' && item.result?.status === 'failed'))
+  const inspection = run.inspection
+  const entity = inspection?.valid === true && inspection.kernelBacked === true && inspection.engine === 'cadquery-occt'
+    && inspection.solidCount > 0 && Array.isArray(run.artifacts) && run.artifacts.some((item) => String(item?.format).toLowerCase() === 'glb')
+  const stage = reviewFailed ? '图纸复核' : !plan && readingFailed ? '原图读取' : entity ? '图纸核对' : plan ? '实体生成' : '建模计划'
+  const code = reviewFailed ? run.drawingReview.independentReview.errorCode
+    : readingFailed ? run.sourceTranscription?.errorCode || run.provider?.lastErrorCode : run.provider?.lastErrorCode
+  const reasons = { timeout: '响应超时', time_limit: '尚未完成，本轮时间已用尽', turn_limit: '尚未完成，已达到本轮处理次数限制',
+    transport: '连接中断', invalid_stream: '连接中断', incomplete: '输出未完成', empty_response: '没有返回结果',
+    invalid_json: '未返回完整有效的结果', invalid_response: '未返回完整有效的结果', output_limit: '输出超出限制',
+    independent_review_failed: '调用未完成', provider_failure: '服务暂未完成处理', upstream_error: '上游服务返回错误' }
+  // Preserve a more specific server explanation when no known code identifies the failure.
+  if (!reasons[code]) return run.message || `${stage}尚未完成，可继续处理。`
+  const measured = (Date.parse(run.completedAt) - Date.parse(run.createdAt)) / 1000
+  const elapsed = Number.isFinite(run.elapsedSeconds) && run.elapsedSeconds >= 0 ? run.elapsedSeconds : measured
+  const duration = Number.isFinite(elapsed) && elapsed > 0
+    ? `，本轮用时${elapsed >= 60 ? `约 ${Math.max(1, Math.round(elapsed / 60))} 分钟` : `约 ${Math.round(elapsed)} 秒`}` : ''
+  const sourceSaved = Boolean(run.sourceFiles?.length || run.sourceDocuments?.length || run.sourceTranscription)
+  const saved = entity ? '实体草稿与处理记录已保存，完成图纸复核并确认后才能交付。'
+    : plan ? '建模草稿与处理记录已保存，可继续处理。'
+      : `${sourceSaved ? '原图' : '要求'}与处理记录已保存，尚未生成模型，可继续处理。`
+  return `${stage}阶段${reasons[code]}${duration}。${saved}`
 }
 
 export function cadSourceQuestionReviews(value) {
@@ -80,11 +118,13 @@ export function cadSourceQuestionReviews(value) {
 export function cadPrimaryAction(model = {}) {
   model ||= {}
   const run = model.agentRun || {}
+  if (run.status === 'cancelled') return { kind: 'retry', label: '继续建模', hint: '本次任务已取消，已保存的原图和草稿可用于继续建模。' }
   const questions = (Array.isArray(run.questions) ? run.questions : []).filter((question) => typeof question === 'string' && question.trim())
   if (run.dirty) return { kind: 'confirm', label: '检查修改并更新预览' }
   if (['needs_input', 'failed', 'interrupted'].includes(run.status) && questions.length) {
     return { kind: 'answer', label: '回答问题', hint: `请在对话中回答：${questions[0]}` }
   }
+  if (incompleteDrawingReview(run)) return { kind: 'retry', label: '继续图纸复核', hint: '实体草稿已保存。继续核对原图与实体，复核完成并确认前不能交付。' }
   if (['failed', 'interrupted', 'needs_input'].includes(run.status) || (!model.cadPlan && run.runId)) {
     const readingFailed = !model.cadPlan && (run.sourceTranscription?.status === 'failed'
       || run.trace?.some((item) => item.action === 'read_source' && item.result?.status === 'failed'))
@@ -99,6 +139,7 @@ export function cadPrimaryAction(model = {}) {
 }
 
 export function cadRetryMessage(model) {
+  if (cadPrimaryAction(model).label === '继续图纸复核') return '请继续复核当前已保存的原图与实体草稿，完成上一轮未完成的独立图纸复核。保持尺寸和设计要求；若发现实际差异，再说明并修正，不得跳过复核或直接确认交付。'
   const reading = cadPrimaryAction(model).label === '重试读取'
   return `${reading ? '请重试读取当前项目已保存的原图' : '请继续使用当前已保存的建模要求与草稿'}，完成上一轮未完成的建模与检查。这次只重试，不更改尺寸或设计要求；信息确实不明确时请提出具体问题。`
 }
@@ -124,6 +165,7 @@ export function cadProjectionSummary(comparison) {
 export function cadWorkflowSnapshot({ model, progress, busy, error }) {
   if (busy) return { current: progress?.phase || 'recognize', label: progress?.label || '正在准备建模要求' }
   const run = model?.agentRun || {}
+  if (run.status === 'cancelled') return { current: model?.cadPlan ? 'generate' : 'recognize', label: '任务已取消，可继续建模' }
   if (run.status === 'failed' || error) return { current: progress?.phase === 'generate' || model?.cadPlan ? 'generate' : 'recognize', label: `本轮未完成，可${cadPrimaryAction(model).kind === 'retry' ? cadPrimaryAction(model).label : '继续处理'}` }
   if (!run.status) return { current: progress?.phase || 'recognize', label: '本轮未完成，可重新发送' }
   if (run.deliveryBlockedReason) return { current: 'generate', label: '当前模型需重新检查' }
@@ -163,9 +205,9 @@ export function cadParameterRows(plan) {
   const parameters = plan?.parameters || {}
   return (Array.isArray(parameters) ? parameters.map((item) => [item.id || item.name || item.key, item]) : Object.entries(parameters))
     .filter(([key]) => Boolean(key))
-    .map(([key, item]) => {
+    .map(([key, item], index) => {
       const row = item !== null && typeof item === 'object' ? item : { value: item }
-      return { ...row, key, label: row.label || row.name || key, unit: row.unit ?? row.units ?? 'mm' }
+      return { ...row, key, label: cadParameterLabel(key, row, index), unit: cadParameterUnit(key, row, plan?.units || 'mm') }
     })
 }
 
@@ -201,11 +243,13 @@ export function editCadParameter(model, key, value) {
   const plan = structuredClone(model.cadPlan || {})
   const parameters = plan.parameters || {}
   const nextValue = value === '' ? null : Number(value)
+  const manualSource = (source) => ({ ...(source && typeof source === 'object' ? source : typeof source === 'string' ? { text: source } : {}),
+    type: 'manual', ...(source ? { drawingSource: source.drawingSource || source } : {}) })
   if (Array.isArray(parameters)) {
-    plan.parameters = parameters.map((item) => (item.id || item.name || item.key) === key ? { ...item, value: nextValue, source: { ...(typeof item.source === 'object' ? item.source : {}), type: 'manual' } } : item)
+    plan.parameters = parameters.map((item) => (item.id || item.name || item.key) === key ? { ...item, value: nextValue, source: manualSource(item.source) } : item)
   } else {
     const previous = parameters[key]
-    plan.parameters = { ...parameters, [key]: { ...(previous !== null && typeof previous === 'object' ? previous : {}), value: nextValue, source: { ...(typeof previous?.source === 'object' ? previous.source : {}), type: 'manual' } } }
+    plan.parameters = { ...parameters, [key]: { ...(previous !== null && typeof previous === 'object' ? previous : {}), value: nextValue, source: manualSource(previous?.source) } }
   }
   return { ...model, cadPlan: plan, updatedAt: '刚刚', agentRun: { ...model.agentRun, status: 'review_required', dirty: true, artifacts: [], inspection: null } }
 }
@@ -235,22 +279,57 @@ export function cadModelFromResult(result, previous = {}) {
 }
 
 export function cadGenerationFromResult(result, plan) {
+  if (!result) return null
   const inspection = result.inspection || {}
-  const inspectableQuestion = result.status === 'needs_input'
-    && validateCadPlan({ kind: 'feature_model', cadPlan: plan }).valid
+  const validDraft = validateCadPlan({ kind: 'feature_model', cadPlan: plan }).valid
     && inspection.valid === true && inspection.kernelBacked === true
-    && inspection.engine === 'cadquery-occt' && inspection.solidCount > 0
-  if (!['review_required', 'ready'].includes(result.status) && !inspectableQuestion) return null
-  const artifacts = (result.artifacts || []).map((item) => ({ ...item, format: String(item.format || '').toLowerCase(), downloadUrl: item.url || item.downloadUrl || item.download_url }))
-    .filter((item) => !result.deliveryBlockedReason || item.format !== 'step')
+    && inspection.engine === 'cadquery-occt' && Number.isInteger(inspection.solidCount) && inspection.solidCount > 0
+  const inspectableQuestion = result.status === 'needs_input' && validDraft
+  const reviewIncomplete = incompleteDrawingReview(result) && validDraft
+    && (!Object.hasOwn(result, 'plan') || cadPlanSignature(result.plan) === cadPlanSignature(plan))
+    && (!result.parameterBaseline || cadPlanSignature(result.parameterBaseline) === cadPlanSignature(cadParameterValues(plan)))
+  if (!['review_required', 'ready'].includes(result.status) && !inspectableQuestion && !reviewIncomplete) return null
+  const artifacts = (Array.isArray(result.artifacts) ? result.artifacts : []).filter(Boolean)
+    .map((item) => ({ ...item, format: String(item.format || '').toLowerCase(), downloadUrl: item.url || item.downloadUrl || item.download_url }))
+    .filter((item) => (!(result.deliveryBlockedReason || reviewIncomplete) || item.format !== 'step')
+      && (!reviewIncomplete || currentRunArtifact(item, result)))
   const glb = artifacts.find((item) => item.format === 'glb')
   if (!glb) return null
-  if (inspectableQuestion && !String(glb.downloadUrl || '').includes(`/cad-agent/runs/${result.runId}/${result.revision}/artifacts/`)) return null
+  if ((inspectableQuestion || reviewIncomplete) && !currentRunArtifact(glb, result)) return null
   return {
     kind: 'feature_model', requestId: result.runId, runId: result.runId, revision: result.revision, planSignature: cadPlanSignature(plan),
     engine: 'CadQuery / OCCT', parameters: cadParameterValues(plan), artifacts, stale: false, previewOnly: result.status !== 'ready' || Boolean(result.deliveryBlockedReason),
+    ...(reviewIncomplete ? { reviewIncomplete: true } : {}),
     validation: { productionReady: result.status === 'ready' && !result.deliveryBlockedReason, valid: inspection.valid ?? inspection.passed ?? false, metrics: inspection.metrics || inspection },
   }
+}
+
+function drawingMismatch(report) {
+  return Boolean(report && (report.status === 'mismatch' || report.differences?.length
+    || (Array.isArray(report.views) && report.views.some(drawingMismatch))))
+}
+
+function incompleteDrawingReview(run) {
+  const review = run?.drawingReview, independent = review?.independentReview
+  return Boolean(run?.status === 'failed' && !run.dirty && !run.stale
+    && review?.status === 'uncertain' && review.source === 'independent_drawing_review' && review.humanConfirmed === false
+    && independent?.status === 'uncertain' && independent.source === 'independent_drawing_review'
+    && typeof independent.errorCode === 'string' && independent.errorCode.trim()
+    && typeof review.planHash === 'string' && review.planHash && review.planHash === independent.planHash
+    && ![review, independent, run.projectionComparison, review.projectionComparison, independent.projectionComparison].some(drawingMismatch))
+}
+
+function currentRunArtifact(artifact, run) {
+  if (typeof run.runId !== 'string' || !run.runId || !Number.isInteger(run.revision) || run.revision < 1) return false
+  try {
+    const url = new URL(artifact.downloadUrl, 'http://cad-artifact.invalid')
+    if (!['http:', 'https:'].includes(url.protocol)) return false
+    const marker = `/cad-agent/runs/${encodeURIComponent(run.runId)}/${run.revision}/artifacts/`
+    const index = url.pathname.indexOf(marker)
+    if (index < 0) return false
+    const key = url.pathname.slice(index + marker.length)
+    return /^[A-Za-z0-9_-]+$/.test(key) && (artifact.format !== 'glb' || key === 'glb')
+  } catch { return false }
 }
 
 export function validateCadPlan(model) {

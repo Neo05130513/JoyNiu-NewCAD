@@ -6,14 +6,15 @@ import copy
 import json
 from types import SimpleNamespace
 
-from app.cad_agent_api import _public_result, create_cad_agent_router
+from app.cad_agent_api import _public_provider, _public_result, create_cad_agent_router
 from app.cad_agent_store import CadRunStore
 from tests.test_cad_agent_api import fake_execute
 from tests.test_cad_agent_job_lifecycle import BlockingAgent, event_data, public, running_record, start, terminal
 
 
 CODEX = {"mode": "codex", "name": "codex-cli", "model": "gpt-6-astra", "reasoningEffort": "high",
-         "configured": True, "streaming": False, "authentication": "cli-managed"}
+         "configured": True, "streaming": False, "authentication": "cli-managed",
+         "deployment": "server", "binaryAvailable": True, "proxyConfigured": True}
 REMOTE = {"mode": "remote", "model": "gpt-5.6-sol", "reasoningEffort": "medium"}
 
 
@@ -29,6 +30,8 @@ class BoundAgent(BlockingAgent):
         # with a later default or accidentally publish transport configuration.
         reported = {**REMOTE, "baseUrl": "https://PRIVATE.example/v1", "binary": "/PRIVATE/codex",
                     "apiKey": "sk-PRIVATE", "attempts": 3, "retryCount": 1,
+                    "deployment": "local", "binaryAvailable": False, "proxyConfigured": False,
+                    "proxyUrl": "http://PRIVATE:PRIVATE@proxy.example:7890",
                     "lastErrorCode": "timeout", "rawPayload": {"secret": "PRIVATE"}}
         result["provider"] = reported
         result["state"]["provider"] = reported
@@ -40,7 +43,8 @@ def services():
 
 
 def test_enqueue_binds_one_service_and_engine_for_started_progress_get_and_final(tmp_path):
-    selected = {"metadata": {**CODEX, "baseUrl": "https://PRIVATE.example", "apiKey": "sk-PRIVATE"}}
+    selected = {"metadata": {**CODEX, "baseUrl": "https://PRIVATE.example", "apiKey": "sk-PRIVATE",
+                             "proxyUrl": "http://PRIVATE:PRIVATE@proxy.example:7890"}}
     made = []
 
     def factory():
@@ -99,7 +103,8 @@ def test_progress_cannot_override_selected_provider_or_publish_transport_fields(
 
     def reporting(**kwargs):
         kwargs["progress"]({"stage": "planning", "message": "Planning",
-                            "provider": {**REMOTE, "apiKey": "sk-PRIVATE", "baseUrl": "https://PRIVATE.example"}})
+                            "provider": {**REMOTE, "apiKey": "sk-PRIVATE", "baseUrl": "https://PRIVATE.example",
+                                         "deployment": "local", "binaryAvailable": False, "proxyConfigured": False}})
         return original_run(**kwargs)
 
     agent.run = reporting
@@ -184,3 +189,15 @@ def test_public_legacy_metadata_is_allowlisted_without_reading_current_configura
                                    if key not in {"model", "name"}}
     assert result["progress"]["provider"] == result["provider"]
     assert "PRIVATE" not in json.dumps(result)
+
+
+def test_provider_deployment_and_runtime_flags_are_strict_and_do_not_publish_proxy_configuration():
+    for deployment in ("local", "server"):
+        for available in (False, True):
+            safe = {"deployment": deployment, "binaryAvailable": available, "proxyConfigured": available}
+            assert _public_provider({**safe, "proxyUrl": "http://PRIVATE:PRIVATE@proxy.example:7890",
+                                     "HTTPS_PROXY": "http://PRIVATE.example", "authenticated": True}) == safe
+    for invalid in (None, "production", "SERVER", "http://PRIVATE.example", 1, [], {}):
+        assert _public_provider({"deployment": invalid}) == {}
+    for invalid in (None, 0, 1, "true", "false", [], {}):
+        assert _public_provider({"binaryAvailable": invalid, "proxyConfigured": invalid}) == {}

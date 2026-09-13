@@ -1,0 +1,9 @@
+........................................................................ [ 90%]
+........                                                                 [100%]
+=============================== warnings summary ===============================
+tests/test_activate_currentcad.py::test_process_death_during_code_swap_can_recover_from_verified_backup[code]
+tests/test_activate_currentcad.py::test_process_death_during_code_swap_can_recover_from_verified_backup[new-environment]
+  /Users/neo/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=26279) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html

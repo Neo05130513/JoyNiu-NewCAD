@@ -1,0 +1,105 @@
+.drawing-review-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 18px;
+  height: calc(100vh - 150px);
+  min-height: 650px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+.drawing-review-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-shrink: 0; }
+.drawing-review-header h1 { margin: 0; font-size: 22px; font-weight: 650; line-height: 1.4; outline: none; }
+.drawing-review-header p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.drawing-review-back { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0; min-height: 40px; padding: 8px 14px; color: var(--text); border: 1px solid var(--border); border-radius: 7px; background: var(--panel); font-size: 14px; }
+.drawing-review-back:hover { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
+.drawing-review-content { display: grid; grid-template-columns: minmax(0, 1fr) 340px; flex: 1 1 auto; gap: 18px; min-height: 560px; }
+.drawing-review-document { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+.drawing-review-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border: 1px solid color-mix(in srgb, var(--orange) 35%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--orange) 7%, var(--panel)); font-size: 13px; line-height: 1.5; }
+.drawing-review-error button { flex-shrink: 0; padding: 6px 9px; color: var(--blue); border: 1px solid var(--border); border-radius: 5px; background: var(--panel); font-size: 13px; }
+.drawing-review-error button:disabled { opacity: .5; cursor: wait; }
+.drawing-review-location-progress { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; gap: 12px; padding: 9px 13px; color: var(--blue); border: 1px solid color-mix(in srgb, var(--blue) 25%, var(--border)); border-radius: 7px; background: var(--blue-soft); font-size: 12px; line-height: 1.6; }
+.drawing-review-location-progress.has-error { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 30%, var(--border)); background: color-mix(in srgb, var(--orange) 6%, var(--panel)); }
+.drawing-review-location-progress button { flex-shrink: 0; padding: 5px 7px; color: var(--blue); border: 1px solid var(--border); border-radius: 5px; background: var(--panel); font-size: 12px; }
+.drawing-review-progress-content { flex: 1; min-width: 0; }
+.drawing-review-progress-meter { display: flex; align-items: center; gap: 12px; margin-top: 5px; }
+.drawing-review-progress-meter progress { width: 180px; max-width: 55%; height: 6px; accent-color: var(--blue); }
+.drawing-review-progress-meter > span { white-space: nowrap; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.drawing-review-parameters { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.drawing-review-parameters-header { flex-shrink: 0; padding: 18px 17px 15px; border-bottom: 1px solid var(--border); }
+.drawing-review-parameters-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.drawing-review-parameters-title h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.drawing-review-parameters-title > span { color: var(--muted); font-size: 13px; }
+.drawing-review-parameters-header p { margin: 8px 0 14px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.drawing-review-search { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); }
+.drawing-review-search:focus-within { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-soft); }
+.drawing-review-search > svg { flex-shrink: 0; }
+.drawing-review-search input { width: 100%; min-width: 0; padding: 0; color: var(--text); border: 0; outline: 0; background: transparent; font: inherit; font-size: 13px; }
+.drawing-review-search input::placeholder { color: var(--muted); opacity: 1; }
+.drawing-review-pinned { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; padding: 10px 17px; color: var(--blue); border-bottom: 1px solid var(--border); background: var(--blue-soft); font-size: 13px; }
+.drawing-review-pinned > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawing-review-pinned strong { font-weight: 600; }
+.drawing-review-pinned button { flex-shrink: 0; padding: 4px 0 4px 5px; color: var(--blue); font-size: 13px; }
+.drawing-review-parameter-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px; scrollbar-gutter: stable; }
+.drawing-review-parameter-list ul { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.drawing-review-parameter { display: flex; flex-direction: column; align-items: stretch; gap: 9px; width: 100%; padding: 13px; color: var(--text); border: 1px solid var(--border); border-radius: 8px; background: var(--panel); text-align: left; transition: border-color .15s, background-color .15s; }
+.drawing-review-parameter:hover, .drawing-review-parameter.is-active { border-color: var(--blue); background: var(--blue-soft); }
+.drawing-review-parameter:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.drawing-review-parameter.is-pinned { box-shadow: inset 3px 0 0 var(--blue); }
+.drawing-review-parameter-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.drawing-review-parameter-heading > strong { font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.drawing-review-pin-label { flex-shrink: 0; color: var(--blue); font-size: 12px; line-height: 1.75; }
+.drawing-review-parameter-value { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
+.drawing-review-parameter-value > span { color: var(--muted); font-size: 13px; }
+.drawing-review-parameter-value > strong { margin-left: auto; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.4; overflow-wrap: anywhere; }
+.drawing-review-source-status { align-self: flex-start; padding: 3px 7px; border-radius: 4px; font-size: 12px; line-height: 1.4; }
+.drawing-review-source-status.is-located { color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, var(--panel)); }
+.drawing-review-source-status.is-partial { color: var(--orange); background: color-mix(in srgb, var(--orange) 10%, var(--panel)); }
+.drawing-review-source-status.is-unlocated, .drawing-review-source-status.is-region { color: var(--muted); background: var(--panel-2); }
+.drawing-review-parameter-source { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.drawing-review-parameters-footer { flex-shrink: 0; padding: 12px 17px; color: var(--muted); border-top: 1px solid var(--border); font-size: 13px; line-height: 1.6; }
+.drawing-review-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 210px; padding: 22px 15px; text-align: center; }
+.drawing-review-empty strong { font-size: 14px; font-weight: 600; }
+.drawing-review-empty p { margin: 9px 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.drawing-review-empty button { padding: 7px 11px; color: var(--blue); border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 13px; }
+
+.drawing-review-workspace .source-drawing-viewer { flex: 1 1 auto; min-height: 556px; font-size: 14px; }
+.drawing-review-workspace .source-drawing-header { min-height: 48px; padding: 12px 16px; }
+.drawing-review-workspace .source-drawing-title strong { font-size: 15px; }
+.drawing-review-workspace .source-drawing-title > span, .drawing-review-workspace .source-drawing-download { font-size: 13px; }
+.drawing-review-workspace .source-drawing-toolbar { gap: 8px; padding: 10px 12px; }
+.drawing-review-workspace .source-drawing-toolbar select { height: 34px; font-size: 13px; }
+.drawing-review-workspace .source-drawing-toolbar .source-drawing-page-select { flex-basis: 95px; }
+.drawing-review-workspace .source-drawing-zoom { height: 34px; }
+.drawing-review-workspace .source-drawing-zoom button { width: 29px; height: 32px; }
+.drawing-review-workspace .source-drawing-zoom span { min-width: 43px; font-size: 13px; }
+.drawing-review-workspace .source-drawing-tool-button { flex-basis: 34px; height: 34px; }
+.drawing-review-workspace .source-drawing-viewport { flex: 1 1 auto; min-height: 300px; }
+.drawing-review-workspace .source-drawing-state > span { max-width: 430px; font-size: 14px; }
+.drawing-review-workspace .source-drawing-state > button { padding: 7px 12px; font-size: 13px; }
+.drawing-review-workspace .source-drawing-gesture-hint { font-size: 12px; }
+.drawing-review-workspace .source-drawing-footer { max-height: 150px; padding: 10px 13px; }
+.drawing-review-workspace .source-drawing-selection-title > strong, .drawing-review-workspace .source-drawing-comparison dd { font-size: 14px; }
+.drawing-review-workspace .source-drawing-status, .drawing-review-workspace .source-drawing-pinned, .drawing-review-workspace .source-drawing-changed { font-size: 12px; }
+.drawing-review-workspace .source-drawing-clear, .drawing-review-workspace .source-drawing-comparison dt, .drawing-review-workspace .source-drawing-comparison dd del,
+.drawing-review-workspace .source-drawing-expression, .drawing-review-workspace .source-drawing-notice, .drawing-review-workspace .source-drawing-idle { font-size: 13px; }
+.drawing-review-workspace .source-drawing-idle p { margin: 0; }
+.drawing-review-workspace .source-drawing-location-list > button { padding: 5px 8px; font-size: 12px; }
+
+@media (max-width: 1180px) {
+  .drawing-review-content { grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; }
+  .drawing-review-workspace .source-drawing-title > span { display: none; }
+}
+@media (max-width: 760px) {
+  .drawing-review-workspace { height: auto; min-height: 0; gap: 14px; }
+  .drawing-review-header { flex-wrap: wrap; gap: 12px; }
+  .drawing-review-header h1 { font-size: 20px; }
+  .drawing-review-back { min-height: 38px; }
+  .drawing-review-content { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .drawing-review-document { height: 88vh; min-height: 710px; }
+  .drawing-review-workspace .source-drawing-viewer { min-height: 690px; }
+  .drawing-review-parameters { max-height: 650px; }
+  .drawing-review-parameter-list { max-height: 420px; }
+  .drawing-review-workspace .source-drawing-toolbar select { flex-basis: 145px; }
+}

@@ -1,0 +1,20 @@
+# Overlay the verified runtime; do not change CadQuery/OCCT, DWG tools or AI auth.
+# Build from the repository root, using a verified same-architecture image ID
+# or immutable repository digest; never use the running image tag as output.
+# This file inherits the base ENTRYPOINT/CMD and does not contain credentials.
+ARG CAD_EDITOR_BASE_IMAGE=required-verified-api:unset
+FROM ${CAD_EDITOR_BASE_IMAGE}
+USER 0:0
+WORKDIR /opt/joyniu-api
+COPY apps/api/pyproject.toml /tmp/cad-editor-pyproject.toml
+# pip check alone cannot detect a newly declared but absent optional runtime
+# dependency. Validate the full release extras without installing/upgrading.
+RUN python -c "import tomllib; from importlib.metadata import version; from pip._vendor.packaging.requirements import Requirement; p=tomllib.load(open('/tmp/cad-editor-pyproject.toml','rb'))['project']; deps=p['dependencies']+[dep for extra in ('geometry','ocr','dwg','pdf','image','payment') for dep in p['optional-dependencies'][extra]]; assert all(Requirement(raw).specifier.contains(version(Requirement(raw).name),prereleases=True) for raw in deps), 'Verified base does not satisfy current runtime dependencies'" \
+    && python -c "import shutil,subprocess; assert not any(shutil.which(x) for x in ('cc','gcc','clang')), 'Runtime must not contain a compiler'; names=('dwgread','dwg2dxf','dxf2dwg','joyniu-native-dwg-adapter'); assert all(shutil.which(x) for x in names), 'Verified DWG runtime is missing'; results=[subprocess.run([name,'--version'],capture_output=True,text=True,check=True,timeout=15) for name in names]; assert all(('0.14' if i<3 else 'JoyNiu native DWG compatibility adapter') in result.stdout+result.stderr for i,result in enumerate(results)), 'Unexpected DWG runtime'" \
+    && rm /tmp/cad-editor-pyproject.toml
+COPY apps/api/app ./app
+RUN python -c "from pathlib import Path; [p.unlink() for p in Path('app').rglob('._*') if p.is_file()]" \
+    && python -m compileall -q app \
+    && python -c "from app.cad_feature_workspace import CadFeatureWorkspace; from app.cad_topology import export_topology_preview; from app.cad_sketch_constraints import validate_sketch_constraints; assert hasattr(CadFeatureWorkspace,'preview') and hasattr(CadFeatureWorkspace,'commit')" \
+    && python -m pip check
+USER 10001:10001

@@ -37,6 +37,9 @@ pdf = [
 image = [
   "opencv-python-headless>=4.10,<6",
 ]
+payment = [
+  "cryptography>=50.0.1,<51",
+]
 dev = [
   "httpx>=0.27,<1",
   "pytest>=8,<9",

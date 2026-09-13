@@ -51,14 +51,16 @@ def solid_ray_intervals(shape: Any, origin: tuple[float, float, float],
 
 
 def inspect_shape(shape: Any, *, ray_probes: list[dict[str, Any]] | None = None,
-                  parameters: dict[str, float] | None = None) -> dict[str, Any]:
+                  parameters: dict[str, float] | None = None, allow_surfaces: bool = False) -> dict[str, Any]:
     from OCP.Bnd import Bnd_Box
     from OCP.BRepBndLib import BRepBndLib
     from .geometry import _cylinder_surface_data
 
     value = shape.val() if hasattr(shape, "val") else shape
-    if not value.Solids():
+    if not value.Solids() and not (allow_surfaces and value.Faces() and value.Area() > 1e-9):
         raise RuntimeError("CAD result contains no solids")
+    if ray_probes and not value.Solids():
+        raise PlanValidationError("曲面没有实体厚度，不能进行实体射线检测。")
     box = Bnd_Box()
     BRepBndLib.AddOptimal_s(value.wrapped, box, False, False)
     xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
@@ -112,7 +114,8 @@ def inspect_shape(shape: Any, *, ray_probes: list[dict[str, Any]] | None = None,
             "size": [xmax - xmin, ymax - ymin, zmax - zmin]}
     return {"engine": "cadquery-occt", "kernelBacked": True, "valid": bool(value.isValid()),
             "solidCount": len(value.Solids()), "faceCount": len(value.Faces()), "edgeCount": len(value.Edges()),
-            "volumeMm3": float(value.Volume()), "surfaceAreaMm2": float(value.Area()),
+            "volumeMm3": sum(float(s.Volume()) for s in value.Solids()), "surfaceAreaMm2": float(value.Area()),
+            "geometryKind": "solid" if value.Solids() else "surface", "shellCount": len(value.Shells()),
             "bbox": bbox, "bboxLength": bbox["size"][0], "bboxWidth": bbox["size"][1], "bboxHeight": bbox["size"][2],
             "bboxMeasurementSource": "exact-brep-surfaces-without-triangulation",
             "cylinders": cylinders, "raySections": rays,
@@ -215,9 +218,59 @@ def _projection_png(svg_text: str, path: Path, title: str, *,
     image.save(path)
 
 
-def export_projections(shape: Any, output_dir: Path) -> dict[str, dict[str, str]]:
-    from cadquery.occ_impl.exporters.svg import getSVG
+def _engineering_projection_svg(shape: Any, direction: tuple[float, float, float]) -> str:
+    """Project exact sharp/outline edges without drawing G1 surface joins.
 
+    CadQuery's general SVG exporter also draws Rg1LineVCompound. Those smooth
+    face boundaries are not physical steps and can create false discrepancies
+    against engineering drawings. Keep HLR's sharp edges, silhouettes and the
+    same hidden-edge classes; never filter by pixel position or edge direction.
+    """
+    from cadquery import Shape
+    from cadquery.occ_impl.exporters.svg import TOLERANCE, getPaths
+    from OCP.BRepLib import BRepLib
+    from OCP.HLRAlgo import HLRAlgo_Projector
+    from OCP.HLRBRep import HLRBRep_Algo, HLRBRep_HLRToShape
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+
+    # Fresh Boolean results may not yet carry the G1 flags that STEP import
+    # computes. Encode exact face regularity on a copy so HLR treats those
+    # joins consistently without modifying the caller's B-Rep or tolerances.
+    projected_shape = shape.copy()
+    BRepLib.EncodeRegularity_s(projected_shape.wrapped)
+    algorithm = HLRBRep_Algo()
+    algorithm.Add(projected_shape.wrapped)
+    algorithm.Projector(HLRAlgo_Projector(gp_Ax2(gp_Pnt(), gp_Dir(*direction))))
+    algorithm.Update()
+    algorithm.Hide()
+    projected = HLRBRep_HLRToShape(algorithm)
+
+    def compounds(*items):
+        result = []
+        for item in items:
+            if not item.IsNull():
+                # HLR curves need 3D geometry before CadQuery discretizes them.
+                BRepLib.BuildCurves3d_s(item, TOLERANCE)
+                result.append(Shape(item))
+        return result
+
+    visible = compounds(projected.VCompound(), projected.OutLineVCompound())
+    hidden = compounds(projected.HCompound(), projected.OutLineHCompound())
+    hidden_paths, visible_paths = getPaths(visible, hidden)
+    namespace = "http://www.w3.org/2000/svg"
+    root = ET.Element(f"{{{namespace}}}svg", {"width": "960", "height": "720"})
+    group = ET.SubElement(root, f"{{{namespace}}}g", {"fill": "none", "stroke": "rgb(0,0,0)"})
+    hidden_group = ET.SubElement(group, f"{{{namespace}}}g", {
+        "stroke": "rgb(160,160,160)", "stroke-dasharray": "4,4"})
+    for path in hidden_paths:
+        ET.SubElement(hidden_group, f"{{{namespace}}}path", {"d": path})
+    visible_group = ET.SubElement(group, f"{{{namespace}}}g")
+    for path in visible_paths:
+        ET.SubElement(visible_group, f"{{{namespace}}}path", {"d": path})
+    return ET.tostring(root, encoding="unicode")
+
+
+def export_projections(shape: Any, output_dir: Path) -> dict[str, dict[str, str]]:
     value = shape.val() if hasattr(shape, "val") else shape
     output_dir.mkdir(parents=True, exist_ok=True)
     result = {}
@@ -226,8 +279,7 @@ def export_projections(shape: Any, output_dir: Path) -> dict[str, dict[str, str]
                  "top": ((0, 0, 1), (1, 0, 0), (0, 1, 0)),
                  "right": ((1, 0, 0), (0, 1, 0), (0, 0, 1))}
     for name, (direction, horizontal, vertical) in view_axes.items():
-        svg = getSVG(value, {"width": 960, "height": 720, "marginLeft": 80, "marginTop": 60,
-                             "projectionDir": direction, "showAxes": False, "showHidden": True})
+        svg = _engineering_projection_svg(value, direction)
         svg = _normalize_projection_axes(svg, direction, horizontal, vertical)
         path, png = output_dir / f"{name}.svg", output_dir / f"{name}.png"
         path.write_text(svg, encoding="utf-8")
@@ -270,7 +322,7 @@ def export_spatial_views(shape: Any, output_dir: Path) -> dict[str, dict[str, An
                            "productionReady": False}}
 
 
-def inspect_step(path: str | Path, *, ray_probes: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def inspect_step(path: str | Path, *, ray_probes: list[dict[str, Any]] | None = None, allow_surfaces: bool = False) -> dict[str, Any]:
     """Re-import a delivered STEP for a separate geometry observation."""
     from cadquery import importers
-    return inspect_shape(importers.importStep(str(path)), ray_probes=ray_probes)
+    return inspect_shape(importers.importStep(str(path)), ray_probes=ray_probes, allow_surfaces=allow_surfaces)

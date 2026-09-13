@@ -1,0 +1,20 @@
+{
+  "root": "/opt/joyniu-cad",
+  "backupRoot": "/opt/joyniu-backups/scheduled",
+  "reportRoot": "/var/lib/joyniu-cad-operations",
+  "baseUrl": "http://127.0.0.1",
+  "backupEnabled": false,
+  "backupIntervalHours": 24,
+  "backupMaxAgeHours": 26,
+  "minimumFreeBytes": 5368709120,
+  "diskWarningPercent": 80,
+  "diskCriticalPercent": 90,
+  "queuedWarningCount": 10,
+  "queuedWarningMinutes": 30,
+  "runningWarningMinutes": 60,
+  "providerWarningMinutes": 30,
+  "providerFailureWarningCount": 3,
+  "retentionKeep": 0,
+  "retentionMinAgeDays": 7,
+  "restartTimeoutSeconds": 180
+}

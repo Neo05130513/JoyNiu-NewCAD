@@ -1,0 +1,18 @@
+{
+  "01-multicontour-sketch.png": "16f537aa2ed1de14c775f75d793160896eff9f9e1f495537ad96609c5e1019a8",
+  "02-multibody-saved.png": "90b097a1ad8753845188938c12e5e66f80ac3b44245db874b98b133d61f8dfc1",
+  "03-surface-control-drag.png": "c767fdf6ffece4e813d549fb1600bbb6aa15cf4b9e84d8acfa20045e9c69572f",
+  "04-pmi-saved.png": "919e8a818e4b20adf0a8552013c49e34048e90600e51a69ae07515058bff818c",
+  "05-mobile.png": "f8e8e8756b4e651a5c365f099acbde782dbd5451d43072ff950b60b1e97b765c",
+  "06-desktop.png": "68454fdf73ec05cba32746d360054e7600cc932093424ef2466d2e8cb42e6b1e",
+  "07-edit-linked-dimension.png": "9b388e72db0bea4d18c24896dd093a1dc3fb9a2931382bbbd0cc67deaf01da24",
+  "08-after-dimension-edit.png": "87d4dc9d318580c46fc1d6bc3afb8598fd1cc0fbbfcc0db276ff7ada9fe88475",
+  "README.md": "8ff719e59ce08263994b96603f5f30981228f6b2c9b44be438551718883cf7f1",
+  "dimension-edited.step": "7713918fd731f6251fde8f32d9d1b84825230882d4a140035be5c7711a766908",
+  "linked-browser-records.json": "cf7208038906706c7e6eac97b27044b7c04637fddadd35bd193537673a1bb723",
+  "multicontour.step": "00a9105560bd5573ef5d022e808e38f601bb57f12be345e04046a009b8885d85",
+  "original-browser-records.json": "fde93922a1fbf9750773c647c9645fdcf0208b3e2a5c83398d6b8609e88fef4b",
+  "pmi.svg": "e76e40f83785bebbba57499e966e0d3ad15a389137d66457647b021c3f547977",
+  "regression-summary.json": "c31f0eb7e0600da2789daf9fa4441a44adb6dc95d4ffd4100ed647cf7e9e6943",
+  "step-readback.json": "59da8fe374a979cbec9cfbbf7b3b8b6b3bc901004cb1dfbea1774a2297612a5d"
+}

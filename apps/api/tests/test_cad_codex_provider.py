@@ -31,6 +31,7 @@ def body(*parts):
 
 @pytest.fixture
 def fake_cli(tmp_path, monkeypatch):
+    monkeypatch.delenv("JOYNIU_CAD_CODEX_PROXY_URL", raising=False)
     capture = tmp_path / "capture.json"
 
     def create(**options):
@@ -292,9 +293,10 @@ def test_status_does_not_launch_or_claim_authenticated(fake_cli, monkeypatch):
     monkeypatch.setattr(provider.subprocess, "Popen", lambda *a, **k: pytest.fail("status launched CLI"))
     result = provider.status()
     assert result["configured"] is True and result["authentication"] == "cli-managed"
+    assert result["binaryAvailable"] is True
     assert result["model"] == "gpt-6-astra" and "authenticated" not in result
     monkeypatch.setenv("JOYNIU_CAD_CODEX_BINARY", "/missing/PRIVATE BINARY")
-    assert provider.status()["configured"] is False
+    assert provider.status()["configured"] is False and provider.status()["binaryAvailable"] is False
     with pytest.raises(provider.CodexProviderError, match="not_configured"):
         provider.call(body(), 5)
 
@@ -346,3 +348,82 @@ def test_one_run_keeps_its_selected_executable_and_model(fake_cli, monkeypatch):
     info = selected.provider_info
     info['model'] = 'caller-mutation'
     assert selected.provider_info['model'] == 'selected-model'
+
+
+@pytest.mark.parametrize("proxy", ["http://127.0.0.1:7890", "https://proxy.example:8443/",
+                                   "http://host.docker.internal:7890", "http://[::1]:7890",
+                                   "http://operator:PRIVATE_PROXY_PASSWORD@proxy.example:3128"])
+def test_explicit_proxy_only_reaches_restricted_child_environment(fake_cli, monkeypatch, proxy):
+    capture = fake_cli()
+    monkeypatch.setenv("JOYNIU_CAD_CODEX_PROXY_URL", proxy)
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(key, "PRIVATE_HOST_PROXY")
+    monkeypatch.setenv("OPENAI_API_KEY", "PRIVATE_HOST_API_KEY")
+    snapshots = []
+    result = provider.call(body(), 5, snapshots.append)
+    recorded = json.loads(capture.read_text())
+    assert recorded["env"]["HTTP_PROXY"] == proxy and recorded["env"]["HTTPS_PROXY"] == proxy
+    for key in ("http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy", "JOYNIU_CAD_CODEX_PROXY_URL", "OPENAI_API_KEY"):
+        assert key not in recorded["env"]
+    assert provider.status()["proxyConfigured"] is True
+    serialized = json.dumps([result, snapshots, provider.status()])
+    assert proxy not in serialized and "PRIVATE" not in serialized
+    assert not Path(recorded["cwd"]).exists()
+    assert "--ignore-user-config" in recorded["args"] and "read-only" in recorded["args"]
+
+
+def test_no_explicit_proxy_does_not_inherit_any_host_proxy(fake_cli, monkeypatch):
+    capture = fake_cli()
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(key, "http://PRIVATE_HOST_PROXY:7890")
+    provider.call(body(), 5)
+    environment = json.loads(capture.read_text())["env"]
+    assert not any(key.lower().endswith("_proxy") for key in environment)
+    assert provider.status()["proxyConfigured"] is False
+
+
+@pytest.mark.parametrize("proxy", ["socks5://PRIVATE:7890", "file:///PRIVATE", "PRIVATE:7890", "http://",
+    "http://PRIVATE:0", "http://PRIVATE:65536", "http://PRIVATE:bad", "http://PRIVATE:",
+    "http://PRIVATE/path", "http://PRIVATE?token=secret", "http://PRIVATE#secret",
+    "http://PRIVATE?", "http://PRIVATE#", "http://PRIVATE USER:7890", "http://PRIVATE\nHOST:7890",
+    "http://PRIVATE\\@host:7890", "http://user@PRIVATE:7890",
+    "http://user:pass@PRIVATE@host:7890", "http://[PRIVATE:7890", "http://" + "PRIVATE" * 800])
+def test_invalid_explicit_proxy_is_safe_configuration_failure_without_launch(fake_cli, monkeypatch, proxy):
+    from app.ai_proxy import _provider_error_code
+    fake_cli()
+    monkeypatch.setenv("JOYNIU_CAD_CODEX_PROXY_URL", proxy)
+    monkeypatch.setattr(provider.subprocess, "Popen", lambda *a, **k: pytest.fail("invalid proxy launched CLI"))
+    info = provider.status()
+    assert info["binaryAvailable"] is True and info["configured"] is False
+    assert info["configurationError"] == "invalid_proxy_url"
+    with pytest.raises(provider.CodexProviderError) as error:
+        provider.call(body(), 5)
+    assert error.value.code == _provider_error_code(error.value) == "not_configured"
+    assert "PRIVATE" not in str(error.value) + json.dumps(error.value.diagnostics) + json.dumps(info)
+
+
+def test_proxy_validator_rejects_nul_without_echoing_value():
+    # OS environment values cannot contain NUL; exercise the parser directly.
+    with pytest.raises(provider.CodexProviderError) as error:
+        provider._proxy_url("http://PRIVATE\x00HOST:7890")
+    assert error.value.code == "not_configured" and "PRIVATE" not in str(error.value)
+
+
+def test_selected_proxy_is_frozen_with_the_run(fake_cli, monkeypatch):
+    capture = fake_cli()
+    monkeypatch.setenv("JOYNIU_CAD_CODEX_PROXY_URL", "http://selected-proxy:7890")
+    selected = provider.CodexCadProvider()
+    monkeypatch.setenv("JOYNIU_CAD_CODEX_PROXY_URL", "http://replacement-proxy:7891")
+    selected(body(), 5)
+    assert json.loads(capture.read_text())["env"]["HTTPS_PROXY"] == "http://selected-proxy:7890"
+
+
+@pytest.mark.parametrize("environment,deployment", [("production", "server"), (" PROD ", "server"), ("local", "local"), ("", "local")])
+def test_deployment_status_is_local_only_and_never_probes_auth(fake_cli, monkeypatch, environment, deployment):
+    fake_cli()
+    monkeypatch.setenv("JOYNIU_ENV", environment)
+    monkeypatch.setattr(provider.subprocess, "Popen", lambda *a, **k: pytest.fail("status launched CLI"))
+    monkeypatch.setattr(Path, "read_text", lambda *a, **k: pytest.fail("status read credentials or config"))
+    info = provider.status()
+    assert info["deployment"] == deployment and info["binaryAvailable"] is True
+    assert info["authentication"] == "cli-managed" and "authenticated" not in info
