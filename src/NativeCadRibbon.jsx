@@ -1,0 +1,33 @@
+// Compact, grouped CAD controls. Every command is dispatched by the workspace.
+const shapes = {
+  line:'M4 21 24 3 M3 20h3v3H3z M22 2h3v3h-3z', polyline:'M3 22h12V5h10 M2 21h3v3H2z M13 4h3v3h-3z M23 4h3v3h-3z',
+  circle:'M25 14a11 11 0 1 1-22 0 11 11 0 0 1 22 0 M14 14l8-8', arc:'M3 24A21 21 0 0 1 24 3 M2 22h3v3H2z M22 2h3v3h-3z',
+  rectangle:'M3 5h22v18H3z', move:'M14 2v24 M2 14h24 M10 6l4-4 4 4 M22 10l4 4-4 4 M10 22l4 4 4-4 M6 10l-4 4 4 4',
+  copy:'M3 3h15v15H3z M10 10h15v15H10z', rotate:'M23 9a10 10 0 1 0 1 9 M18 9h6V3', scale:'M3 12h13v13H3z M9 3h16v16 M17 11l8-8',
+  mirror:'M14 2v24 M3 21l7-15v15z M25 21 18 6v15z', trim:'M3 4l22 20 M3 24 25 4 M10 2v24', fillet:'M3 25V14A11 11 0 0 1 14 3h11',
+  stretch:'M3 5h10v19H3z M19 5h6v19h-6 M10 14h14 M20 10l4 4-4 4', array:'M3 3h7v7H3z M18 3h7v7h-7z M3 18h7v7H3z M18 18h7v7h-7z',
+  offset:'M3 24V3h22 M9 24V9h16 M15 24v-9h10', layers:'m14 3 12 6-12 6L2 9z M2 15l12 6 12-6 M2 21l12 6 12-6',
+  properties:'M4 4h20v7H4z M6 15h16 M6 21h16 M10 12v13 M18 12v13', text:'M3 25 14 3l11 22 M7 17h14', dimension:'M3 5v20 M25 5v20 M3 14h22 M7 10l-4 4 4 4 M21 10l4 4-4 4',
+  block:'M4 13h11v11H4z M13 4h11v11H13z M20 20h5 M22.5 17.5v5', group:'M3 3h22v22H3z M8 8h12v12H8z', measure:'M3 9h22v12H3z M7 9v6 M12 9v4 M17 9v6 M22 9v4',
+  paste:'M8 5H4v21h20V5h-4 M9 2h10v6H9z', erase:'m4 17 13-13 9 9-13 13H8z M9 12l9 9', purge:'M7 7h14l-1 18H8z M4 7h20 M10 3h8 M11 11v10 M17 11v10',
+  select:'M5 3v22l6-8 6 9 4-3-6-9 10-1z', pan:'M9 13V6a2 2 0 0 1 4 0v8 M13 12V4a2 2 0 0 1 4 0v10 M17 12V7a2 2 0 0 1 4 0v10 M9 13 6 10a2 2 0 0 0-3 3l7 12h10l5-8V11a2 2 0 0 0-4 0',
+  fit:'M3 10V3h7 M18 3h7v7 M25 18v7h-7 M10 25H3v-7 M8 8h12v12H8z', zoom:'M20 11a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M17 18l9 9 M6 11h10 M11 6v10',
+  undo:'M10 4 3 10l7 6 M3 10h14a8 8 0 0 1 0 16', redo:'M18 4l7 6-7 6 M25 10H11a8 8 0 0 0 0 16', save:'M3 3h20l3 3v20H3z M8 3v9h13V3 M8 26V16h13v10',
+  print:'M7 9V2h14v7 M7 22H3V9h22v13h-4 M7 17h14v9H7z M20 12h2', file:'M5 2h12l6 6v18H5z M17 2v6h6 M10 17h8 M14 13v8',
+  settings:'M3 7h22 M3 14h22 M3 21h22 M9 3v8 M19 10v8 M12 17v8', grid:'M3 3h22v22H3z M10 3v22 M18 3v22 M3 10h22 M3 18h22',
+  snap:'M4 4h8v8H4z M4 4l20 20 M19 19h6v6h-6z', ortho:'M4 3v21h21 M4 16h8v8', polar:'M24 23H4L18 3 M15 23a11 11 0 0 0-5-9',
+  crosshair:'M14 2v24 M2 14h24 M10 10h8v8h-8z', bubble:'M24 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0 M7 20l-5 6',
+}
+export function NativeCadIcon({name,size=22}){return <svg className="n2-icon" width={size} height={size} viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={shapes[name]||shapes.settings}/></svg>}
+export const NATIVE_RIBBON_TABS=['常用','插入','注释','参数化','批注','工具']
+export function nativeCadRibbon({page,onPage,tool,invoke,disabled,readonly,layer,layers,onLayer,modelSpace=true}){
+  const button=(id,label,icon=id,large=false)=> <button key={id} type="button" className={`n2-command${large?' n2-command--large':''}${tool===id?' is-active':''}`} aria-label={label} title={label} disabled={disabled||(!modelSpace&&!['print','export','settings'].includes(id))||(readonly&&!['properties','measure','fit','print','select','pan','layers','settings','export'].includes(id))} onClick={()=>invoke(id)}><NativeCadIcon name={icon} size={large?30:16}/><span>{label}</span></button>
+  const group=(label,children)=> <div className="n2-ribbon-group" key={label}><div className="n2-ribbon-items">{children}</div><span className="n2-group-name">{label}</span></div>
+  const drawing=group('绘图',<>{button('line','直线','line',true)}{button('polyline','多段线','polyline',true)}{button('circle','圆','circle',true)}{button('arc','圆弧','arc',true)}<div className="n2-small-stack">{button('rectangle','矩形')}{button('polygon','正多边形','polyline')}{button('ellipse','椭圆','circle')}</div></>)
+  const modify=group('修改',<><div className="n2-small-stack">{button('move','移动')}{button('copy','复制')}{button('stretch','拉伸')}</div><div className="n2-small-stack">{button('rotate','旋转')}{button('mirror','镜像')}{button('scale','缩放')}</div><div className="n2-small-stack">{button('trim','修剪')}{button('fillet','圆角')}{button('array','阵列')}</div><div className="n2-small-stack">{button('erase','删除')}{button('offset','偏移')}{button('chamfer','倒角','line')}</div></>)
+  const layerGroup=group('图层',<>{button('layers','图层管理','layers',true)}<div className="n2-layer-shortcuts"><label><NativeCadIcon name="layers" size={16}/><select aria-label="绘图图层" value={layer} disabled={disabled||readonly} onChange={e=>onLayer(e.target.value)}>{layers.map(l=><option key={l.name}>{l.name}</option>)}</select></label><div>{button('currentLayer','置为当前','layers')}{button('restoreLayers','图层恢复','layers')}</div></div></>)
+  const annotate=group('注释',<>{button('text','文字','text',true)}{button('dimension','尺寸标注','dimension',true)}{button('bubble','检验气泡','bubble',true)}</>)
+  const common=[drawing,modify,layerGroup,group('特性',button('properties','特性','properties',true)),group('注释',button('text','文字','text',true)),group('块',button('library','块图库','block',true)),group('组',<>{button('group','创建组','group',true)}<div className="n2-small-stack">{button('ungroup','解除组','group')}</div></>),group('实用工具',button('measure','测量','measure',true)),group('剪贴板',button('paste','粘贴','paste',true)),group('图形管理',button('purge','清理','purge',true))]
+  const content={常用:common,插入:[group('文件',[button('import','导入 DWG / DXF','file',true)]),group('块与构件',[button('library','块图库','block',true),button('paste','粘贴','paste',true)]),layerGroup],注释:[annotate,group('尺寸样式',button('properties','特性','properties',true)),group('打印',button('print','打印与出图','print',true))],参数化:[group('几何约束',<>{button('horizontal','水平约束','ortho',true)}{button('vertical','垂直约束','ortho',true)}{button('parallel','平行约束','line',true)}{button('perpendicular','垂直关系','ortho',true)}{button('coincident','重合约束','snap',true)}</>),group('尺寸与公式',button('constraints','参数与公式','dimension',true))],批注:[annotate,group('检验',button('autoBubbles','自动编号气泡','bubble',true))],工具:[group('视图',<>{button('fit','适合窗口','fit',true)}{button('pan','平移','pan',true)}{button('select','选择','select',true)}</>),group('实用工具',<>{button('measure','测量','measure',true)}{button('purge','清理','purge',true)}{button('settings','绘图设置','settings',true)}</>),group('输出',<>{button('print','打印与出图','print',true)}{button('export','导出 DXF','file',true)}</>)]}
+  return <><nav className="n2-ribbon-tabs" role="tablist" aria-label="二维工具栏">{NATIVE_RIBBON_TABS.map(name=><button type="button" key={name} role="tab" aria-selected={page===name} className={page===name?'is-active':''} onClick={()=>onPage(name)}>{name}</button>)}</nav><div className="n2-ribbon" role="tabpanel" aria-label={page}>{content[page]}</div></>
+}

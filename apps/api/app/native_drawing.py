@@ -40,7 +40,7 @@ MAX_UPLOAD = 20 * 1024 * 1024
 MAX_ENTITIES = 50_000
 MAX_OPERATIONS = 500
 MAX_RENDER_ENTITIES = 50_000
-EDITABLE = frozenset({'LINE', 'CIRCLE', 'ARC', 'LWPOLYLINE', 'TEXT', 'MTEXT', 'DIMENSION'})
+EDITABLE = frozenset({'LINE', 'CIRCLE', 'ARC', 'ELLIPSE', 'LWPOLYLINE', 'TEXT', 'MTEXT', 'DIMENSION'})
 LINEWEIGHTS = frozenset({-3, -2, -1, 0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211})
 DIMENSION_REF_APPID = 'JOYNIU_NATIVE_DIM_REFS'
 
@@ -187,6 +187,9 @@ def _entity(entity):
         data.update(center=list(entity.dxf.center), radius=entity.dxf.radius)
         if kind == 'ARC':
             data.update(startAngle=entity.dxf.start_angle, endAngle=entity.dxf.end_angle)
+    elif kind == 'ELLIPSE':
+        data.update(center=list(entity.dxf.center), majorAxis=list(entity.dxf.major_axis), ratio=entity.dxf.ratio,
+                    startParam=entity.dxf.start_param, endParam=entity.dxf.end_param)
     elif kind == 'LWPOLYLINE':
         data.update(points=[list(point) for point in entity.get_points('xyb')], closed=entity.closed)
     elif kind in ('TEXT', 'MTEXT'):
@@ -285,6 +288,7 @@ def _snapshot(doc, record, meta):
                         'linetype': layer.dxf.linetype, 'lineweight': layer.dxf.get('lineweight', -3)} for layer in doc.layers],
             'linetypes': [line.dxf.name for line in doc.linetypes],
             'blocks': [{'name': block.name, 'entityCount': len(block)} for block in doc.blocks if not block.name.startswith('*')],
+            'groups': sorted([{'name': name, 'ids': sorted(entity.dxf.handle for entity in group if entity.is_alive)} for name, group in doc.groups], key=lambda group: group['name']),
             'layouts': [layout.name for layout in doc.layouts], 'unsupportedTypes': unsupported,
             'warnings': (['部分实体仅保留和预览，未提供直接修改；导出 DXF 保留其原定义。'] if unsupported else []) + (['编辑画布展开预览达到上限或存在无法展开的定义，请使用整图预览核对。'] if truncated else []) + meta.get('warnings', []),
             'canUndo': bool(meta.get('undo')), 'canRedo': bool(meta.get('redo'))}
@@ -499,6 +503,14 @@ def _add(doc, source):
     kind = source.get('type', '').upper()
     attrs = _attributes(doc, source)
     msp = doc.modelspace()
+    if kind == 'ELLIPSE':
+        axis = _point(source['majorAxis'])
+        ratio = _number(source['ratio'], positive=True)
+        if not 1e-6 <= ratio <= 1 or math.hypot(axis[0], axis[1]) <= 1e-9 or abs(axis[2]) > 1e-9:
+            raise DrawingError('椭圆长轴必须在 XY 平面且非零，短长轴比须为 0.000001–1。')
+        return msp.add_ellipse(_point(source['center']), axis, ratio,
+                               start_param=_number(source.get('startParam', 0)),
+                               end_param=_number(source.get('endParam', math.tau)), dxfattribs=attrs)
     if kind == 'LINE':
         return msp.add_line(_point(source['start']), _point(source['end']), dxfattribs=attrs)
     if kind in ('CIRCLE', 'ARC'):
@@ -538,6 +550,7 @@ def _update(doc, entity, changes):
         raise DrawingError('此实体只保留原定义，暂不能直接修改。')
     common = {'layer', 'color', 'lineweight', 'linetype'}
     fields = {'LINE': {'start', 'end'}, 'CIRCLE': {'center', 'radius'}, 'ARC': {'center', 'radius', 'startAngle', 'endAngle'},
+              'ELLIPSE': {'center', 'majorAxis', 'ratio', 'startParam', 'endParam'},
               'LWPOLYLINE': {'points', 'closed'}, 'TEXT': {'text', 'position', 'height', 'rotation'},
               'MTEXT': {'text', 'position', 'height', 'rotation'},
               'DIMENSION': {'text', 'toleranceUpper', 'toleranceLower', 'toleranceEnabled', 'style'}}
@@ -552,6 +565,18 @@ def _update(doc, entity, changes):
             setattr(entity.dxf, key, _attributes(doc, {key: value})[key])
         elif key in ('start', 'end', 'center', 'position'):
             setattr(entity.dxf, 'insert' if key == 'position' else key, _point(value))
+        elif key == 'majorAxis':
+            axis = _point(value)
+            if math.hypot(axis[0], axis[1]) <= 1e-9 or abs(axis[2]) > 1e-9:
+                raise DrawingError('椭圆长轴必须在 XY 平面且非零。')
+            entity.dxf.major_axis = axis
+        elif key == 'ratio':
+            ratio = _number(value, positive=True)
+            if not 1e-6 <= ratio <= 1:
+                raise DrawingError('短长轴比须为 0.000001–1。')
+            entity.dxf.ratio = ratio
+        elif key in ('startParam', 'endParam'):
+            setattr(entity.dxf, 'start_param' if key == 'startParam' else 'end_param', _number(value))
         elif key in ('radius', 'height'):
             setattr(entity.dxf, 'char_height' if key == 'height' and kind == 'MTEXT' else key, _number(value, positive=True))
         elif key in ('rotation', 'startAngle', 'endAngle'):
@@ -688,6 +713,33 @@ def _operation(doc, operation, meta):
             meta['name'] = _text(operation['name'], 200).strip()
             if not meta['name']:
                 raise DrawingError('名称不能为空。')
+    elif action == 'group':
+        selected = _selected(doc, operation['ids'])
+        if len(selected) < 2:
+            raise DrawingError('创建组需要至少两个图元。')
+        group = doc.groups.new()
+        group.extend(selected)
+    elif action == 'ungroup':
+        name = _text(operation['name'], 200)
+        if name not in doc.groups:
+            raise DrawingError('图元组不存在。')
+        _selected(doc, [entity.dxf.handle for entity in doc.groups.get(name)])
+        doc.groups.delete(name)
+    elif action == 'layout':
+        name = _text(operation['name'], 80).strip()
+        if not name or name.lower() == 'model' or name in doc.layouts or len(doc.layouts) >= 32:
+            raise DrawingError('布局名称为空、重复或已达到 32 个布局上限。')
+        # The paperspace and viewport are native DXF objects, persisted in every revision.
+        from ezdxf import bbox
+        bounds = bbox.extents(doc.modelspace(), fast=True)
+        center = bounds.center if bounds.has_data else Vec3(0, 0, 0)
+        size = bounds.size if bounds.has_data else Vec3(200, 150, 0)
+        space = doc.layouts.new(name)
+        space.page_setup(size=(297, 210), margins=(10, 10, 10, 10), units='mm')
+        if 'VIEWPORTS' not in doc.layers:
+            doc.layers.new('VIEWPORTS', dxfattribs={'plot': 0})
+        space.add_viewport(center=(138.5, 95), size=(277, 190), view_center_point=(center.x, center.y),
+                           view_height=max(10, size.y, size.x * 190 / 277) * 1.15, status=2)
     else:
         raise DrawingError('不支持此图纸操作。')
 

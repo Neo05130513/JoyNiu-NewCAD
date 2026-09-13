@@ -36,6 +36,7 @@ export function evaluateFormula(expression, parameters = {}, stack = []) {
 }
 export function entityPoints(entity) {
   if (entity.type === 'LINE') return [entity.start, entity.end]
+  if (entity.type === 'ELLIPSE') { const [x,y]=entity.center,[a,b]=entity.majorAxis,r=entity.ratio,dx=Math.hypot(a,b*r),dy=Math.hypot(b,a*r);return [[x-dx,y-dy],[x+dx,y+dy],entity.center] }
   if (['CIRCLE', 'ARC'].includes(entity.type)) { const [x,y] = entity.center, r = entity.radius; return [[x-r,y-r],[x+r,y+r],entity.center] }
   if (entity.type === 'LWPOLYLINE') return entity.points || []
   return entity.position ? [entity.position] : []
@@ -64,6 +65,7 @@ export function transformEntity(entity, { translation=[0,0], rotation=0, scale=1
   for (const key of ['start','end','center','position']) if (result[key]) result[key]=point(result[key])
   if (result.points) result.points=result.points.map(p=>{const out=point(p);if(mirror&&out.length>2)out[2]=-out[2];return out})
   if (result.radius) result.radius*=scale
+  if (result.majorAxis) {let [x,y]=result.majorAxis;x*=scale;y*=scale;if(mirror==='x')y=-y;if(mirror==='y')x=-x;result.majorAxis=[x*Math.cos(angle)-y*Math.sin(angle),x*Math.sin(angle)+y*Math.cos(angle),result.majorAxis[2]||0];if(mirror){const a=result.startParam??0,b=result.endParam??Math.PI*2;result.startParam=-b;result.endParam=-a}}
   if (result.height) result.height*=scale
   if (result.type==='ARC') { let a=result.startAngle,b=result.endAngle; if(mirror) [a,b]=mirror==='x'?[-b,-a]:[180-b,180-a]; result.startAngle=a+rotation; result.endAngle=b+rotation }
   if (['TEXT','MTEXT'].includes(result.type)) result.rotation=(result.rotation||0)+rotation

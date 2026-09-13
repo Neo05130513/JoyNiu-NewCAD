@@ -26,7 +26,7 @@ function harness(Component,request,props={token:'test',active:true}) {
   const nodes=(value=tree)=>React.isValidElement(value)?[value,...React.Children.toArray(value.props.children).flatMap(nodes)]:[]
   const text=value=>React.isValidElement(value)?React.Children.toArray(value.props.children).map(text).join(''):String(value??'')
   const find=predicate=>{const found=nodes().find(predicate);assert.ok(found,'expected matching control');return found}
-  const button=name=>find(node=>node.type==='button'&&text(node)===name)
+  const button=name=>{const label=({'直线 L':'直线','圆 C':'圆','圆弧 A':'圆弧','多段线 PL':'多段线','文字 T':'文字','标注 D':'尺寸标注','气泡 B':'检验气泡'})[name]||name;return find(node=>node.type==='button'&&(text(node)===label||node.props['aria-label']===label))}
   const event=async(node,name,arg)=>{await node.props[name](arg);render();await flush()}
   const command=async(value)=>{await event(find(n=>n.props['aria-label']==='CAD 命令'),'onChange',{target:{value}});await event(button('执行'),'onClick')}
   const update=async next=>{props={...props,...next};render();await flush()}
@@ -117,7 +117,7 @@ test('HTTP drawing, undo, redo, import and parameter constraints all submit usab
   })
   const control=(label,type)=>ui.nodes(ui.find(n=>n.type==='label'&&React.Children.toArray(n.props.children).includes(label))).find(n=>n.type===type)
   try{
-    await ui.flush();await ui.event(ui.find(n=>n.props['aria-label']==='绘制工具组'),'onClick')
+    await ui.flush();await ui.event(ui.button('直线'),'onClick')
     await ui.event(ui.button('直线 L'),'onClick');await ui.command('0,10');await ui.command('30,10')
     assert.deepEqual(saved.entities.at(-1).end,[30,10,0]);assert.equal(saved.entities.length,3)
     await ui.event(ui.button('撤销'),'onClick');assert.equal(saved.entities.length,2)
@@ -174,7 +174,7 @@ test('drawing draft survives a lost response and retries exactly the same operat
     return structuredClone(saved)
   })
   try{
-    await ui.flush();await ui.event(ui.find(n=>n.props['aria-label']==='绘制工具组'),'onClick');await ui.event(ui.button('直线 L'),'onClick');await ui.command('0,10');await ui.command('30,10')
+    await ui.flush();await ui.event(ui.button('直线'),'onClick');await ui.event(ui.button('直线 L'),'onClick');await ui.command('0,10');await ui.command('30,10')
     assert.match(ui.text(),/保存结果待确认/);assert.ok(ui.button('取消绘制').props.disabled)
     await ui.event(ui.button('重试未确认请求'),'onClick')
     assert.equal(calls.length,2);assert.deepEqual(calls[0],calls[1]);assert.match(calls[0].requestId,/^[a-z0-9-]+$/)
@@ -216,7 +216,7 @@ test('an old-account preview response cannot create a URL or download after logo
 test('viewer writes are disabled and hidden workspaces do not handle the save shortcut',async()=>{
   const calls=[];const ui=harness(await loadComponent(),async(path,options)=>{calls.push({path,options});if(path==='')return {items:[drawing()]};if(path==='/capabilities')return {canWrite:false};return drawing()})
   try{
-    await ui.flush();await ui.event(ui.find(n=>n.props['aria-label']==='绘制工具组'),'onClick');assert.ok(ui.button('新建').props.disabled);assert.ok(ui.button('直线 L').props.disabled);assert.match(ui.text(),/只读/)
+    await ui.flush();await ui.event(ui.button('直线'),'onClick');assert.ok(ui.button('新建').props.disabled);assert.ok(ui.button('直线 L').props.disabled);assert.match(ui.text(),/只读/)
     await ui.update({active:false});let prevented=false
     for(const fn of ui.events.get('keydown')||[])fn({metaKey:true,key:'s',preventDefault:()=>{prevented=true},stopPropagation(){}})
     assert.equal(prevented,false);assert.equal(calls.filter(call=>call.options?.method==='POST').length,0)
@@ -294,58 +294,39 @@ test('Numeric retains incomplete decimal or sign drafts when its source number i
 })
 
 
-test('task groups expose only their tools and retain text settings between drawing tasks',async()=>{
+test('ribbon tabs retain text settings and actual drawing tools submit geometry',async()=>{
   let saved=drawing();const writes=[]
   const ui=harness(await loadComponent(),async(path,options)=>{
     if(path==='')return {items:[saved]};if(path==='/capabilities')return {canWrite:true};if(path==='/drawing')return structuredClone(saved)
     writes.push(options.body);saved={...saved,revision:2,entities:[...saved.entities,{id:'text-added',editable:true,...options.body.operations[0].entity}]};return structuredClone(saved)
   })
-  const group=label=>ui.find(n=>n.props['aria-label']===`${label}工具组`)
-  const settings=()=>ui.find(n=>n.props['aria-label']==='当前工具设置')
   try{
-    await ui.flush()
-    assert.equal(ui.find(n=>n.props['aria-label']==='选择工具').props.hidden,false)
-    assert.equal(ui.find(n=>n.props['aria-label']==='绘制工具').props.hidden,true)
-    assert.equal(settings().props.hidden,true)
-    await ui.event(group('标注'),'onClick')
-    assert.equal(ui.button('标注 D').props['aria-pressed'],true)
-    assert.equal(settings().props.hidden,false)
-    await ui.event(ui.button('文字 T'),'onClick')
+    await ui.flush();await ui.event(ui.button('文字'),'onClick')
     await ui.event(ui.find(n=>n.type==='input'&&n.props.value==='文字'),'onChange',{target:{value:'阀体 A'}})
     await ui.event(ui.find(n=>n.props.label==='文字高度'),'onChange',4)
-    await ui.event(group('绘制'),'onClick')
-    assert.equal(settings().props.hidden,true)
-    assert.equal(ui.find(n=>n.props['aria-label']==='标注工具').props.hidden,true)
-    await ui.event(group('标注'),'onClick');await ui.event(ui.button('文字 T'),'onClick')
+    await ui.event(ui.button('直线'),'onClick')
+    await ui.event(ui.button('注释'),'onClick');await ui.event(ui.button('文字'),'onClick')
     assert.equal(ui.find(n=>n.props.label==='文字高度').props.value,4)
-    await ui.command('50,20')
-    assert.equal(writes.length,1)
+    await ui.command('50,20');assert.equal(writes.length,1)
     assert.deepEqual(writes[0].operations[0].entity,{layer:'0',type:'TEXT',position:[50,20,0],text:'阀体 A',height:4,rotation:0})
   }finally{ui.unmount()}
 })
 
-test('switching task groups cannot silently discard an unfinished line or selected property draft',async()=>{
+test('changing ribbon tools preserves unfinished geometry and property drafts until explicitly discarded',async()=>{
   let saved=drawing();const writes=[]
   const ui=harness(await loadComponent(),async(path,options)=>{
     if(path==='')return {items:[saved]};if(path==='/capabilities')return {canWrite:true};if(path==='/drawing')return structuredClone(saved)
     writes.push(options.body);saved={...saved,revision:2,entities:[...saved.entities,{id:'added',editable:true,...options.body.operations[0].entity}]};return structuredClone(saved)
   })
-  const group=label=>ui.find(n=>n.props['aria-label']===`${label}工具组`)
   try{
-    await ui.flush();await ui.event(group('绘制'),'onClick');await ui.command('0,12')
-    await ui.event(group('标注'),'onClick')
-    assert.ok(ui.find(n=>n.props.role==='dialog'));assert.equal(writes.length,0)
-    await ui.event(ui.button('继续编辑'),'onClick')
-    assert.equal(group('绘制').props['aria-pressed'],true)
-    await ui.command('20,12')
-    assert.deepEqual(writes[0].operations[0].entity.start,[0,12,0])
-    assert.deepEqual(writes[0].operations[0].entity.end,[20,12,0])
-    await ui.event(group('选择'),'onClick')
-    await ui.event(ui.find(n=>n.props['aria-label']==='选择图纸实体'),'onChange',{target:{value:'a'}})
+    await ui.flush();await ui.event(ui.button('直线'),'onClick');await ui.command('0,12')
+    await ui.event(ui.button('文字'),'onClick');assert.ok(ui.find(n=>n.props.role==='dialog'));assert.equal(writes.length,0)
+    await ui.event(ui.button('继续编辑'),'onClick');await ui.command('20,12')
+    assert.deepEqual(writes[0].operations[0].entity.start,[0,12,0]);assert.deepEqual(writes[0].operations[0].entity.end,[20,12,0])
+    await ui.event(ui.button('选择'),'onClick');await ui.event(ui.find(n=>n.props['aria-label']==='选择图纸实体'),'onChange',{target:{value:'a'}})
     await ui.event(ui.find(n=>n.props.label==='终点 X'),'onChange',45)
-    await ui.event(group('变换'),'onClick');await ui.event(ui.button('继续编辑'),'onClick')
-    assert.equal(ui.find(n=>n.props.label==='终点 X').props.value,45)
-    assert.equal(group('选择').props['aria-pressed'],true);assert.equal(writes.length,1)
+    await ui.event(ui.button('移动'),'onClick');await ui.event(ui.button('继续编辑'),'onClick')
+    assert.equal(ui.find(n=>n.props.label==='终点 X').props.value,45);assert.equal(writes.length,1)
   }finally{ui.unmount()}
 })
 
@@ -357,7 +338,7 @@ test('compact transform controls keep every operation reachable and submit only 
   })
   try{
     await ui.flush();await ui.event(ui.find(n=>n.props['aria-label']==='选择图纸实体'),'onChange',{target:{value:'a'}})
-    await ui.event(ui.find(n=>n.props['aria-label']==='变换工具组'),'onClick')
+    await ui.event(ui.button('变换'),'onClick')
     const operation=()=>ui.find(n=>n.props['aria-label']==='变换操作')
     assert.equal(React.Children.toArray(operation().props.children).length,9)
     assert.ok(ui.find(n=>n.props.label==='位移 X'))
@@ -365,11 +346,11 @@ test('compact transform controls keep every operation reachable and submit only 
     await ui.event(operation(),'onChange',{target:{value:'rotate'}})
     assert.equal(ui.nodes().some(n=>n.props.label==='位移 X'),false)
     await ui.event(ui.find(n=>n.props.label==='角度°'),'onChange',30)
-    await ui.event(ui.button('旋转'),'onClick')
+    await ui.event(ui.find(n=>n.type==='button'&&n.props.className==='primary'&&React.Children.toArray(n.props.children).includes('旋转')),'onClick')
     assert.deepEqual(writes[0].operations,[{op:'transform',ids:['a'],translation:[0,0],rotation:30,scale:1,origin:[0,0],mirror:undefined}])
     await ui.event(operation(),'onChange',{target:{value:'offset'}})
     await ui.event(ui.find(n=>n.props.label==='偏移距离'),'onChange',7)
-    await ui.event(ui.button('偏移'),'onClick')
+    await ui.event(ui.find(n=>n.type==='button'&&n.props.className==='primary'&&React.Children.toArray(n.props.children).includes('偏移')),'onClick')
     assert.deepEqual(writes[1].operations,[{op:'offset',ids:['a'],distance:7}])
     await ui.event(operation(),'onChange',{target:{value:'rotate'}})
     assert.equal(ui.find(n=>n.props.label==='角度°').props.value,30)

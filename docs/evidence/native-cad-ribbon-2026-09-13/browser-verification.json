@@ -1,0 +1,35 @@
+{
+  "checks": {
+    "commandLine": true,
+    "ellipse": true,
+    "move": true,
+    "copy": true,
+    "undoRedo": true,
+    "group": true,
+    "clipboard": true,
+    "paperLayout": true,
+    "mobile": true,
+    "exportDXF": true,
+    "reopen": true
+  },
+  "pageErrors": [],
+  "id": "nd_6506e99beda7480cb0af69c50321187d",
+  "revision": 11,
+  "entities": 8,
+  "groups": [
+    {
+      "name": "*A1",
+      "ids": [
+        "8D",
+        "8E",
+        "8F",
+        "90"
+      ]
+    }
+  ],
+  "layouts": [
+    "Model",
+    "Layout1",
+    "Layout2"
+  ]
+}
