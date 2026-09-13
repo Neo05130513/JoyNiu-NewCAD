@@ -1,0 +1,22 @@
+{
+  "release": "native-cad-ribbon-20260913",
+  "sourceCommit": "8a5a87bffc7d0611e1f64b94631ff5dd5b01146d",
+  "files": {
+    "account-cleanup.json": "d5c15f4ec2fc7f18fa597710a04aafc9275b250a1ba39863aa9306642a63a304",
+    "browser-export.dxf": "6568c8ea2ba9268e327b9cbd3f2b2315c235c27657c6fc99030a5b6bd65df4a1",
+    "browser-verification.json": "1e6b989ff939afcb535691bdb36073c348eb2de093cd2c30525a68f62ef5d098",
+    "candidate-verification.json": "db149afce52d9f49a7a03c184ae930ef2d0f01611bbb4c4f872ff55dc7427c75",
+    "deploy-authenticated-verify.json": "55f414acc4ae26ae31f5acf3f89688f2b258634b87dc264a4b0ea035be7f1b89",
+    "deploy-verify.json": "10b3540b920e26bd12e80a462065d536f1ad81aa809919a339d3b670ad3f536a",
+    "desktop.png": "2747575b51cb1e8012c296923623eac21ada4ecd8952fe69a19868dce8d0bda6",
+    "dxf-readback.json": "a1b7dbcf2535fdec7da66dafb8e5492883b6ba8b0aa2c15d584d12fdec0b106c",
+    "graphical-verification.json": "3ab9e4445a87a6cf27240a619a154d5fad8032167cd95c7e4d4f919167d53519",
+    "graphical.png": "59668a4355737961142cb790c5a47a73509f1bf0b36143645b0d57e71450cfdc",
+    "layout.png": "848d4c3f1cf78388d085595b6a4055d39ad0066647500c55ef73d54984ebee30",
+    "mobile.png": "e38e0254d4a30dc6e645ceb77a45c54dd076d5af40ebde260093aa436ffe4fbf",
+    "runtime.json": "b1994b77e0eb040a932eece6fc95562118872caee5a6941d57ef9c6a50ddc610",
+    "server-activation.json": "e00fd43919e52222b93dd1a2c13fdd9e2bb2ee3c02bb3bf1f22c4a02d5aff1f1",
+    "server-bound.json": "a3ba77436a1e8b411046b69277d8f3a59ed7dca874069d3e0a0a75add94c7ccf",
+    "server-plan.json": "1daee9abc31fc368f72ef20b4a65679b06dffbfc98d7e8b56a56c4cacd6e11c5"
+  }
+}

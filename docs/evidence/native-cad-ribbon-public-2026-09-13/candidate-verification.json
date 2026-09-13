@@ -1,0 +1,87 @@
+{
+  "ok": true,
+  "networkCalls": "loopback only",
+  "usesCustomerCredentials": false,
+  "candidateRuntime": true,
+  "architecture": "x86_64",
+  "compilerAbsent": true,
+  "packages": {
+    "cadquery": "2.8.0",
+    "ezdxf": "1.4.4",
+    "PyMuPDF": "1.28.2",
+    "cryptography": "50.0.1"
+  },
+  "tools": {
+    "dwgread": {
+      "sha256": "c32ab15bef6f02209a1f4328d593cfe5ea38b4088adc1e38ad9736d28075dc5a",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    },
+    "dwg2dxf": {
+      "sha256": "c684041b7eadf2e89bd52ef2d916141f82d74b80620f8ac3b8cea31868becf04",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    },
+    "dxf2dwg": {
+      "sha256": "baa3f4c339507faeecf41ed93fde8433a67767e334d5dd247c2b53e721789539",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    },
+    "joyniu-native-dwg-adapter": {
+      "sha256": "73bba139c420013bd81d9a6c5b86800f57b0daf4a08a65230b6d6f5ab3ac6122",
+      "versionChecked": true,
+      "staticLibreDwgLinkVerified": true
+    }
+  },
+  "native": {
+    "binaryDwg": true,
+    "fullDrawingSignatureMatch": true,
+    "dimensionsRemainNative": true,
+    "measurementMm": 150,
+    "editedLinkedMeasurementMm": 160,
+    "toleranceUpper": 0.2,
+    "toleranceLower": 0.1,
+    "bubbleNumber": 7,
+    "blocksAndPaperLayoutsPreserved": true,
+    "workspace": {
+      "ellipse": true,
+      "groups": true,
+      "layoutViewport": true,
+      "dxfReadback": true,
+      "svgPreview": true,
+      "reopen": true,
+      "undoRedo": true
+    }
+  },
+  "engineering": {
+    "featureWorker": true,
+    "stepValid": true,
+    "solidCount": 1,
+    "sizeMm": [
+      40.5,
+      20,
+      10
+    ],
+    "volumeMm3": 8100,
+    "dxfDimensionMm": 10,
+    "pdfPaperMm": [
+      420,
+      297
+    ],
+    "pdfChineseGlyphsRendered": true,
+    "pdfEmbeddedFontBytes": [
+      407397
+    ]
+  },
+  "http": {
+    "anonymousStatus": {
+      "/api/cad/drawings": 401,
+      "/api/cad/features": 401,
+      "/api/cad/designs": 401,
+      "/api/cad/deliveries": 401
+    },
+    "syntheticLogin": true,
+    "authenticatedLists": true,
+    "deliveryArchiveVerified": true
+  }
+}

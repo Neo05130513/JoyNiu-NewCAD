@@ -1,0 +1,13 @@
+{
+  "source": "public browser DXF download",
+  "entities": 8,
+  "ellipseCount": 2,
+  "groups": 1,
+  "layouts": [
+    "Model",
+    "Layout1",
+    "Layout2"
+  ],
+  "nativeViewports": 2,
+  "sha256": "6568c8ea2ba9268e327b9cbd3f2b2315c235c27657c6fc99030a5b6bd65df4a1"
+}

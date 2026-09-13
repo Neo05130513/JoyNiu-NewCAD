@@ -1,0 +1,67 @@
+{
+  "checks": {
+    "fillet": true,
+    "mouseMove": true,
+    "numericRotation": true,
+    "numericScale": true,
+    "keyboardDraftGuard": true
+  },
+  "pageErrors": [],
+  "entities": [
+    {
+      "id": "8D",
+      "type": "LINE",
+      "layer": "0",
+      "color": 256,
+      "editable": true,
+      "lineweight": -1,
+      "linetype": "BYLAYER",
+      "start": [
+        -20,
+        20,
+        0
+      ],
+      "end": [
+        -19.99999999999999,
+        200,
+        0
+      ]
+    },
+    {
+      "id": "8E",
+      "type": "LINE",
+      "layer": "0",
+      "color": 256,
+      "editable": true,
+      "lineweight": -1,
+      "linetype": "BYLAYER",
+      "start": [
+        100,
+        10.000000000000002,
+        0
+      ],
+      "end": [
+        100,
+        60,
+        0
+      ]
+    },
+    {
+      "id": "8F",
+      "type": "ARC",
+      "layer": "0",
+      "color": 256,
+      "editable": true,
+      "lineweight": -1,
+      "linetype": "BYLAYER",
+      "center": [
+        90,
+        10,
+        0
+      ],
+      "radius": 10,
+      "startAngle": -90,
+      "endAngle": 1.0177774980683253e-14
+    }
+  ]
+}
