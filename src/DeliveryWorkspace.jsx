@@ -54,7 +54,7 @@ export function DeliveryPackageDetail({ detail, loading = false, error = '', dow
   </section>
 }
 
-function DeliveryWorkspaceSession({ token, accountKey, active = true, showToast, seed, client = deliveryWorkspaceClient }) {
+function DeliveryWorkspaceSession({ token, accountKey, active = true, showToast, seed, onLogin, onNavigate, client = deliveryWorkspaceClient }) {
   const initialDraftRef = useRef(null)
   if (!initialDraftRef.current) initialDraftRef.current = readDeliveryDraft(draftStorage(), accountKey)
   const [title, setTitle] = useState(initialDraftRef.current.title)
@@ -189,7 +189,7 @@ function DeliveryWorkspaceSession({ token, accountKey, active = true, showToast,
     setSelected(current => current.some(ref => deliverySourceKey(ref) === key) ? current.filter(ref => deliverySourceKey(ref) !== key) : [...current, deliverySourceRef(source)])
     setCreateError(''); setNotice('')
   }
-  if (!token) return <div className="delivery-workspace"><div className="delivery-card delivery-empty"><h1>交付中心</h1><p>请先登录，查看和封存自己账号的设计成果。</p></div></div>
+  if (!token) return <div className="delivery-workspace"><div className="delivery-card delivery-empty"><h1>交付中心</h1><p>请先登录，查看和封存自己账号的设计成果。</p>{onLogin&&<button className="delivery-primary" onClick={onLogin}>登录并继续交付</button>}</div></div>
   const selection = deliverySelectionState(selected, sources)
   const unavailable = !sourcesLoading && !sourcesError && selection.some(source => source.eligible !== true)
   const hasSelection = selection.length > 0
@@ -201,6 +201,7 @@ function DeliveryWorkspaceSession({ token, accountKey, active = true, showToast,
     <form className="delivery-create-layout" hidden={tab !== 'create'} onSubmit={createPackage}>
       <section className="delivery-card"><div className="delivery-section-title"><h2>1. 选择来源</h2><span className="delivery-meta">已选 {selection.length} 个</span></div><p className="delivery-meta">仅显示当前账号的成果，每包最多选 20 个来源。尚未通过原有交付检查的结果不能打包。</p>
         <div className="delivery-filters"><label>来源类型<select value={kind} onChange={event => setKind(event.target.value)}><option value="">全部来源</option>{Object.entries(deliverySourceKinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label>搜索名称<input value={query} onChange={event => setQuery(event.target.value)} type="search" placeholder="输入设计或图纸名称" /></label></div>
+        {!sourcesLoading&&!sourcesError&&!sources.length&&onNavigate&&<div className="delivery-empty-actions"><button type="button" onClick={()=>onNavigate('原生二维')}>创建二维图纸</button><button type="button" onClick={()=>onNavigate('特征编辑')}>创建三维模型</button></div>}
         <DeliverySourceList sources={sources} selected={selected} loading={sourcesLoading} error={sourcesError} disabled={creating} query={query} kind={kind} onSelect={toggleSource} onRetry={refresh} />
       </section>
       <section className="delivery-card delivery-compose"><h2>2. 命名并封存</h2><fieldset disabled={creating}><label>交付包名称<input value={title} maxLength={180} onChange={event => { setTitle(event.target.value); setCreateError('') }} placeholder="例如：减速器样机 · 首轮交付" required /></label><label>交付备注<span className="delivery-meta">可填写用途、客户要求或需要重点核对的内容。</span><textarea value={notes} maxLength={4000} onChange={event => setNotes(event.target.value)} rows={4} placeholder="选填" /></label>

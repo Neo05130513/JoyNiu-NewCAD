@@ -185,7 +185,7 @@ export default function EngineeringWorkspace(props) {
   return <EngineeringWorkspaceContent key={props.accountKey || props.token || ''} {...props}/>
 }
 
-function EngineeringWorkspaceContent({ token, accountKey, model, generation, showToast, initialTab = 'viewer', active = true }) {
+function EngineeringWorkspaceContent({ token, accountKey, model, generation, showToast, initialTab = 'viewer', active = true, onLogin }) {
   const scope = 'engineering-library'
   const [designs,setDesigns]=useState([]), [current,setCurrent]=useState(null), [tab,setTab]=useState(initialTab==='viewer'?'measure':initialTab)
   const [busy,setBusy]=useState(''), [error,setError]=useState(''), [feedback,setFeedback]=useState('')
@@ -248,7 +248,7 @@ function EngineeringWorkspaceContent({ token, accountKey, model, generation, sho
   try{displayPlane={normal:engineeringDirection(section.axis==='custom'?section.normal:axisNormal(section.axis)),position:engineeringNumber(section.position,'剖切位置')}}catch{displayPlane={invalid:true}}
   const previewKey=Object.keys(current?.lastDrawing?.artifacts||{}).find(key=>key.endsWith('.svg'))
   useEffect(()=>{setPreview('');if(!current?.id||!previewKey)return;const control=new AbortController();client.artifact(current.id,previewKey,{token,signal:control.signal}).then(blob=>{if(!control.signal.aborted)setPreview(URL.createObjectURL(blob))}).catch(error=>{if(!control.signal.aborted)setError(`工程图已保存，但预览加载失败：${error.message}。可下载已保存图纸。`)});return()=>control.abort()},[current?.id,previewKey,token])
-  if(!token)return <section className="eng-workspace"><h1>工程工作台</h1><p>请先登录，以保存独立的 STEP 设计、装配与工程图。</p></section>
+  if(!token)return <section className="eng-workspace"><h1>工程工作台</h1><p>请先登录，以保存独立的 STEP 设计、装配与工程图。</p>{onLogin&&<button className="eng-primary" onClick={onLogin}>登录并继续工程设计</button>}</section>
   return <section className="eng-workspace" aria-label="工程工作台">
     <header className="eng-heading"><div><h1>工程设计</h1></div><div className="eng-actions"><input ref={upload} type="file" accept=".step,.stp" hidden onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)work('导入 STEP',signal=>importFile(file,signal))}}/><button disabled={!!busy} onClick={()=>upload.current.click()}>＋ 上传 STEP / STP</button><button disabled={!!busy||!canImportCurrent} title={canImportCurrent?'导入当前已确认实体':'先在建模工作台生成并确认当前实体'} onClick={importCurrent}>导入当前模型</button></div></header>
     {busy&&<p role="status" className="eng-notice">{busy}…</p>}{error&&<p role="alert" className="eng-error">{error}</p>}{feedback&&!busy&&<p role="status" className="eng-notice">{feedback}</p>}

@@ -7,7 +7,7 @@ export { activeTaskStatuses } from './taskWorkspaceState.js'
 const PAGE_SIZE = 20
 const dateText = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('zh-CN') : '—'
 
-function TaskSession({ token, onOpen }) {
+function TaskSession({ token, onOpen, onStart }) {
   const [records, setRecords] = useState(null)
   const [offset, setOffset] = useState(0)
   const [filter, setFilter] = useState('all')
@@ -79,7 +79,7 @@ function TaskSession({ token, onOpen }) {
     {error && <p className="task-error" role="alert">{error}<button onClick={() => poller.current?.refresh()}>重试读取</button></p>}
     {actionError && <p className="task-error" role="alert">{actionError}</p>}{notice && <p className="task-notice" role="status">{notice}</p>}
     {loading && !records && <p className="task-loading" role="status">正在读取任务…</p>}
-    {!loading && records && !items.length && <div className="task-empty"><h2>{records.total ? '本页没有符合条件的任务' : '还没有建模任务'}</h2><p>{records.total ? '可切换筛选或翻页查看其他记录。' : '上传图纸或提交建模要求后，处理记录会出现在这里。'}</p></div>}
+    {!loading && records && !items.length && <div className="task-empty"><h2>{records.total ? '本页没有符合条件的任务' : '还没有建模任务'}</h2><p>{records.total ? '可切换筛选或翻页查看其他记录。' : '上传图纸或提交建模要求后，处理记录会出现在这里。'}</p>{!records.total&&onStart&&<button className="primary-button" onClick={onStart}>开始设计</button>}</div>}
     <div className="task-list">{items.map(job => <article key={job.runId} className="task-card">
       <div className="task-card-title"><h2>{job.name || '建模任务'}</h2><span className={`task-status ${job.status}`}>{taskStatusLabel(job.status)}</span></div>
       <p>{job.progress?.message && activeTaskStatuses.includes(job.status) ? job.progress.message : job.message || '处理记录已保存。'}</p>
@@ -93,7 +93,7 @@ function TaskSession({ token, onOpen }) {
   </section>
 }
 
-export default function TaskWorkspace({ account, onLogin, onOpen }) {
+export default function TaskWorkspace({ account, onLogin, onStart, onOpen }) {
   if (!account?.session?.access_token) return <section className="task-workspace"><h1>我的任务</h1><p>登录后查看你的建模进度和处理记录。</p><button className="primary-button" onClick={onLogin}>登录账号</button></section>
-  return <TaskSession key={account.session.user?.id || account.session.access_token} token={account.session.access_token} onOpen={onOpen} />
+  return <TaskSession key={account.session.user?.id || account.session.access_token} token={account.session.access_token} onOpen={onOpen} onStart={onStart} />
 }

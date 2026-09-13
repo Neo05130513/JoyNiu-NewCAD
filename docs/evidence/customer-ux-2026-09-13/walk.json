@@ -1,0 +1,165 @@
+{
+  "pages": [
+    {
+      "width": 1440,
+      "name": "创模 AI",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "我的项目",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "我的任务",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "交付中心",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "案例与教程",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "工程设计",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "照片建模",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "标准件库",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "PDM 平台服务",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "CAM / NC",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "积分与订单",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "账号与安全",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "设置",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "支持与工单",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "服务规则",
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "name": "帮助",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "创模 AI",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "我的项目",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "我的任务",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "交付中心",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "案例与教程",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "工程设计",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "照片建模",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "标准件库",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "PDM 平台服务",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "CAM / NC",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "积分与订单",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "账号与安全",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "设置",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "支持与工单",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "服务规则",
+      "overflow": false
+    },
+    {
+      "width": 390,
+      "name": "帮助",
+      "overflow": false
+    }
+  ],
+  "errors": []
+}

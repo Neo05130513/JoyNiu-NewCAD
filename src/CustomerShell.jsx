@@ -5,6 +5,7 @@ import { accountWorkspaceStorageKey, createAccountWorkspaceClient, resolveAccoun
 import { createSessionExpiryTimer, createSessionOperationCoordinator, createWorkspaceSynchronizer, legacyImportEligibility, selectWorkspaceCache, workspaceLoadDecision } from './workspaceSync.js'
 import { downloadBlob } from './workspaceFeedback.js'
 import { readAppRoute } from './adminNavigation.js'
+import { independentWorkspaces, projectFileModes } from './workspaceNavigation.js'
 
 const AdminShell = lazy(() => import('./AdminShell.jsx'))
 
@@ -51,6 +52,7 @@ export default function CustomerShell({ Workbench }) {
   const [session, setSession] = useState(null)
   const [checking, setChecking] = useState(true)
   const [sessionNotice, setSessionNotice] = useState('')
+  const loginDestination = useRef(null)
   const currentSession = useRef(session); currentSession.current = session
   const authEpoch = useRef(0)
   useEffect(() => {
@@ -94,6 +96,9 @@ export default function CustomerShell({ Workbench }) {
   }
   const account = {
     session, notice: sessionNotice,
+    startMode: session ? loginDestination.current : null,
+    requestLogin: mode => { loginDestination.current = ['首页','我的任务','积分与订单','支持与工单','服务与积分规则','案例与教程','设置','帮助与反馈',...independentWorkspaces,...projectFileModes].includes(mode) ? mode : '首页' },
+    consumeLoginDestination: () => { loginDestination.current = null },
     login: async ({ email, password, bootstrap, displayName, roles }) => {
       const epoch = ++authEpoch.current
       return accept(await sessionOperations.run(async () => {
@@ -105,7 +110,7 @@ export default function CustomerShell({ Workbench }) {
     changePassword: async payload => { const epoch = ++authEpoch.current; return accept(await sessionOperations.run(() => api.changePassword(payload, session?.access_token)), epoch) },
     logout: async () => {
       const token = currentSession.current?.access_token
-      authEpoch.current++; setSessionNotice(''); setSession(null)
+      authEpoch.current++; loginDestination.current = null; setSessionNotice(''); setSession(null)
       const marker = JSON.stringify(Date.now())
       try { localStorage.setItem(logoutKey, marker) } catch { /* A full workspace cache must not block logout. */ }
       try { sessionStorage.setItem(logoutKey, marker) } catch { /* The server logout is still attempted below. */ }

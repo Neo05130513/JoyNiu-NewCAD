@@ -129,3 +129,5 @@
 
 .ce-sketch-toolbar-host {display:flex;align-items:stretch;min-width:0;flex:1}
 .ce-is-sketch .ce-ribbon {z-index:12}
+
+@media(max-width:900px){.ce-header .ce-home{display:block!important;flex-shrink:0;white-space:nowrap;padding:5px 7px}.ce-header .ce-document-name{display:none}}

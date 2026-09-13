@@ -117,9 +117,12 @@ test('legacy drawing migration uses original bytes, requests reselection for met
 
   const app = readFileSync(new URL('./App.jsx', import.meta.url), 'utf8')
   const initialModeCode = app.match(/  const \[activeMode, setActiveMode\] = .+/)[0]
-  const restored = vm.createContext({ initialSnapshot: { activeMode: '图纸转 3D', drawingJob: job }, useState: (mode) => [mode, () => {}], normalizeCadWorkspaceMode })
+  const restored = vm.createContext({ account: {}, initialSnapshot: { activeMode: '图纸转 3D', drawingJob: job }, useState: (mode) => [mode, () => {}], normalizeCadWorkspaceMode })
   vm.runInContext(`${initialModeCode}\nglobalThis.restoredMode = activeMode`, restored)
   assert.equal(restored.restoredMode, '3D 建模')
+  const returning = vm.createContext({ account: { startMode: '原生二维' }, initialSnapshot: { activeMode: '首页' }, useState: mode => [mode, () => {}], normalizeCadWorkspaceMode })
+  vm.runInContext(`${initialModeCode}\nglobalThis.restoredMode = activeMode`, returning)
+  assert.equal(returning.restoredMode, '原生二维')
   const start = app.indexOf('  const migrateLegacyDrawing = () => {')
   const code = app.slice(start, app.indexOf('  const primaryLabel', start))
   let picks = 0, sends = 0

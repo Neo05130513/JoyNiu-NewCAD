@@ -309,13 +309,13 @@ test('new sketch starts empty on the actual selected plane and cancel keeps the 
 
 test('formula transactions block parent undo and are removed with deferred navigation when document scope changes',async()=>{
   await load();let undo=0,back=0
-  const initial=defaults({onUndo:()=>{undo++},onBack:()=>{back++}}),ui=harness(Surface,initial)
+  const initial=defaults({onUndo:()=>{undo++},onNavigate:()=>{back++}}),ui=harness(Surface,initial)
   try{
     await ui.event(ui.find(node=>node.type==='button'&&React.Children.toArray(node.props.children).some(value=>typeof value==='string'&&value.includes('方程式'))),'onClick')
     await ui.event(ui.boundary('parameters'),'onChange',{width:{value:99}})
     for(const handler of ui.events.get('keydown')||[])handler({key:'z',ctrlKey:true,target:{tagName:'BUTTON'},preventDefault(){}})
     assert.equal(undo,0)
-    await ui.event(ui.button('〈 返回云管理界面'),'onClick');assert.equal(back,0)
+    await ui.event(ui.button('‹ 返回主页'),'onClick');assert.equal(back,0)
     assert.ok(ui.find(node=>node.props['aria-label']==='结束当前操作'))
     await ui.update({scope:'other-account:other-file',draft:draft()})
     assert.equal(ui.nodes().some(node=>node.type?.testBoundary==='parameters'),false)

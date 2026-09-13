@@ -60,7 +60,7 @@ test('real App initialization migrates old aliases and newly saved snapshots rec
   for (const [type, alias, expected] of [['工程图', '2D 工程图', '基础工程图'], ['装配体', '装配', '装配草稿']]) {
     for (const versioned of [false, true]) {
       const snapshot = { activeMode: alias, ...(versioned ? { workspaceModeVersion: 2 } : {}) }
-      const state = { initialStoreRef: { current: {} }, ProjectStore: { getFileSnapshot: () => snapshot, getActiveFile: () => ({ type }) }, migrateWorkspaceSnapshotNavigation, normalizeCadWorkspaceMode: mode => mode, modeForFile: modeForProjectFile, useState: value => [value, () => {}], activeFile: { type, snapshot }, hasModel: false, model: null, currentSnapshotRef: {}, drawingJob: null, generation: null, messages: [], assemblyItems: [], prompt: '', drawingScale: '1:1', drawingPreferences: {}, view: 'isometric', section: false, zoom: 1 }
+      const state = { account: {}, initialStoreRef: { current: {} }, ProjectStore: { getFileSnapshot: () => snapshot, getActiveFile: () => ({ type }) }, migrateWorkspaceSnapshotNavigation, normalizeCadWorkspaceMode: mode => mode, modeForFile: modeForProjectFile, useState: value => [value, () => {}], activeFile: { type, snapshot }, hasModel: false, model: null, currentSnapshotRef: {}, drawingJob: null, generation: null, messages: [], assemblyItems: [], prompt: '', drawingScale: '1:1', drawingPreferences: {}, view: 'isometric', section: false, zoom: 1 }
       vm.runInNewContext(`${initialization}\n${initialMode}\n${snapshotWrite}`, state)
       assert.equal(state.currentSnapshotRef.current.activeMode, versioned ? alias : expected)
       assert.equal(state.currentSnapshotRef.current.workspaceModeVersion, 2)

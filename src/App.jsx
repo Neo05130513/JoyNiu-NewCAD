@@ -1021,7 +1021,9 @@ function WorkbenchApp({ initialStore, account, workspace, suspended = false }) {
   })
   const [showOriginalModel, setShowOriginalModel] = useState(false)
   const manualFeatureReference = activeFile?.snapshot?.manualFeatureReference || null
-  const [activeMode, setActiveMode] = useState(initialSnapshot.activeMode === '特征编辑' && !editingTarget && (initialSnapshot.manualFeatureReference || initialSnapshot.cadEditorDocument) ? '3D 建模' : normalizeCadWorkspaceMode(initialSnapshot.activeMode) || (initialSnapshot.drawingJob?.evidence || initialSnapshot.generation ? modeForFile(activeFile) : '首页'))
+  const [activeMode, setActiveMode] = useState(account.startMode || (initialSnapshot.activeMode === '特征编辑' && !editingTarget && (initialSnapshot.manualFeatureReference || initialSnapshot.cadEditorDocument) ? '3D 建模' : normalizeCadWorkspaceMode(initialSnapshot.activeMode) || (initialSnapshot.drawingJob?.evidence || initialSnapshot.generation ? modeForFile(activeFile) : '首页')))
+  useEffect(() => { account.consumeLoginDestination?.() }, [])
+  const requestLogin = (mode=activeMode) => { account.requestLogin?.(mode); setActiveMode('账号') }
   const [engineeringTab, setEngineeringTab] = useState(engineeringTabs[activeMode] || 'viewer')
   useEffect(() => { if (engineeringTabs[activeMode]) setEngineeringTab(engineeringTabs[activeMode]) }, [activeMode])
   const context = workspaceContext(activeMode)
@@ -3452,18 +3454,18 @@ function WorkbenchApp({ initialStore, account, workspace, suspended = false }) {
     showToast(generated.validation?.productionReady ? '实体与 STEP 已生成并通过 OCCT 校验' : '已生成参数预览；启动后端后可生成生产 STEP')
   }
   const attachDrawingToConversation = (fileInput, description) => {
-    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask) return showToast('当前模型仍在处理，请完成后再更换图纸。', 'info')
+    if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask) return (showToast('当前模型仍在处理，请完成后再更换图纸。', 'info'), false)
     const selectedFiles = normalizeFilesInput(fileInput)
-    if (!selectedFiles.length) return
-    if (selectedFiles.length > 4) return showToast('一次最多上传 4 个图纸文件', 'error')
+    if (!selectedFiles.length) return false
+    if (selectedFiles.length > 4) return (showToast('一次最多上传 4 个图纸文件', 'error'), false)
     const unsupported = selectedFiles.find((file) => {
       const extension = file.name?.split('.').pop()?.toLowerCase()
       return !(file.type?.startsWith('image/') || ['pdf', 'dxf', 'dwg'].includes(extension))
     })
-    if (unsupported) return showToast('不支持此文件格式，请选择 JPG、PNG、WEBP、PDF、DWG 或 DXF。', 'error')
-    if (selectedFiles.some((file) => file.size > 20 * 1024 * 1024)) return showToast('单个图纸不能超过 20 MB')
+    if (unsupported) return (showToast('不支持此文件格式，请选择 JPG、PNG、WEBP、PDF、DWG 或 DXF。', 'error'), false)
+    if (selectedFiles.some((file) => file.size > 20 * 1024 * 1024)) return (showToast('单个图纸不能超过 20 MB'), false)
     if (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) {
-      if (!canSwitch()) return
+      if (!canSwitch()) return false
       createFile({ name: selectedFiles[0].name.replace(/\.[^.]+$/, ''), type: '零件', source: 'blank' })
     }
     // Keep upload, recognition and generation as visible stages.  Selecting a
@@ -3479,6 +3481,7 @@ function WorkbenchApp({ initialStore, account, workspace, suspended = false }) {
     // entity or confirmed evidence.  A new drawing context begins only when
     // the customer actually sends this chat turn.
     showToast(`${selectedFiles.length === 1 ? '图纸' : `${selectedFiles.length} 个文件`}已附加到下一条消息`)
+    return true
   }
   const remodelLegacyDrawing = async (fileInput) => {
     if (isGenerating || isAccepting || chatAbortRef.current || cadConfirmRef.current || drawingJobRef.current?.cadTask) return false
@@ -3535,19 +3538,19 @@ function WorkbenchApp({ initialStore, account, workspace, suspended = false }) {
         saveLabel={storageError ? '草稿尚未保存' : ({ saved: '已保存', saving: '保存中…', error: '云保存失败', conflict: '版本有更新', local: '本地已保存' }[workspace.saveState.status] || '')}
         user={platform.user} creditBalance={creditBalance} backend={backend} projects={projects}
         adminAvailable={adminSections.some(item => canAdmin(platform.user, item.permission))}
-        onNavigate={setActiveMode} onNewProject={createProject} onRecent={() => setDialog('recent')} onCommands={() => setDialog('commands')}
+        onNavigate={mode=>mode==='账号'&&!platform.token?requestLogin():setActiveMode(mode)} onNewProject={createProject} onRecent={() => setDialog('recent')} onCommands={() => setDialog('commands')}
         onSelectProject={selectLocalProject} onAdmin={() => { setDialog(''); setMobileMenuOpen(false); navigateApplication(adminPath()) }}
         collapsed={navCollapsed} onToggleSidebar={() => setNavCollapsed(value => !value)} menuOpen={mobileMenuOpen} onMenuOpenChange={setMobileMenuOpen} />}
       <main className={`main-area studio-main ${activeMode === '首页' ? 'studio-main--home' : ''}`}>
           {['error', 'conflict'].includes(workspace.saveState.status) && <div className="storage-warning" role="alert">{workspace.saveState.status === 'conflict' ? '其他设备更新了项目，本地修改已保留。可导出备份，或先备份再读取云端版本。' : `云端保存失败：${workspace.saveState.error}`}<button onClick={workspace.exportLocal}>导出本地备份</button>{workspace.saveState.status === 'conflict' ? <button onClick={workspace.reloadCloud}>备份并读取云端</button> : <button onClick={workspace.retry}>重新同步</button>}</div>}
           {workspace.canImportLegacy && activeMode === '项目管理' && <div className="customer-notice legacy-import">此浏览器保存着旧版项目。若这些项目属于你，可导入当前账号。<button className="secondary-button" onClick={workspace.importLegacy}>导入旧版项目</button></div>}
-          {activeMode === '积分与订单' && <><CommercialTermsWorkspace account={account} compact onLogin={() => setActiveMode('账号')} /><BillingWorkspace account={account} onLogin={() => setActiveMode('账号')} onWalletChange={value => setCreditBalance(value?.creditUnits ?? null)} /></>}
-          {activeMode === '我的任务' && <TaskWorkspace account={account} onLogin={() => setActiveMode('账号')} onOpen={openTask} />}
+          {activeMode === '积分与订单' && <><CommercialTermsWorkspace account={account} compact onLogin={() => requestLogin()} /><BillingWorkspace account={account} onLogin={() => requestLogin()} onWalletChange={value => setCreditBalance(value?.creditUnits ?? null)} /></>}
+          {activeMode === '我的任务' && <TaskWorkspace onStart={()=>setActiveMode('首页')} account={account} onLogin={() => requestLogin()} onOpen={openTask} />}
 
 
 
-          {activeMode === '服务与积分规则' && <CommercialTermsWorkspace account={account} onLogin={() => setActiveMode('账号')} />}
-          {activeMode === '支持与工单' && <SupportWorkspace account={account} onLogin={() => setActiveMode('账号')} />}
+          {activeMode === '服务与积分规则' && <CommercialTermsWorkspace account={account} onLogin={() => requestLogin()} />}
+          {activeMode === '支持与工单' && <SupportWorkspace account={account} onLogin={() => requestLogin()} />}
           {(activeMode === '账号' || (!platform.token && ['平台服务', 'CAM / NC'].includes(activeMode))) && <AccountWorkspace account={account} onOpenProjects={() => setActiveMode('项目管理')} />}
           {storageError && <div className="storage-warning" role="alert">{storageError}<button onClick={exportBackup}>导出备份</button></div>}
           {normalizeCadWorkspaceMode(activeMode) === '3D 建模' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && (!manualFeatureReference || showOriginalModel) && <ModelWorkspace key={activeFile.id} modelEditing={modelEditing} onEditModel={() => openModelEditor()} manualFeatureReference={manualFeatureReference} onShowManual={() => setShowOriginalModel(false)} inspectorRequest={inspectorRequest} onInspectorHandled={() => setInspectorRequest(false)} chatRequest={chatRequest} onChatHandled={() => setChatRequest(false)} {...{ activePanel, setActivePanel, model, hasModel, modelValid, updateModel, resetModel, createBasicShaft, features: currentFeatures, selectedFeature, setSelectedFeature, prompt, setPrompt, runGenerate, stopAiConversation, startNewConversation, rebuildCurrentModel, recoverExpiredProductionGlb, isGenerating, isAccepting, messages, view, setView, section, setSection, zoom, setZoom, exportFile, showToast, backend, generation, attachDrawingToConversation, remodelLegacyDrawing, chatAttachments, setChatAttachments, aiConversation, platform, drawingJob, setActiveMode, generateFromDrawing, acceptDrawingData, parameterValidation, checkResult, isChecking, runModelChecks, retryAi, saveCurrentVersion: () => saveVersionForFile(activeFile.id) }} />}
@@ -3557,12 +3560,12 @@ function WorkbenchApp({ initialStore, account, workspace, suspended = false }) {
           {activeMode === '装配草稿' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <AssemblyWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onBackToModel={() => setActiveMode('3D 建模')} onOpenLibrary={() => setActiveMode('标准件库')} showToast={showToast} />}
           {activeMode === '标准件库' && activeFile?.type !== '文档' && activeFile && !activeFile.contentUnavailable && <LibraryWorkspace key={activeFile.id} model={model} assemblyItems={assemblyItems} setAssemblyItems={setAssemblyItems} onOpenAssembly={() => setActiveMode(standardLibraryAssemblyMode)} onBackToModel={() => setActiveMode('3D 建模')} showToast={showToast} />}
           {['3D 建模', '图纸核对', '基础工程图', '装配草稿', '标准件库'].includes(activeMode) && (!activeFile || activeFile.type === '文档' || activeFile.contentUnavailable) && <section className="secondary-workspace"><h1>先打开一个设计文件</h1><p>当前内容是文档或尚未创建模型。可在项目中打开零件、工程图或装配文件。</p><button className="primary-button" onClick={() => setActiveMode('项目管理')}>打开项目文件</button><button className="secondary-button" onClick={() => createFile({ name: '新零件', type: '零件', source: 'blank' })}>新建零件</button></section>}
-          <RetainedWorkspace key={`feature:${accountKey}`} active={!suspended && activeMode === '特征编辑'}><DirectFeatureWorkspace accountKey={accountKey} active={!suspended && activeMode === '特征编辑'} token={platform.token} model={editingTarget?.model || model} generation={editingTarget?.generation || generation} initialPlan={editingTarget?.initialPlan || activeCase?.plan} initialDraft={editingTarget?.initialDraft} initialPlanKey={editingTarget?.initialPlanKey || activeCase?.id} initialReference={editingTarget?.reference} sourceFileId={editingTarget?.fileId} sourceProjectId={editingTarget?.projectId} documents={cadDocuments} onOpenDocument={openCadDocument} sourceLabel={editingTarget ? `${editingTarget.name} · 编辑模型` : undefined} onBack={returnFromModelEditor} onNavigate={setActiveMode} accountName={platform.user?.displayName || platform.user?.name} creditBalance={creditBalance} onNewDocument={createCadDocument} onOpenPdm={openPdmVersion} onOpenCommunity={openCommunityResource} onSaved={value => saveEditedModel(value, editingTarget)} showToast={showToast} onCreate={() => showToast(editingTarget ? '修改后的实体已保存到来源文件' : '模型已生成并保存')} /></RetainedWorkspace>
-          <RetainedWorkspace key={`photo:${accountKey}`} active={!suspended && activeMode === '照片建模'}><PhotoModelingWorkspace busy={isGenerating || isAccepting} onPrepare={(files,text) => { attachDrawingToConversation(files); setPrompt(text) }} /></RetainedWorkspace>
+          <RetainedWorkspace key={`feature:${accountKey}`} active={!suspended && activeMode === '特征编辑'}><DirectFeatureWorkspace accountKey={accountKey} active={!suspended && activeMode === '特征编辑'} token={platform.token} model={editingTarget?.model || model} generation={editingTarget?.generation || generation} initialPlan={editingTarget?.initialPlan || activeCase?.plan} initialDraft={editingTarget?.initialDraft} initialPlanKey={editingTarget?.initialPlanKey || activeCase?.id} initialReference={editingTarget?.reference} sourceFileId={editingTarget?.fileId} sourceProjectId={editingTarget?.projectId} documents={cadDocuments} onOpenDocument={openCadDocument} sourceLabel={editingTarget ? `${editingTarget.name} · 编辑模型` : undefined} onBack={returnFromModelEditor} onNavigate={mode=>mode==='账号'&&!platform.token?requestLogin('特征编辑'):setActiveMode(mode)} accountName={platform.user?.displayName || platform.user?.name} creditBalance={creditBalance} onNewDocument={createCadDocument} onOpenPdm={openPdmVersion} onOpenCommunity={openCommunityResource} onSaved={value => saveEditedModel(value, editingTarget)} showToast={showToast} onCreate={() => showToast(editingTarget ? '修改后的实体已保存到来源文件' : '模型已生成并保存')} /></RetainedWorkspace>
+          <RetainedWorkspace key={`photo:${accountKey}`} active={!suspended && activeMode === '照片建模'}><PhotoModelingWorkspace busy={isGenerating || isAccepting} onPrepare={(files,text) => attachDrawingToConversation(files,text)} /></RetainedWorkspace>
           {activeMode === '案例与教程' && <MechanicalCaseGallery onNavigate={setActiveMode} onOpenCase={item=>{setEditingTarget(null);setActiveCase(item);setActiveMode('特征编辑')}} />}
-          <RetainedWorkspace key={`engineering:${accountKey}`} active={!suspended && Boolean(engineeringTabs[activeMode])}><EngineeringWorkspace accountKey={accountKey} active={!suspended && Boolean(engineeringTabs[activeMode])} initialTab={engineeringTab} token={platform.token} model={model} generation={generation} fileId={activeFile?.id} showToast={showToast} /></RetainedWorkspace>
-          <RetainedWorkspace key={`native:${accountKey}`} active={!suspended && activeMode === '原生二维'}><NativeDrawingWorkspace accountKey={accountKey} active={!suspended && activeMode === '原生二维'} token={platform.token} showToast={showToast} onBack={()=>setActiveMode('首页')} onLogin={()=>setActiveMode('账号')} creditBalance={creditBalance} /></RetainedWorkspace>
-          <RetainedWorkspace key={`delivery:${accountKey}`} active={!suspended && activeMode === '交付中心'}><DeliveryWorkspace accountKey={accountKey} active={!suspended && activeMode === '交付中心'} token={platform.token} showToast={showToast} /></RetainedWorkspace>
+          <RetainedWorkspace key={`engineering:${accountKey}`} active={!suspended && Boolean(engineeringTabs[activeMode])}><EngineeringWorkspace accountKey={accountKey} active={!suspended && Boolean(engineeringTabs[activeMode])} initialTab={engineeringTab} onLogin={()=>requestLogin('工程设计')} token={platform.token} model={model} generation={generation} fileId={activeFile?.id} showToast={showToast} /></RetainedWorkspace>
+          <RetainedWorkspace key={`native:${accountKey}`} active={!suspended && activeMode === '原生二维'}><NativeDrawingWorkspace accountKey={accountKey} active={!suspended && activeMode === '原生二维'} token={platform.token} showToast={showToast} onBack={()=>setActiveMode('首页')} onLogin={()=>requestLogin('原生二维')} creditBalance={creditBalance} /></RetainedWorkspace>
+          <RetainedWorkspace key={`delivery:${accountKey}`} active={!suspended && activeMode === '交付中心'}><DeliveryWorkspace onLogin={()=>requestLogin('交付中心')} onNavigate={setActiveMode} accountKey={accountKey} active={!suspended && activeMode === '交付中心'} token={platform.token} showToast={showToast} /></RetainedWorkspace>
           {activeMode === '项目管理' && <ProjectFilesWorkspace store={workspaceStore} storageError={storageError} onSelectProject={selectLocalProject} onCreateProject={createProject} onRenameProject={renameLocalProject} onCreateFile={createFile} onRenameFile={renameLocalFile} onOpenFile={openProjectFile} onDownloadFile={downloadProjectFile} onSaveVersion={saveVersionForFile} onRestoreVersion={restoreVersion} onUpdateDocument={updateDocument} onDuplicateFile={duplicateLocalFile} onDeleteFile={deleteLocalFile} onDeleteProject={deleteLocalProject} onRestoreTrash={restoreLocalTrash} onExportBackup={exportBackup} onImportBackup={importBackup} />}
           {activeMode === '设置' && <SettingsWorkspace settings={settings} onChange={setSettings} onExportBackup={exportBackup} backupImport={<BackupImportButton onImport={importBackup} className="secondary-button" />} />}
           {activeMode === '帮助与反馈' && <HelpWorkspace onNavigate={setActiveMode} onDiagnostics={exportDiagnostics} />}
