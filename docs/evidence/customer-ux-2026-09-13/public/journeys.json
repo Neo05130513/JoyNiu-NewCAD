@@ -1,0 +1,17 @@
+{
+  "checks": {
+    "loginReturnsTo2D": true,
+    "createClosesMenu": true,
+    "dismissMenu": true,
+    "homeProtectsDraft": true,
+    "homeReturns": true,
+    "home3DMobile": true,
+    "projectDocumentVersion": true,
+    "renameDeleteRestore": true,
+    "download": true,
+    "httpRefreshRequiresRelogin": true,
+    "refreshPersisted": true,
+    "accountNoOverflow": true
+  },
+  "errors": []
+}
