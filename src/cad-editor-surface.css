@@ -13,8 +13,6 @@
 .cad-editor input[type=checkbox] {min-height:0;width:14px;height:14px;accent-color:var(--ce-blue)}
 .ce-header {height:38px;min-height:38px;display:flex;align-items:center;gap:10px;padding:0 10px;border-bottom:1px solid var(--ce-line);background:#fff}
 .ce-header .ce-brand {display:flex;align-items:center;gap:5px;padding:0;color:#3379e9}
-.ce-brand strong {font-size:17px;font-weight:750;letter-spacing:-.7px;white-space:nowrap}
-.ce-brand strong span {margin-left:2px;color:#283341}
 .ce-document-name {font-weight:650;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ce-header .ce-back {border:1px solid var(--ce-line);font-size:11px;color:#626976;padding:3px 8px}
 .ce-header-spacer,.ce-tab-spacer {flex:1}

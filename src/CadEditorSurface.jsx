@@ -11,6 +11,7 @@ import './cad-editor-entities.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import CadModelViewport from './CadModelViewport.jsx'
 import CadEditorIcon from './CadEditorIcons.jsx'
+import JoyNiuBrand from './JoyNiuBrand.jsx'
 import {validateSketchContours} from './featureSketchModel.js'
 import FeatureSketchEditor from './FeatureSketchEditor.jsx'
 import { FeatureEditor, ParameterEditor } from './CadFeatureFields.jsx'
@@ -238,7 +239,7 @@ export default function CadEditorSurface({draft,record,token,scope,active=true,b
   const selectSurface=surface=>{if(!available||!base.current)return;onPick(base.geometry.faces.filter(face=>surface.faceIds.includes(face.id)).map(face=>({kind:'face',id:face.id,selector:face.selector})),null)}
   const editSurface=()=>{const source=draft.plan.features.find(feature=>feature.id===base.geometry?.sourceFeatureId);if(available&&source?.op.startsWith('surface_'))editFeature(source.id)}
   return <section className={`cad-editor ${sketch?'ce-is-sketch':''} ${treeOpen?'':'ce-tree-collapsed'}`} aria-label="三维零件编辑器">
-    <header className="ce-header"><button className="ce-brand" aria-label="返回云管理界面" onClick={()=>navigate(onBack)}><CadEditorIcon name="cube" size={23}/><strong>JoyNiu<span> CAD</span></strong></button><span className="ce-document-name">{editorName}</span><button className="ce-back" onClick={()=>navigate(onBack)}>〈 返回云管理界面</button><div className="ce-header-spacer"/><span className="ce-credit">✦ {creditBalance??'—'}</span><button className="ce-account" title={accountName||'当前账号'} onClick={()=>navigate(()=>onNavigate?.('账号'))}>{(accountName||'J').slice(0,1)}</button><button className="ce-checkin" disabled={locked} onClick={()=>navigate(async()=>{if(dirty){const saved=await onSave(true);if(!saved)return}onBack?.()})}>退出编辑</button><button onClick={()=>showPanel(panel==='settings'?'':'settings')}>⚙ 设置</button></header>
+    <header className="ce-header"><button className="ce-brand" aria-label="返回云管理界面" onClick={()=>navigate(onBack)}><JoyNiuBrand editor/></button><span className="ce-document-name">{editorName}</span><button className="ce-back" onClick={()=>navigate(onBack)}>〈 返回云管理界面</button><div className="ce-header-spacer"/><span className="ce-credit">✦ {creditBalance??'—'}</span><button className="ce-account" title={accountName||'当前账号'} onClick={()=>navigate(()=>onNavigate?.('账号'))}>{(accountName||'J').slice(0,1)}</button><button className="ce-checkin" disabled={locked} onClick={()=>navigate(async()=>{if(dirty){const saved=await onSave(true);if(!saved)return}onBack?.()})}>退出编辑</button><button onClick={()=>showPanel(panel==='settings'?'':'settings')}>⚙ 设置</button></header>
     <div className="ce-ribbon" role="toolbar" aria-label={sketch?'草图操作':'模型编辑工具'}>
       {!sketch&&<div className="ce-history"><button disabled={!available||!canUndo} onClick={onUndo}><CadEditorIcon name="undo" size={17}/>撤销</button><button disabled={!available||!canRedo} onClick={onRedo}><CadEditorIcon name="redo" size={17}/>重做</button></div>}
       {sketch?<><Tool icon="sketch" label="完成草图" disabled={locked} onClick={completeSketch}/><button className="ce-cancel-sketch" disabled={locked} onClick={cancel}>取消</button><div className="ce-sketch-toolbar-host" ref={setSketchToolbarHost}/></>:<>

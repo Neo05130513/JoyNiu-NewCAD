@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import JoyNiuBrand from './JoyNiuBrand.jsx'
 
 const primaryItems = [
   { mode: '首页', title: '创模 AI', icon: 'spark', aliases: ['3D 建模', '图纸核对'] },
@@ -104,7 +105,7 @@ export default function StudioNavigation({ activeMode, context, projectName, fil
   return <>
     {menuOpen && <button type="button" className="studio-backdrop" aria-label="关闭导航菜单" tabIndex={-1} onClick={closeMenu}/>}
     <aside id={sidebarId} ref={sidebar} className={`studio-sidebar${menuOpen ? ' is-open' : ''}`} aria-label="工作台导航" role={mobile && menuOpen ? 'dialog' : undefined} aria-modal={mobile && menuOpen ? true : undefined} inert={mobile && !menuOpen ? true : undefined}>
-      <div className="studio-brand-row"><button type="button" className="studio-brand" title="JoyNiu CAD 首页" aria-label="JoyNiu CAD 首页" onClick={() => navigate('首页')}><span className="studio-brand-mark"><StudioIcon name="cube"/></span><span className="studio-label">JoyNiu CAD</span></button><button type="button" className="studio-icon-button studio-mobile-close" aria-label="关闭侧栏" onClick={closeMenu}><StudioIcon name="close"/></button></div>
+      <div className="studio-brand-row"><button type="button" className="studio-brand" title="JoyNiu CAD 首页" aria-label="JoyNiu CAD 首页" onClick={() => navigate('首页')}><JoyNiuBrand compact={compact}/></button><button type="button" className="studio-icon-button studio-mobile-close" aria-label="关闭侧栏" onClick={closeMenu}><StudioIcon name="close"/></button></div>
       <div className="studio-sidebar-scroll">
         <button type="button" className="studio-new-project" title="新建项目" onClick={() => action(onNewProject)}><StudioIcon name="plus"/><span className="studio-label">新建项目</span></button>
         <nav className="studio-primary-nav" aria-label="主要功能">{primaryItems.map(item => navButton(item))}</nav>

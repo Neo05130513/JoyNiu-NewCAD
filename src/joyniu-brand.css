@@ -1,0 +1,14 @@
+/* Original multicolor identity from currentcad-theme.css (f6fadb2). */
+.joyniu-brand {display:inline-flex;align-items:center;gap:10px;white-space:nowrap}
+.joyniu-brand__mark {position:relative;display:grid;place-items:center;flex:0 0 37px;width:37px;height:37px;overflow:hidden;border-radius:9px;color:#fff;background:linear-gradient(135deg,#4a75ff 0%,#21b4ff 58%,#a87cff 100%);box-shadow:0 8px 18px rgba(47,124,255,.23);transform:skewX(-7deg)}
+.joyniu-brand__mark::before {content:'';position:absolute;inset:7px 8px;border:3px solid rgba(255,255,255,.92);border-left-width:6px;border-radius:4px}
+.joyniu-brand__mark i {position:absolute;right:-7px;bottom:-10px;width:28px;height:28px;border:5px solid rgba(255,255,255,.42);border-radius:8px}
+.joyniu-brand .joyniu-brand__copy {display:block;text-align:left}
+.joyniu-brand .joyniu-brand__copy strong {display:block;color:#26344b;font-size:17px;font-style:italic;font-weight:700;letter-spacing:-.6px;line-height:1.25}
+.joyniu-brand .joyniu-brand__copy em {color:#345fd9;font-style:normal;font-weight:800}
+.joyniu-brand .joyniu-brand__tagline {display:block;margin-top:1px;color:#8b95a7;font-family:inherit;font-size:7px;font-style:normal;font-weight:600;letter-spacing:1.2px;line-height:1.4}
+.joyniu-brand--editor {gap:8px}
+.joyniu-brand--editor .joyniu-brand__mark {width:28px;height:28px;flex-basis:28px;border-radius:7px;box-shadow:0 3px 9px rgba(47,124,255,.18)}
+.joyniu-brand--editor .joyniu-brand__mark::before {inset:5px 6px;border-width:2px;border-left-width:4px;border-radius:3px}
+.joyniu-brand--editor .joyniu-brand__mark i {right:-5px;bottom:-7px;width:21px;height:21px;border-width:4px;border-radius:6px}
+@media(max-width:600px){.joyniu-brand--editor .joyniu-brand__copy strong{font-size:14px}.joyniu-brand--editor{gap:6px}.joyniu-brand--editor .joyniu-brand__mark{width:25px;height:25px;flex-basis:25px}}
